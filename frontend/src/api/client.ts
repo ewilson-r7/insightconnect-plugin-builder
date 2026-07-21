@@ -120,3 +120,19 @@ export async function confirmExport(
   );
   return parseOrThrow<ExportOutcome>(response);
 }
+
+/**
+ * Fetch an existing session's current state (for restoring on page reload).
+ * GET /api/session/{sessionId}
+ */
+export async function getSession(
+  sessionId: string,
+  passphrase?: string | null,
+  baseUrl = "",
+): Promise<SessionState> {
+  const response = await fetch(
+    `${baseUrl}/api/session/${encodeURIComponent(sessionId)}`,
+    { method: "GET", headers: headers(passphrase) },
+  );
+  return parseOrThrow<SessionState>(response);
+}

@@ -98,6 +98,23 @@ h1, h2, h3, h4, .r7-heading {
   color: var(--r7-platinum);
 }
 
+.app-header__back {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.app-header__back:hover {
+  border-color: var(--r7-flame-orange);
+  color: var(--r7-white);
+}
+
 /* ==========================================================================
    App Layout
    ========================================================================== */
