@@ -1,15 +1,45 @@
+/* ==========================================================================
+   Rapid7 InsightConnect Plugin Builder — Brand Design System
+   ==========================================================================
+   Color palette, typography, and component styling per Rapid7 Brand Hub.
+   ========================================================================== */
+
 :root {
-  --bg: #0f1420;
-  --panel: #171d2b;
-  --panel-alt: #1f2637;
-  --border: #2a3346;
-  --text: #e6e9ef;
-  --muted: #9aa4b8;
-  --accent: #4c8bf5;
+  /* Primary brand palette */
+  --r7-flame-orange: #E85E26;
+  --r7-black: #000000;
+  --r7-blue: #3258E2;
+  --r7-white: #FFFFFF;
+
+  /* Supporting greys (light to dark) */
+  --r7-gainsboro: #EDF1F2;
+  --r7-platinum: #DEE5E8;
+  --r7-silver-sand: #CFD9DE;
+  --r7-pastel-grey: #B1C1C9;
+  --r7-roman-silver: #82939C;
+  --r7-cadet: #5D6D75;
+  --r7-charcoal: #3B454A;
+  --r7-slate: #242B2E;
+
+  /* Semantic tokens mapped from brand palette */
+  --bg: var(--r7-slate);
+  --panel: var(--r7-charcoal);
+  --panel-alt: var(--r7-cadet);
+  --border: #4a5960;
+  --text: var(--r7-gainsboro);
+  --muted: var(--r7-pastel-grey);
+  --accent: var(--r7-flame-orange);
+  --accent-hover: #d04f1e;
+  --accent-secondary: var(--r7-blue);
   --error: #f2665e;
   --clarify: #f5b74c;
   --ok: #4ccf8f;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Typography */
+  --r7-font-heading: "Good Pro", "Bebas Neue", sans-serif;
+  --r7-font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  font-family: var(--r7-font-body);
 }
 
 * {
@@ -20,7 +50,57 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  font-family: var(--r7-font-body);
 }
+
+h1, h2, h3, h4, .r7-heading {
+  font-family: var(--r7-font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ==========================================================================
+   App Header (brand lock-up)
+   ========================================================================== */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  background: var(--r7-slate);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.app-header__lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-header__logo {
+  display: block;
+  height: 28px;
+  width: auto;
+}
+
+.app-header__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--r7-cadet);
+}
+
+.app-header__product {
+  font-family: var(--r7-font-heading);
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  color: var(--r7-platinum);
+}
+
+/* ==========================================================================
+   App Layout
+   ========================================================================== */
 
 .app {
   height: 100vh;
@@ -33,7 +113,6 @@ body {
   justify-content: center;
 }
 
-/* Workspace: chat panel beside the visualization + export controls (task 24.1) */
 .app--workspace {
   overflow: hidden;
 }
@@ -72,7 +151,10 @@ body {
   overflow-y: auto;
 }
 
-/* Entry mode */
+/* ==========================================================================
+   Entry Mode Selector
+   ========================================================================== */
+
 .entry-mode {
   max-width: 620px;
   width: 100%;
@@ -80,8 +162,12 @@ body {
 }
 
 .entry-mode__title {
-  font-size: 1.4rem;
+  font-family: var(--r7-font-heading);
+  text-transform: uppercase;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
   margin-bottom: 20px;
+  color: var(--r7-white);
 }
 
 .entry-mode__options {
@@ -97,17 +183,19 @@ body {
   text-align: left;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 16px;
   color: var(--text);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .entry-mode__option:hover:not(:disabled) {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .entry-mode__option:disabled {
@@ -117,6 +205,7 @@ body {
 
 .entry-mode__option-title {
   font-weight: 600;
+  color: var(--r7-white);
 }
 
 .entry-mode__option-description {
@@ -134,7 +223,10 @@ body {
   margin-top: 16px;
 }
 
-/* Conversation */
+/* ==========================================================================
+   Conversation Panel
+   ========================================================================== */
+
 .conversation {
   display: flex;
   flex-direction: column;
@@ -163,6 +255,7 @@ body {
 
 .conversation__mode {
   font-weight: 600;
+  color: var(--r7-white);
 }
 
 .conversation__plugin {
@@ -187,6 +280,7 @@ body {
   border-color: var(--error);
 }
 
+/* Token counter */
 .token-counter {
   display: flex;
   flex-direction: column;
@@ -203,6 +297,7 @@ body {
 .token-counter__value {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  color: var(--r7-white);
 }
 
 /* Private-source notice */
@@ -228,7 +323,10 @@ body {
   color: var(--text);
 }
 
-/* Message list */
+/* ==========================================================================
+   Message List
+   ========================================================================== */
+
 .message-list {
   list-style: none;
   margin: 0;
@@ -248,22 +346,23 @@ body {
 
 .message {
   max-width: 80%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  line-height: 1.4;
+  padding: 10px 14px;
+  border-radius: 8px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .message--user {
   align-self: flex-end;
-  background: var(--accent);
-  color: #fff;
+  background: var(--r7-flame-orange);
+  color: var(--r7-white);
 }
 
 .message--system {
   align-self: flex-start;
-  background: var(--panel-alt);
+  background: var(--panel);
+  border: 1px solid var(--border);
 }
 
 .message--error {
@@ -286,7 +385,10 @@ body {
   margin-bottom: 4px;
 }
 
-/* Message input */
+/* ==========================================================================
+   Message Input
+   ========================================================================== */
+
 .message-input {
   border-top: 1px solid var(--border);
   padding: 12px 16px;
@@ -305,15 +407,17 @@ body {
   resize: vertical;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--text);
   padding: 10px;
   font: inherit;
+  transition: border-color 0.15s ease;
 }
 
 .message-input__field:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .message-input__footer {
@@ -333,13 +437,18 @@ body {
 }
 
 .message-input__submit {
-  background: var(--accent);
-  color: #fff;
+  background: var(--r7-flame-orange);
+  color: var(--r7-white);
   border: none;
-  border-radius: 8px;
-  padding: 8px 18px;
+  border-radius: 6px;
+  padding: 8px 20px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.message-input__submit:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .message-input__submit:disabled {
@@ -347,7 +456,9 @@ body {
   cursor: default;
 }
 
-/* -- Visualization_View (task 23.2) --------------------------------------- */
+/* ==========================================================================
+   Visualization View (React Flow graph)
+   ========================================================================== */
 
 .visualization-view {
   display: grid;
@@ -380,22 +491,23 @@ body {
   padding: 24px;
   color: var(--muted);
   text-align: center;
+  font-size: 0.95rem;
 }
 
-/* Component node */
+/* Component nodes */
 .component-node {
   width: 260px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 12px;
   color: var(--text);
   overflow: hidden;
 }
 
 .component-node--selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(76, 139, 245, 0.35);
+  border-color: var(--r7-flame-orange);
+  box-shadow: 0 0 0 2px rgba(232, 94, 38, 0.35);
 }
 
 .component-node__header {
@@ -403,7 +515,7 @@ body {
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  background: var(--panel-alt);
+  background: var(--r7-slate);
   border-bottom: 1px solid var(--border);
 }
 
@@ -414,21 +526,23 @@ body {
   color: var(--muted);
 }
 
+/* Node kind accent colors — mapped to brand palette */
 .component-node--connection .component-node__kind {
-  color: #b48af5;
+  color: var(--r7-pastel-grey);
 }
 .component-node--action .component-node__kind {
-  color: var(--accent);
+  color: var(--r7-flame-orange);
 }
 .component-node--trigger .component-node__kind {
-  color: var(--ok);
+  color: var(--r7-blue);
 }
 .component-node--task .component-node__kind {
-  color: var(--clarify);
+  color: var(--r7-roman-silver);
 }
 
 .component-node__name {
   font-weight: 600;
+  color: var(--r7-white);
 }
 
 .node-schema {
@@ -468,7 +582,7 @@ body {
 
 .node-field__type {
   color: var(--muted);
-  font-family: ui-monospace, monospace;
+  font-family: ui-monospace, "SF Mono", monospace;
 }
 
 .node-field__badge {
@@ -477,14 +591,17 @@ body {
 }
 
 .node-field__badge--required {
-  color: var(--error);
+  color: var(--r7-flame-orange);
 }
 
 .node-field__badge--optional {
   color: var(--muted);
 }
 
-/* Detail panel */
+/* ==========================================================================
+   Detail Panel
+   ========================================================================== */
+
 .detail-panel {
   grid-row: 2;
   border-left: 1px solid var(--border);
@@ -493,15 +610,42 @@ body {
   background: var(--panel);
 }
 
+.detail-panel__header {
+  margin-bottom: 12px;
+}
+
 .detail-panel__kind {
   text-transform: uppercase;
   font-size: 11px;
   color: var(--muted);
+  letter-spacing: 0.04em;
 }
 
 .detail-panel__title {
-  margin: 2px 0 8px;
-  font-size: 18px;
+  margin: 2px 0 0;
+  font-family: var(--r7-font-heading);
+  text-transform: uppercase;
+  font-size: 1.1rem;
+  color: var(--r7-white);
+}
+
+.detail-panel__description {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.detail-panel__section {
+  margin-top: 16px;
+}
+
+.detail-panel__section h3 {
+  font-family: var(--r7-font-heading);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 8px;
 }
 
 .detail-table {
@@ -518,7 +662,99 @@ body {
   vertical-align: top;
 }
 
+.detail-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .detail-panel__empty {
   color: var(--muted);
   font-style: italic;
+}
+
+/* ==========================================================================
+   Export Controls
+   ========================================================================== */
+
+.export-panel {
+  font-size: 0.9rem;
+}
+
+.export-panel__trigger {
+  background: var(--r7-flame-orange);
+  color: var(--r7-white);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.export-panel__trigger:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.export-panel__trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.export-panel__confirm-btn {
+  background: var(--r7-flame-orange);
+  color: var(--r7-white);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.export-panel__confirm-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.export-panel__confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.export-panel__cancel-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.export-panel__cancel-btn:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+/* ==========================================================================
+   Scrollbar (subtle, on-brand)
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--r7-cadet);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--r7-roman-silver);
 }

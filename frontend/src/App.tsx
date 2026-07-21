@@ -13,6 +13,7 @@
 import { useState } from "react";
 
 import { ApiError, startSession } from "./api/client";
+import { AppHeader } from "./components/AppHeader";
 import { ConversationInterface } from "./components/ConversationInterface";
 import { EntryModeSelector } from "./components/EntryModeSelector";
 import { ExportPanel } from "./components/ExportControls";
@@ -57,8 +58,9 @@ export function App() {
 
   if (session) {
     return (
-      <main className="app app--workspace">
-        <div className="workspace">
+      <div className="app app--workspace">
+        <AppHeader />
+        <main className="workspace">
           <ConversationInterface
             session={session}
             passphrase={passphrase}
@@ -72,22 +74,25 @@ export function App() {
               <ExportPanel sessionId={session.session_id} passphrase={passphrase} />
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     );
   }
 
   return (
-    <main className="app app--start">
-      <EntryModeSelector
-        // create_new starts an empty draft immediately (Req 24.2). iterate and
-        // enhance require a target (a saved plugin / a production source) that a
-        // dedicated browser supplies; started without one the backend returns a
-        // clear error surfaced here (Req 24.3, 24.4).
-        onSelect={(mode) => start(mode)}
-        busy={busy}
-        error={error}
-      />
-    </main>
+    <div className="app app--start">
+      <AppHeader />
+      <main>
+        <EntryModeSelector
+          // create_new starts an empty draft immediately (Req 24.2). iterate and
+          // enhance require a target (a saved plugin / a production source) that a
+          // dedicated browser supplies; started without one the backend returns a
+          // clear error surfaced here (Req 24.3, 24.4).
+          onSelect={(mode) => start(mode)}
+          busy={busy}
+          error={error}
+        />
+      </main>
+    </div>
   );
 }
