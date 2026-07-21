@@ -1,0 +1,453 @@
+"""Unit/integration tests for the Orchestrator sequencing (task 20.3).
+
+These exercise the orchestrator's ordering guarantees with **mocked** external
+collaborators (the ``insight-plugin`` CLI, the Kiro CLI/LLM, the Docker code
+pipeline, and the tenant API) while using the real pure-logic and persistence
+components (draft, vendor suffix, version bump, spec validator, build engine,
+registry, audit log, project folder). Coroutines are driven with ``asyncio.run``
+so no async test plugin is required, matching the repo's conventions.
+
+Covered:
+
+* entry-mode routing and provenance (Req 24);
+* the input gate and clarification handling (Req 1.1, 1.5, 1.6, 22.5);
+* atomic turn application, not-found rejection, and structural-refresh
+  triggering (Req 1.7, 15.4, 22.3);
+* the deterministic/LLM reasoning boundary (Req 3.2, 3.3);
+* export preview: vendor suffix, version bump, first-version diff, gating, and
+  the registry-read-failure abort (Req 12, 13, 16, 7, 8);
+* confirm/decline and build/export recording, including failed-tenant retention
+  (Req 9, 10, 16.5, 16.6, 18, 19.2).
+"""
+
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+from icplugin_builder.core.cost_controller import CostController
+from icplugin_builder.core.draft import ComponentKind
+from icplugin_builder.core.generation import ArtifactKind, GenerationRequest
+from icplugin_builder.core.spec_model import Component, PluginSpec, SemVer
+from icplugin_builder.integrations.code_validator import (
+    PipelineReport,
+    StageName,
+    StageResult,
+    StageStatus,
+)
+from icplugin_builder.integrations.export_manager import ExportManager, TenantCredentials, UploadResponse
+from icplugin_builder.integrations.insight_plugin_cli import ProjectTree
+from icplugin_builder.integrations.refresh_coordinator import RefreshCoordinator
+from icplugin_builder.orchestrator import (
+    AddComponent,
+    EntryModeError,
+    ModifyComponent,
+    Orchestrator,
+    RegistryAccessError,
+    TurnPlan,
+    TurnStatus,
+)
+from icplugin_builder.orchestrator.session import ExportStatus
+from icplugin_builder.persistence.audit_log import AuditLog
+from icplugin_builder.persistence.project_folder import (
+    ENTRY_MODE_CREATE_NEW,
+    ENTRY_MODE_ENHANCE_PRODUCTION,
+    ENTRY_MODE_ITERATE_CUSTOM,
+    ProjectFolder,
+    ProvenanceRecord,
+)
+from icplugin_builder.persistence.registry import PluginRegistry, RegistryError
+
+# --- fakes -----------------------------------------------------------------
+
+
+class FakeCli:
+    """Records ``insight-plugin refresh`` calls; returns a fixed tree."""
+
+    def __init__(self):
+        self.refresh_calls = []
+
+    async def refresh(self, project_dir):
+        self.refresh_calls.append(project_dir)
+        return ProjectTree(root=project_dir, files={"help.md": "# help\n"})
+
+
+class FakeCodeValidator:
+    """A code validator whose pipeline always passes (or fails on request)."""
+
+    def __init__(self, *, passing=True):
+        self.passing = passing
+        self.calls = []
+
+    async def run_pipeline(self, project, *, image_tag=None):
+        self.calls.append(project)
+        status = StageStatus.PASSED if self.passing else StageStatus.FAILED
+        stages = tuple(
+            StageResult(
+                name=name,
+                status=status,
+                returncode=0 if self.passing else 1,
+                stdout="",
+                stderr="" if self.passing else "boom",
+                duration_seconds=0.0,
+                message="" if self.passing else f"{name} failed",
+            )
+            for name in StageName.ORDER
+        )
+        return PipelineReport(project_dir=project, stages=stages, docker_available=True)
+
+
+class FakeLLM:
+    """A stand-in LLM_Generator returning canned content and token counts."""
+
+    def __init__(self, content="def run(self, params={}):\n    return {}\n", tokens=42):
+        self.content = content
+        self.tokens = tokens
+        self.calls = []
+
+    async def generate(self, kind, scoped_context, *, session_id, user_id):
+        self.calls.append((kind, dict(scoped_context), session_id, user_id))
+        return SimpleNamespace(kind=kind, content=self.content, tokens=self.tokens, session_total=self.tokens)
+
+
+class FakeUploader:
+    """A tenant uploader returning a fixed HTTP status."""
+
+    def __init__(self, status_code=200):
+        self.status_code = status_code
+        self.calls = 0
+
+    def upload(self, *, region_base_url, api_key, artifact_path, timeout):
+        self.calls += 1
+        return UploadResponse(status_code=self.status_code, body="ok")
+
+
+class RaisingRegistry:
+    """A registry whose reads fail, to exercise the Req 12.8 abort path."""
+
+    def exports(self, plugin_name):
+        raise RegistryError("registry unreadable")
+
+
+# --- helpers ---------------------------------------------------------------
+
+
+def make_spec(name="my_plugin", vendor="acme", version=SemVer(1, 0, 0), **overrides):
+    base = dict(
+        name=name,
+        title="My Plugin",
+        description="A test plugin.",
+        version=version,
+        vendor=vendor,
+    )
+    base.update(overrides)
+    return PluginSpec(**base)
+
+
+def make_action(title="Do a thing"):
+    return Component(title=title, description="Does a thing", input={}, output={})
+
+
+def create_project(projects_root, name="my_plugin", vendor="acme"):
+    spec = make_spec(name=name, vendor=vendor)
+    folder = ProjectFolder.create(projects_root, name, spec)
+    folder.save(spec, generated_files={"README.md": "hello\n"})
+    return folder
+
+
+# --- entry modes (Req 24) --------------------------------------------------
+
+
+class TestEntryModes:
+    def test_net_new_starts_empty_with_provenance(self):
+        orch = Orchestrator()
+        state = orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
+        assert state.entry_mode == ENTRY_MODE_CREATE_NEW
+        assert state.provenance.entry_mode == ENTRY_MODE_CREATE_NEW
+        assert state.draft.spec.actions == {}
+        assert state.project_folder is None
+
+    def test_iterate_loads_project_folder(self, tmp_path):
+        create_project(tmp_path, name="loaded_plugin")
+        orch = Orchestrator(projects_root=tmp_path)
+        state = orch.start_session(
+            ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="loaded_plugin"
+        )
+        assert state.entry_mode == ENTRY_MODE_ITERATE_CUSTOM
+        assert state.provenance.entry_mode == ENTRY_MODE_ITERATE_CUSTOM
+        assert state.draft.spec.name == "loaded_plugin"
+        assert "README.md" in state.draft.code_files
+        assert state.last_exported_spec is not None
+
+    def test_iterate_missing_plugin_is_entry_mode_error(self, tmp_path):
+        orch = Orchestrator(projects_root=tmp_path)
+        with pytest.raises(EntryModeError):
+            orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="nope")
+
+    def test_enhance_imports_via_source_provider(self, tmp_path):
+        folder = create_project(tmp_path, name="prod_plugin", vendor="rapid7_custom")
+        provenance = ProvenanceRecord(
+            entry_mode=ENTRY_MODE_ENHANCE_PRODUCTION,
+            created_utc="2024-01-01T00:00:00+00:00",
+            source_repo="rapid7/insightconnect-plugins",
+            original_plugin_name="prod_plugin",
+            original_version="1.0.0",
+        )
+        import_result = SimpleNamespace(
+            project_folder=folder,
+            provenance=provenance,
+            private_source_notice="restricted",
+        )
+        source_provider = SimpleNamespace(import_plugin=lambda source, name: import_result)
+
+        orch = Orchestrator(projects_root=tmp_path, source_provider=source_provider)
+        state = orch.start_session(
+            ENTRY_MODE_ENHANCE_PRODUCTION,
+            session_id="s1",
+            user_id="u1",
+            source="rapid7",
+            production_plugin="prod_plugin",
+        )
+        assert state.entry_mode == ENTRY_MODE_ENHANCE_PRODUCTION
+        assert state.provenance.entry_mode == ENTRY_MODE_ENHANCE_PRODUCTION
+        assert state.private_source_notice == "restricted"
+
+    def test_unknown_entry_mode_rejected(self):
+        orch = Orchestrator()
+        with pytest.raises(EntryModeError):
+            orch.start_session("bogus", session_id="s1", user_id="u1")
+
+
+# --- input gate & clarification (Req 1, 22.5) ------------------------------
+
+
+class TestInputGate:
+    def _orch(self):
+        orch = Orchestrator()
+        orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
+        return orch
+
+    def test_blank_input_rejected_leaves_draft_unchanged(self):
+        orch = self._orch()
+        before = orch.session("s1").spec
+        result = asyncio.run(orch.submit_message("s1", "   "))
+        assert result.status is TurnStatus.REJECTED_INPUT
+        assert orch.session("s1").spec is before
+
+    def test_over_long_input_rejected(self):
+        orch = self._orch()
+        result = asyncio.run(orch.submit_message("s1", "x" * 10_001))
+        assert result.status is TurnStatus.REJECTED_INPUT
+
+    def test_no_plan_requests_clarification(self):
+        orch = self._orch()
+        result = asyncio.run(orch.submit_message("s1", "do something vague", plan=None))
+        assert result.status is TurnStatus.CLARIFICATION
+        assert result.needs_clarification
+
+    def test_ambiguous_plan_requests_clarification_unchanged(self):
+        orch = self._orch()
+        before = orch.session("s1").spec
+        plan = TurnPlan(clarification="Which action did you mean?")
+        result = asyncio.run(orch.submit_message("s1", "change the thing", plan=plan))
+        assert result.status is TurnStatus.CLARIFICATION
+        assert "Which action" in result.message
+        assert orch.session("s1").spec is before
+
+
+# --- turn application (Req 1.7, 3, 15, 22.3) -------------------------------
+
+
+class TestApplyTurn:
+    def test_add_component_applied(self):
+        orch = Orchestrator()
+        orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
+        plan = TurnPlan(operations=[AddComponent(ComponentKind.ACTION, "list_things", make_action())])
+        result = asyncio.run(orch.apply_turn("s1", plan))
+        assert result.status is TurnStatus.APPLIED
+        assert "list_things" in orch.session("s1").spec.actions
+
+    def test_modify_missing_component_rejected_unchanged(self):
+        orch = Orchestrator()
+        orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
+        before = orch.session("s1").spec
+        plan = TurnPlan(operations=[ModifyComponent(ComponentKind.ACTION, "ghost", make_action())])
+        result = asyncio.run(orch.apply_turn("s1", plan))
+        assert result.status is TurnStatus.NOT_FOUND
+        assert "ghost" in result.message
+        assert orch.session("s1").spec is before
+
+    def test_structural_change_triggers_refresh(self, tmp_path):
+        create_project(tmp_path, name="loaded_plugin")
+        cli = FakeCli()
+        orch = Orchestrator(projects_root=tmp_path, refresh_coordinator=RefreshCoordinator(cli=cli))
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="loaded_plugin")
+        plan = TurnPlan(operations=[AddComponent(ComponentKind.ACTION, "new_action", make_action())])
+        result = asyncio.run(orch.apply_turn("s1", plan))
+        assert result.status is TurnStatus.APPLIED
+        assert result.refreshed is True
+        assert cli.refresh_calls  # refresh ran
+
+    def test_metadata_only_change_does_not_refresh(self, tmp_path):
+        create_project(tmp_path, name="loaded_plugin")
+        cli = FakeCli()
+        orch = Orchestrator(projects_root=tmp_path, refresh_coordinator=RefreshCoordinator(cli=cli))
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="loaded_plugin")
+        from icplugin_builder.orchestrator import UpdateMetadata
+
+        plan = TurnPlan(operations=[UpdateMetadata(title="Renamed")])
+        result = asyncio.run(orch.apply_turn("s1", plan))
+        assert result.status is TurnStatus.APPLIED
+        assert result.refreshed is False
+        assert cli.refresh_calls == []
+
+
+class TestReasoningBoundary:
+    def test_template_match_renders_without_llm(self):
+        llm = FakeLLM()
+        orch = Orchestrator(cost_controller=CostController(), llm_generator=llm)
+        orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
+        request = GenerationRequest(
+            kind=ArtifactKind.FIELD_DESCRIPTION,
+            pattern="api_key",
+            parameters={"service_name": "Acme"},
+        )
+        result = asyncio.run(orch.apply_turn("s1", TurnPlan(reasoning=[request])))
+        assert result.status is TurnStatus.APPLIED
+        assert len(result.generated) == 1
+        assert result.generated[0].from_llm is False
+        assert "Acme" in result.generated[0].content
+        assert llm.calls == []  # zero LLM calls for a template match (Req 3.3)
+
+    def test_unmatched_reasoning_dispatches_to_llm(self):
+        llm = FakeLLM(content="generated logic", tokens=17)
+        orch = Orchestrator(cost_controller=CostController(), llm_generator=llm)
+        orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
+        request = GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, pattern=None, parameters={"action": "x"})
+        result = asyncio.run(orch.apply_turn("s1", TurnPlan(reasoning=[request])))
+        assert result.generated[0].from_llm is True
+        assert result.generated[0].content == "generated logic"
+        assert result.generated[0].tokens == 17
+        assert len(llm.calls) == 1
+
+
+# --- export preview (Req 12, 13, 16, 7, 8) ---------------------------------
+
+
+class TestPrepareExport:
+    def _export_orch(self, tmp_path, *, passing=True, registry=None):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        registry = registry if registry is not None else PluginRegistry(str(tmp_path / "registry.db"))
+        orch = Orchestrator(
+            projects_root=tmp_path,
+            code_validator=FakeCodeValidator(passing=passing),
+            registry=registry,
+            audit_log=AuditLog(tmp_path / "audit.log"),
+        )
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        return orch, registry
+
+    def test_preview_applies_vendor_suffix_and_first_version_diff(self, tmp_path):
+        orch, _ = self._export_orch(tmp_path)
+        plan = asyncio.run(orch.prepare_export("s1"))
+        assert plan.spec_preview.vendor.endswith("_custom")
+        assert plan.permitted is True
+        assert plan.diff.first_version is True  # no prior export -> all additions (Req 16.4)
+        assert plan.version_display == ""  # unchanged with no prior export (Req 12.7)
+        # session draft is not mutated by preview (Req 16.6 support).
+        assert orch.session("s1").spec.vendor == "acme"
+
+    def test_prior_export_triggers_patch_bump(self, tmp_path):
+        orch, registry = self._export_orch(tmp_path)
+        registry.record_creation("my_plugin", "acme_custom", "1.0.0")
+        registry.record_export("my_plugin", "1.0.0", target="local")
+        # A non-breaking addition to the loaded draft.
+        asyncio.run(
+            orch.apply_turn("s1", TurnPlan(operations=[AddComponent(ComponentKind.ACTION, "extra", make_action())]))
+        )
+        plan = asyncio.run(orch.prepare_export("s1"))
+        assert str(plan.spec_preview.version) == "1.0.1"
+        assert plan.version_display == "1.0.0 -> 1.0.1"
+
+    def test_invalid_spec_blocks_export(self, tmp_path):
+        orch, _ = self._export_orch(tmp_path)
+        # Break the spec name so schema validation fails.
+        from icplugin_builder.orchestrator import UpdateMetadata
+
+        asyncio.run(orch.apply_turn("s1", TurnPlan(operations=[UpdateMetadata(name="Invalid Name!")])))
+        plan = asyncio.run(orch.prepare_export("s1"))
+        assert plan.permitted is False
+
+    def test_registry_read_failure_aborts(self, tmp_path):
+        orch, _ = self._export_orch(tmp_path, registry=RaisingRegistry())
+        with pytest.raises(RegistryAccessError):
+            asyncio.run(orch.prepare_export("s1"))
+
+
+# --- confirm & export (Req 9, 10, 16.5, 16.6, 18, 19.2) --------------------
+
+
+class TestConfirmExport:
+    def _orch(self, tmp_path, *, uploader=None):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        registry = PluginRegistry(str(tmp_path / "registry.db"))
+        export_manager = ExportManager(uploader=uploader) if uploader is not None else ExportManager()
+        orch = Orchestrator(
+            projects_root=tmp_path,
+            code_validator=FakeCodeValidator(passing=True),
+            registry=registry,
+            audit_log=AuditLog(tmp_path / "audit.log"),
+            export_manager=export_manager,
+        )
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        return orch, registry
+
+    def test_decline_aborts_without_artifact(self, tmp_path):
+        orch, registry = self._orch(tmp_path)
+        before = orch.session("s1").spec
+        plan = asyncio.run(orch.prepare_export("s1"))
+        outcome = asyncio.run(orch.confirm_export("s1", plan, confirmed=False))
+        assert outcome.status is ExportStatus.ABORTED
+        assert orch.session("s1").spec is before  # unchanged (Req 16.6)
+        assert registry.exports("my_plugin") == []
+
+    def test_blocked_gate_refuses_build(self, tmp_path):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        registry = PluginRegistry(str(tmp_path / "registry.db"))
+        # No code validator -> pipeline not run -> gate blocks.
+        orch = Orchestrator(projects_root=tmp_path, registry=registry, audit_log=AuditLog(tmp_path / "audit.log"))
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        plan = asyncio.run(orch.prepare_export("s1"))
+        outcome = asyncio.run(orch.confirm_export("s1", plan, confirmed=True))
+        assert outcome.status is ExportStatus.BLOCKED
+
+    def test_local_export_success_records_registry_and_audit(self, tmp_path):
+        orch, registry = self._orch(tmp_path)
+        out_dir = tmp_path / "out"
+        plan = asyncio.run(orch.prepare_export("s1"))
+        outcome = asyncio.run(orch.confirm_export("s1", plan, confirmed=True, target="local", output_dir=out_dir))
+        assert outcome.status is ExportStatus.SUCCEEDED
+        assert outcome.artifact_path is not None
+        exports = registry.exports("my_plugin")
+        assert len(exports) == 1 and exports[0].target == "local"
+        # The draft vendor is now suffixed (applied at build time, Req 13.3).
+        assert orch.session("s1").spec.vendor.endswith("_custom")
+
+    def test_tenant_export_success(self, tmp_path):
+        orch, registry = self._orch(tmp_path, uploader=FakeUploader(status_code=200))
+        creds = TenantCredentials(region_base_url="https://us.example.com", api_key="secret-key")
+        plan = asyncio.run(orch.prepare_export("s1"))
+        outcome = asyncio.run(orch.confirm_export("s1", plan, confirmed=True, target="tenant", credentials=creds))
+        assert outcome.status is ExportStatus.SUCCEEDED
+        exports = registry.exports("my_plugin")
+        assert exports and exports[0].target == "https://us.example.com"
+
+    def test_tenant_export_failure_retains_artifact_registry_unchanged(self, tmp_path):
+        orch, registry = self._orch(tmp_path, uploader=FakeUploader(status_code=500))
+        creds = TenantCredentials(region_base_url="https://us.example.com", api_key="secret-key")
+        plan = asyncio.run(orch.prepare_export("s1"))
+        outcome = asyncio.run(orch.confirm_export("s1", plan, confirmed=True, target="tenant", credentials=creds))
+        assert outcome.status is ExportStatus.EXPORT_FAILED
+        assert outcome.retained_artifact_path is not None  # retained >=24h (Req 19.2)
+        assert outcome.failure is not None and outcome.failure.is_export_failure
+        assert registry.exports("my_plugin") == []  # registry unchanged (Req 10.3)

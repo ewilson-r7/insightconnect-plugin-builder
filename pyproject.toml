@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icplugin-builder"
+version = "0.1.0"
+description = "Locally-run tool that turns natural-language descriptions into Rapid7 InsightConnect plugins via the insight-plugin CLI and the Kiro CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Rapid7 InsightConnect" }]
+keywords = ["insightconnect", "rapid7", "plugin", "builder", "kiro"]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "ruamel.yaml>=0.18",
+    "jsonschema>=4.21",
+    "cryptography>=42.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+    "black>=24.0",
+    "flake8>=7.0",
+    "httpx>=0.27",
+]
+
+[project.urls]
+Homepage = "https://github.com/rapid7/insightconnect-plugin-builder"
+Repository = "https://github.com/rapid7/insightconnect-plugin-builder"
+
+[project.scripts]
+icplugin-builder = "icplugin_builder.api.app:main"
+
+[tool.setuptools.packages.find]
+include = ["icplugin_builder*"]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
