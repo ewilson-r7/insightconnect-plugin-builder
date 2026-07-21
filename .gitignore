@@ -1,0 +1,34 @@
+# ---- Python (3.11 backend) ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+*.egg-info/
+.eggs/
+
+# ---- Node / TypeScript / React (frontend) ----
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# ---- Environment & secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+
+# NOTE: do not ignore the .kiro/ directory — specs are versioned with the code.

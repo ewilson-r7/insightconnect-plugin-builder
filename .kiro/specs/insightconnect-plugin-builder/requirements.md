@@ -1,0 +1,263 @@
+# Requirements Document
+## Introduction
+The InsightConnect Plugin Builder is a locally-run, self-hosted single-user tool that lets a user create new Rapid7 InsightConnect plugins, or extend existing ones, by describing what they want in natural language. The user downloads the tool and runs it on their own machine or self-managed infrastructure; there is no hosted backend service and no multi-user account model. The tool combines Large Language Model (LLM) generation, using the Kiro CLI as its primary LLM provider, with deterministic scaffolding produced by the insight-plugin CLI to generate a valid InsightConnect plugin while minimizing token consumption. The user interacts through a conversational interface, sees a live graphical representation of the plugin structure (connection, actions, triggers, tasks, and their input/output schemas), and receives auto-generated plugin documentation. Once satisfied, the user builds the plugin into a `.plg` artifact and/or pushes it directly into an InsightConnect tenant through the InsightConnect API using credentials they provide. The tool offers three entry modes: create a net-new plugin, iterate on a previously created custom plugin, or enhance an existing production plugin sourced read-only from the public (rapid7/insightconnect-plugins) or private (komand-plugins) repositories.
+The tool stores each plugin's work in a per-plugin project folder on the local filesystem for historical lookup and reuse, records each export, and automatically increments the plugin version when a prior export exists so that tenant imports do not fail on version collisions. Every generated plugin has the string `_custom` appended to its vendor field so custom plugins are visually distinct from production Rapid7 plugins. Because the tool runs locally for a single operator, it includes an optional local access guard, credential protection, validation guardrails, cost controls, and audit logging.
+## Glossary
+- **Plugin_Builder**: The overall application described by this document, responsible for orchestrating conversation, generation, validation, build, and export.
+- **Conversation_Interface**: The user-facing chat/UI component through which a user describes the desired plugin and iterates on it.
+- **Generation_Engine**: The component that produces plugin artifacts using a combination of LLM calls and deterministic template scaffolding.
+- **Deterministic_Scaffolder**: The subcomponent of the Generation_Engine that produces plugin structure (directories, boilerplate, spec skeleton) via the Insight_Plugin_CLI without LLM calls.
+- **LLM_Generator**: The subcomponent of the Generation_Engine that produces content requiring natural-language reasoning (action logic, descriptions, help text) using the Kiro_CLI.
+- **Spec_Validator**: The component that validates a `plugin.spec.yaml` against the InsightConnect plugin specification schema.
+- **Code_Validator**: The component that lints, builds, validates, and runs tests against generated plugin code before export.
+- **Build_Engine**: The component that packages a validated plugin into a `.plg` artifact.
+- **Export_Manager**: The component that writes `.plg` files locally and/or uploads plugins to an InsightConnect tenant via the InsightConnect API.
+- **Plugin_Registry**: The persistent store that records each created plugin, its metadata, its version, and its export history.
+- **Credential_Store**: The component that securely stores and retrieves user-supplied secrets, including InsightConnect API keys.
+- **Visualization_View**: The graphical representation of a plugin's structure and features shown to the user.
+- **Documentation_Generator**: The component that produces plugin documentation (`help.md`) from the plugin definition.
+- **Access_Controller**: The optional local access guard that, when enabled, requires a configured passphrase before a single operator can use the running instance of the Plugin_Builder.
+- **Audit_Log**: The append-only record of security-relevant and export-relevant actions.
+- **Cost_Controller**: The component that tracks and limits LLM token usage and request rate.
+- **Plugin_Spec**: A `plugin.spec.yaml` file defining an InsightConnect plugin's name, title, description, version, vendor, connection, actions, triggers, tasks, and custom types.
+- **PLG_Artifact**: A gzipped tarball (`.plg` file) containing a built InsightConnect plugin, suitable for import into a tenant.
+- **InsightConnect_Tenant**: A customer's InsightConnect environment, addressed by a region base URL and authenticated with an API key.
+- **Custom_Vendor_Suffix**: The literal string `_custom` appended to a plugin's vendor field.
+- **Semantic_Version**: A version string in `MAJOR.MINOR.PATCH` format as required by the InsightConnect plugin specification.
+- **Project_Folder**: A per-plugin directory on the local filesystem where the tool stores the plugin's spec, generated code, build artifacts, documentation, and version/export history for later lookup and reuse.
+- **Kiro_CLI**: The command-line interface used as the primary LLM provider for content generation.
+- **Insight_Plugin_CLI**: The insight-plugin command-line tool used to deterministically scaffold, refresh, and validate plugins.
+- **Managed_Tooling**: The set of external tools and versions the Plugin_Builder depends on, comprising the Insight_Plugin_CLI, the InsightConnect SDK version pinned in each Plugin_Spec, the Kiro_CLI, and the plugin specification schema version.
+- **Update_Manager**: The component that records installed Managed_Tooling versions, checks upstream sources for newer versions, notifies the user, and applies user-approved updates.
+- **Production_Plugin_Source**: A configured local clone or remote location of the rapid7/insightconnect-plugins (public) or komand-plugins (private) repository from which an existing production plugin can be read.
+- **Production_Plugin_Fork**: A read-only copy of a production plugin imported into a new Project_Folder as a custom plugin, carrying provenance metadata (source repository, original plugin name, original version) and a `_custom` vendor.
+- **Provenance_Record**: Metadata recording the origin of a plugin draft: its entry mode (net-new, custom-iteration, or production-fork) and, for a fork, the source repository, original name, and original version.
+## Requirements
+### Requirement 1: Conversational Plugin Definition
+**User Story:** As a plugin author, I want to describe the plugin I need in natural language through a chat interface, so that I can build a plugin without writing code or YAML by hand.
+#### Acceptance Criteria
+1. THE Conversation_Interface SHALL accept natural-language text input from the user with a length between 1 and 10,000 characters.
+2. WHEN the user submits a plugin description containing at least 1 non-whitespace character, THE Plugin_Builder SHALL produce, within 30 seconds, a draft Plugin_Spec derived from that description that conforms to the plugin.spec.yaml structure.
+3. WHEN the user submits a follow-up message that requests a change to the current draft, THE Plugin_Builder SHALL update the draft to incorporate the requested change while preserving all prior draft content not affected by the requested change.
+4. WHEN a draft generation step completes, THE Conversation_Interface SHALL display the current state of the plugin draft.
+5. IF the user's message cannot be interpreted as an actionable plugin instruction, THEN THE Conversation_Interface SHALL request clarification identifying the specific ambiguity.
+6. IF the submitted input is empty or contains only whitespace, THEN THE Conversation_Interface SHALL reject the submission and display a message indicating that a non-empty description is required, and SHALL leave the current draft unchanged.
+7. IF the Plugin_Builder fails to produce a draft Plugin_Spec from a valid description, THEN THE Conversation_Interface SHALL display an error message indicating that draft generation failed, and SHALL preserve the previous draft state without partial modification.
+### Requirement 2: Extend Existing Plugins
+**User Story:** As a plugin author, I want to import an existing plugin and modify it, so that I can extend plugins I have already built or obtained.
+#### Acceptance Criteria
+1. WHEN the user provides an existing PLG_Artifact that is a valid gzipped tarball containing a Plugin_Spec, THE Plugin_Builder SHALL extract its Plugin_Spec and code into an editable draft.
+2. WHEN the user provides an existing Plugin_Spec file that conforms to the InsightConnect plugin specification schema, THE Plugin_Builder SHALL load it into an editable draft.
+3. WHEN the user requests an addition to an imported plugin, THE Plugin_Builder SHALL add the requested action, trigger, task, or connection field, and SHALL retain all existing actions, triggers, tasks, connection fields, and code unchanged.
+4. IF an imported artifact does not conform to the InsightConnect plugin specification schema, THEN THE Plugin_Builder SHALL report each nonconformity identifying the affected specification location and the violated schema rule, and SHALL NOT create an editable draft.
+5. IF a provided PLG_Artifact cannot be extracted because it is not a valid gzipped tarball or does not contain a Plugin_Spec, THEN THE Plugin_Builder SHALL report an error indicating the extraction failure and SHALL NOT create an editable draft.
+6. IF a provided Plugin_Spec file cannot be parsed, THEN THE Plugin_Builder SHALL report an error indicating the parse failure and SHALL NOT create an editable draft.
+### Requirement 3: Hybrid Generation with Token Efficiency
+**User Story:** As an operator who pays for LLM usage, I want the tool to use deterministic scaffolding wherever possible and reserve LLM calls for tasks that require reasoning, so that plugin generation consumes as few tokens as possible.
+#### Acceptance Criteria
+1. THE Generation_Engine SHALL produce the plugin directory structure, spec skeleton, and boilerplate files using the Deterministic_Scaffolder, which invokes the Insight_Plugin_CLI create and refresh operations, and SHALL make zero LLM_Generator invocations while producing these artifacts.
+2. THE Generation_Engine SHALL restrict LLM_Generator invocations, which are served by the Kiro_CLI, to the following content types only: action logic, field descriptions, and help text, and SHALL NOT invoke the LLM_Generator for any artifact classified as directory structure, spec skeleton, or boilerplate.
+3. WHERE a requested artifact matches an available template, THE Generation_Engine SHALL produce the artifact from that template and SHALL make zero LLM_Generator invocations for that artifact.
+4. IF a requested artifact requires natural-language reasoning and no matching template is available, THEN THE Generation_Engine SHALL invoke the LLM_Generator, via the Kiro_CLI, to produce that artifact.
+5. WHEN an LLM_Generator invocation completes, THE Cost_Controller SHALL record the token count consumed by that invocation and SHALL add it to the cumulative session token total.
+6. WHEN a generation step completes, THE Plugin_Builder SHALL display to the user the cumulative session token total as a non-negative integer reflecting the sum of all recorded LLM_Generator invocations in the current session.
+7. IF an LLM_Generator invocation fails, THEN THE Generation_Engine SHALL halt the affected generation step, display an error message indicating that the invocation failed, and exclude the failed invocation from the cumulative session token total.
+### Requirement 4: LLM Usage Cost Controls
+**User Story:** As an operator, I want configurable limits on LLM usage, so that a single session cannot incur unbounded cost.
+#### Acceptance Criteria
+1. THE Cost_Controller SHALL enforce a configurable maximum token budget per session, accepting integer values from 1 to 10,000,000 tokens.
+2. IF a session's cumulative token usage reaches its configured token budget, THEN THE Cost_Controller SHALL block all subsequent LLM_Generator invocations for that session AND retain the session's already-completed output without persisting any partial result from the blocked invocation.
+3. WHEN the Cost_Controller blocks an LLM_Generator invocation because the session token budget is reached, THE Cost_Controller SHALL return a message to the user indicating that the session token budget has been reached.
+4. THE Cost_Controller SHALL enforce a configurable maximum number of LLM_Generator requests per minute per user, accepting integer values from 1 to 1,000 requests per minute.
+5. IF a user's LLM_Generator request rate exceeds the configured maximum requests per minute, THEN THE Cost_Controller SHALL reject the additional request without invoking the LLM_Generator AND return a message to the user indicating that the request rate limit has been exceeded and the number of seconds after which further requests will be accepted.
+6. WHERE no token budget is configured for a session, THE Cost_Controller SHALL apply a default maximum token budget of 100,000 tokens per session.
+### Requirement 5: Visual Representation of the Plugin
+**User Story:** As a plugin author, I want to see a graphical representation of my plugin's structure, so that I can understand and verify its components at a glance.
+#### Acceptance Criteria
+1. THE Visualization_View SHALL display the connection, actions, triggers, and tasks defined in the current plugin draft.
+2. THE Visualization_View SHALL display the input schema and output schema for each action and trigger.
+3. WHEN the plugin draft changes, THE Visualization_View SHALL update within 2 seconds to reflect the current plugin draft.
+4. WHEN the user selects a single component in the Visualization_View, THE Visualization_View SHALL display that selected component's detailed fields.
+5. IF the plugin draft contains no connection, no actions, no triggers, and no tasks, THEN THE Visualization_View SHALL display an empty-state indication rather than a blank view.
+6. IF the plugin draft cannot be parsed, THEN THE Visualization_View SHALL display an error indication identifying the parse failure and SHALL retain the most recently rendered valid visualization.
+### Requirement 6: Automated Documentation Generation
+**User Story:** As a plugin author, I want documentation generated automatically from my plugin definition, so that the plugin ships with usage instructions without manual writing.
+#### Acceptance Criteria
+1. WHEN a plugin draft is generated or updated, THE Documentation_Generator SHALL produce a `help.md` document containing a distinct section for the plugin's connection, actions, triggers, and tasks.
+2. WHEN the `help.md` document is produced, THE Documentation_Generator SHALL include, for each action and trigger, every input and output field with its name, data type, and required-or-optional status.
+3. WHEN the `help.md` document is produced, THE Documentation_Generator SHALL include the plugin's title, description, version, and vendor.
+4. IF a plugin component category (connection, actions, triggers, or tasks) contains zero defined items, THEN THE Documentation_Generator SHALL render that section's heading followed by a placeholder statement indicating that no items are defined, rather than omitting the section.
+5. IF `help.md` generation fails because required plugin definition data (title, description, version, or vendor) is absent, THEN THE Documentation_Generator SHALL abort generation, leave any existing `help.md` unchanged, and return an error indicating which required field is missing.
+### Requirement 7: Plugin Specification Validation
+**User Story:** As a plugin author, I want the generated spec validated against the InsightConnect specification, so that my plugin will not be rejected on import.
+#### Acceptance Criteria
+1. WHEN a Plugin_Spec is generated or updated, THE Spec_Validator SHALL validate the Plugin_Spec against the InsightConnect plugin specification schema and complete validation within 5 seconds.
+2. IF the Plugin_Spec fails schema validation, THEN THE Spec_Validator SHALL report every detected validation error to the user, each error including the field location (the path to the offending field within the Plugin_Spec) and a description of the violation.
+3. WHEN the Spec_Validator validates the Plugin_Spec, THE Spec_Validator SHALL verify that the version field conforms to the Semantic_Version format (MAJOR.MINOR.PATCH).
+4. IF the Plugin_Spec has failed schema validation, THEN THE Plugin_Builder SHALL prevent export of the plugin and indicate to the user that export is blocked because validation errors remain unresolved.
+5. IF the version field does not conform to the Semantic_Version format, THEN THE Spec_Validator SHALL report a validation error identifying the version field as invalid and stating the expected MAJOR.MINOR.PATCH format.
+6. WHEN the Plugin_Spec passes schema validation with no errors, THE Spec_Validator SHALL indicate validation success to the user.
+### Requirement 8: Generated Code Validation
+**User Story:** As a plugin author, I want generated code validated, linted, built, and tested before export, so that I do not ship a plugin that fails to run.
+#### Acceptance Criteria
+1. WHEN the user requests a build, THE Code_Validator SHALL run static lint checks against the generated plugin code and record a pass or fail result for the lint stage.
+2. WHEN the user requests a build, THE Code_Validator SHALL build the plugin container image defined by the plugin's Dockerfile and record a pass or fail result for the build stage.
+3. WHEN the user requests a build, THE Code_Validator SHALL run the plugin's unit tests and record a pass or fail result for the test stage.
+4. WHEN the user requests a build, THE Code_Validator SHALL run the Insight_Plugin_CLI validate operation against the plugin and record a pass or fail result for the validate stage.
+5. IF the lint stage, build stage, test stage, or validate stage records a fail result, THEN THE Code_Validator SHALL report failure details to the user identifying which stage failed and the associated error output.
+6. IF the lint stage, build stage, test stage, or validate stage records a fail result, THEN THE Plugin_Builder SHALL prevent export of the plugin and retain the generated code unchanged.
+7. WHEN the lint stage, build stage, test stage, and validate stage all record a pass result, THE Plugin_Builder SHALL permit export of the plugin.
+8. IF the build stage or test stage runs longer than 600 seconds, THEN THE Code_Validator SHALL abort that stage, record a fail result for it, and report a timeout failure to the user.
+### Requirement 9: Build to PLG Artifact
+**User Story:** As a plugin author, I want to build my plugin into a `.plg` file, so that I can import it into an InsightConnect tenant offline.
+#### Acceptance Criteria
+1. WHEN the user requests a local build and validation has passed, THE Build_Engine SHALL package the plugin into a single PLG_Artifact.
+2. THE Build_Engine SHALL produce a PLG_Artifact that is a gzipped tarball containing the built plugin.
+3. WHEN a PLG_Artifact is produced, THE Export_Manager SHALL place the PLG_Artifact in a user-accessible output location and display the location of the PLG_Artifact to the user.
+4. IF the user requests a local build and validation has not passed, THEN THE Build_Engine SHALL not produce a PLG_Artifact and SHALL present an error indicating that validation failed.
+5. IF packaging fails after validation has passed, THEN THE Build_Engine SHALL not produce a partial PLG_Artifact, SHALL leave the source plugin files unchanged, and SHALL present an error indicating that packaging failed.
+### Requirement 10: Export to InsightConnect Tenant
+**User Story:** As a plugin author, I want to push my plugin directly into my InsightConnect tenant, so that I can use it without a manual upload step.
+#### Acceptance Criteria
+1. WHERE the user provides InsightConnect_Tenant credentials, WHEN the user initiates a plugin export, THE Export_Manager SHALL upload the built plugin to the InsightConnect_Tenant using the InsightConnect API.
+2. WHEN an upload to the InsightConnect_Tenant completes with a success response from the InsightConnect API, THE Export_Manager SHALL record the export in the Plugin_Registry, including the target tenant region base URL and the upload timestamp.
+3. IF an upload to the InsightConnect_Tenant fails or does not receive a success response within 60 seconds, THEN THE Export_Manager SHALL report an error to the user indicating the upload failed, SHALL record the failed attempt in the Audit_Log, and SHALL leave the Plugin_Registry unchanged.
+4. IF the user initiates an export without a non-empty tenant region base URL or without a non-empty API key, THEN THE Export_Manager SHALL reject the export before contacting the InsightConnect API and SHALL report an error indicating which credential is missing.
+5. IF no built plugin artifact exists for the current plugin, THEN THE Export_Manager SHALL reject the export and SHALL report an error indicating that the plugin must be built before export.
+### Requirement 11: Plugin Registry and Export History
+**User Story:** As a plugin author, I want the tool to remember what it has created and exported, so that I can track my plugins and their versions over time.
+#### Acceptance Criteria
+1. WHEN a plugin is created, THE Plugin_Registry SHALL record the plugin name, vendor, version, and creation timestamp expressed in UTC.
+2. WHEN a plugin is exported, THE Plugin_Registry SHALL record the exported version, the export target, and the export timestamp expressed in UTC.
+3. THE Plugin_Registry SHALL retain the recorded plugin metadata and export history for each plugin across application restarts.
+4. WHEN the user requests the history of a plugin that has one or more recorded entries, THE Plugin_Registry SHALL return the recorded versions and export events for that plugin ordered from most recent to oldest timestamp.
+5. IF the user requests the history of a plugin that has no recorded entries, THEN THE Plugin_Registry SHALL return an empty history result without reporting an error.
+6. IF recording plugin creation or export data fails, THEN THE Plugin_Registry SHALL return an error indication to the user and preserve any previously recorded history unchanged.
+### Requirement 12: Automatic Version Bumping
+**User Story:** As a plugin author, I want the tool to bump the version automatically when I re-export a plugin, choosing a major bump for breaking schema changes and a patch bump otherwise, so that tenant imports do not fail and consumers understand the impact of a change.
+#### Acceptance Criteria
+1. WHEN the user requests an export and the Plugin_Registry contains a prior export of the same plugin, THE Plugin_Builder SHALL compare the current Plugin_Spec against the most recently exported Plugin_Spec to determine whether a breaking schema change exists.
+2. THE Plugin_Builder SHALL classify a change as a breaking schema change IF an existing action's or existing connection's input or output schema has a field removed, a field's type changed, or a previously optional field made required, or an existing action or connection is removed.
+3. IF a breaking schema change exists relative to the most recently exported version, THEN THE Plugin_Builder SHALL increment the MAJOR segment of the Semantic_Version by 1 and reset the MINOR and PATCH segments to 0.
+4. IF no breaking schema change exists and a prior export of the plugin exists at the current Semantic_Version, THEN THE Plugin_Builder SHALL increment the PATCH segment of the Semantic_Version by 1.
+5. WHEN the version is incremented, THE Plugin_Builder SHALL set the resulting Semantic_Version so that it is strictly greater than every previously exported Semantic_Version of that plugin recorded in the Plugin_Registry.
+6. WHEN the version is incremented, THE Plugin_Builder SHALL add a version_history entry describing the change and SHALL display the previous and new Semantic_Version to the user before the build begins.
+7. WHERE no prior export of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL export the plugin at its current Semantic_Version without incrementing.
+8. IF the Plugin_Registry cannot be read to determine prior exported versions, THEN THE Plugin_Builder SHALL abort the export without building and display an error indicating the Plugin_Registry could not be accessed, leaving the Plugin_Spec version unchanged.
+### Requirement 13: Custom Vendor Suffix
+**User Story:** As a plugin author, I want a `_custom` suffix on the vendor field, so that my custom plugins are visually distinct from production Rapid7 plugins.
+#### Acceptance Criteria
+1. WHEN a Plugin_Spec is generated, THE Plugin_Builder SHALL append the Custom_Vendor_Suffix (the literal string "_custom") to the end of the existing vendor field value with no separating characters between the original value and the suffix.
+2. IF a vendor value already ends with the Custom_Vendor_Suffix, evaluated as a case-sensitive exact match of the literal string "_custom", THEN THE Plugin_Builder SHALL leave the vendor value unchanged.
+3. THE Plugin_Builder SHALL apply the Custom_Vendor_Suffix to the vendor field before the build and export steps begin, such that every exported Plugin_Spec's vendor field ends with the Custom_Vendor_Suffix.
+4. IF the vendor field is empty, missing, or null when a Plugin_Spec is generated, THEN THE Plugin_Builder SHALL set the vendor field to the Custom_Vendor_Suffix value and continue processing without failing the build.
+### Requirement 14: Credential and Secret Protection
+**User Story:** As a security-conscious user running the tool locally, I want my InsightConnect API credentials stored encrypted on my machine and reused across sessions, so that I do not re-enter them each time while keeping them protected.
+#### Acceptance Criteria
+1. THE Credential_Store SHALL persist InsightConnect API credentials in encrypted form on the local filesystem, retaining no plaintext copy after the store operation completes.
+2. WHEN the tool restarts, THE Credential_Store SHALL make previously persisted credentials available for reuse without requiring the user to re-enter them.
+3. THE Plugin_Builder SHALL exclude API credentials and all other stored secrets from the Visualization_View, generated documentation, and PLG_Artifacts.
+4. WHEN the Plugin_Builder displays or logs a stored secret, THE Plugin_Builder SHALL replace every character of the secret value with a fixed masking placeholder such that no character of the original secret value is visible.
+5. WHEN the user requests deletion of a stored credential, THE Credential_Store SHALL remove the persisted credential and retain no plaintext or encrypted copy of it.
+6. IF encryption of a credential fails during a store operation, THEN THE Credential_Store SHALL reject the store operation, retain no plaintext or partially stored credential, and return an error indicating the credential could not be stored.
+### Requirement 15: Iterative Refinement Loop
+**User Story:** As a plugin author, I want to refine the plugin over multiple turns of conversation, so that I can reach the result I want incrementally.
+#### Acceptance Criteria
+1. THE Plugin_Builder SHALL retain the current plugin draft, including all previously defined components and their attributes, across conversation turns within the same session.
+2. WHEN the user requests a modification to a component identified by name that exists in the current draft, THE Plugin_Builder SHALL apply the requested change to that component and leave all other components in the draft unchanged.
+3. WHEN the user requests removal of a component identified by name that exists in the current draft, THE Plugin_Builder SHALL remove only that component from the draft and leave all other components unchanged.
+4. IF the user requests a modification or removal of a component whose name does not match any component in the current draft, THEN THE Plugin_Builder SHALL reject the request, return a message indicating that the named component was not found, and leave the draft unchanged.
+### Requirement 16: Preview and Diff Before Export
+**User Story:** As a plugin author, I want to review a preview and a diff of changes before export, so that I can confirm the plugin is correct before it leaves the tool.
+#### Acceptance Criteria
+1. WHEN the user requests an export, THE Plugin_Builder SHALL display a preview of the Plugin_Spec before performing the export.
+2. WHEN the user requests an export, THE Plugin_Builder SHALL display the list of files that will be included in the PLG_Artifact before performing the export.
+3. WHERE a prior version of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL display a diff between the prior version and the current draft that identifies added, removed, and modified files.
+4. WHERE no prior version of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL indicate that the current draft is the first version and SHALL present all files as additions.
+5. THE Plugin_Builder SHALL require explicit user confirmation of the preview before performing an export.
+6. IF the user declines or cancels the confirmation, THEN THE Plugin_Builder SHALL abort the export, produce no PLG_Artifact, and retain the current draft unchanged.
+### Requirement 17: Local Access Protection
+**User Story:** As an operator running the tool on my own infrastructure, I want an optional local access guard, so that I can prevent casual unauthorized use of the running instance without managing multiple user accounts.
+#### Acceptance Criteria
+1. WHERE local access protection is enabled in configuration, WHEN a user attempts to access the Plugin_Builder, THE Access_Controller SHALL require the configured local passphrase before granting access.
+2. IF local access protection is enabled and an incorrect passphrase is provided, THEN THE Access_Controller SHALL deny access and SHALL NOT execute any protected function.
+3. WHERE local access protection is disabled in configuration, THE Plugin_Builder SHALL grant access without prompting for a passphrase.
+4. THE Plugin_Builder SHALL bind its network interface to a configurable address, defaulting to the local loopback interface.
+### Requirement 18: Audit Logging
+**User Story:** As an operator, I want an audit trail of security-relevant and export actions, so that I can review what the tool did and who did it.
+#### Acceptance Criteria
+1. WHEN a user successfully authenticates, THE Audit_Log SHALL record the authentication event with the user identity and a UTC timestamp with at least second-level precision.
+2. WHEN a plugin is built, THE Audit_Log SHALL record the build action, the plugin name, the plugin version, and a UTC timestamp with at least second-level precision.
+3. WHEN credentials are stored or used for an upload, THE Audit_Log SHALL record the event with a UTC timestamp with at least second-level precision and with the secret value masked such that no character of the secret value appears in the recorded entry.
+4. THE Audit_Log SHALL store records in append-only form and SHALL retain each record for a minimum of 90 days.
+5. IF a user authentication attempt fails, THEN THE Audit_Log SHALL record the failed authentication event with the attempted user identity, the failure reason, and a UTC timestamp with at least second-level precision.
+6. WHEN a plugin is exported, THE Audit_Log SHALL record the export action, the plugin name, the plugin version, and a UTC timestamp with at least second-level precision.
+7. IF an attempt is made to alter or delete a previously written Audit_Log record, THEN THE Audit_Log SHALL reject the attempt and SHALL preserve the original record unchanged.
+### Requirement 19: Build and Export Error Handling
+**User Story:** As a plugin author, I want clear handling when a build or import fails, so that I can understand and fix the problem.
+#### Acceptance Criteria
+1. IF a build step fails, THEN THE Plugin_Builder SHALL halt the build and display, within 5 seconds of the failure, the name of the failing step and the complete error output emitted by that step.
+2. IF an export to a tenant fails, THEN THE Plugin_Builder SHALL retain the built PLG_Artifact for at least 24 hours and make it available for the user to retry the export or download the artifact.
+3. WHEN a build failure or an export failure occurs, THE Plugin_Builder SHALL leave the current plugin draft unchanged, retaining all source files and configuration exactly as they were before the build or export was initiated.
+4. IF a build or export fails, THEN THE Plugin_Builder SHALL present a failure indication to the user that distinguishes a build failure from an export failure.
+5. WHERE the error output for a failing build step exceeds 10,000 characters, THE Plugin_Builder SHALL display the first 10,000 characters and provide access to the full error output.
+### Requirement 20: Local Deployment and Configuration
+**User Story:** As a user, I want to download the tool and run it locally or on my own infrastructure, so that I control where it runs and what it can reach.
+#### Acceptance Criteria
+1. THE Plugin_Builder SHALL run as a self-contained application that a user can start on a local machine or self-managed infrastructure without a hosted backend service.
+2. WHEN the Plugin_Builder starts, THE Plugin_Builder SHALL read its LLM provider, token budget, rate-limit, network bind address, and access-protection settings from local configuration.
+3. THE Plugin_Builder SHALL use the Kiro_CLI as its primary LLM provider for content generation.
+4. WHERE tenant API access is unavailable, THE Plugin_Builder SHALL support local build and PLG_Artifact download without requiring an upload to a tenant.
+5. IF the Kiro_CLI is not available or not authenticated at startup, THEN THE Plugin_Builder SHALL report an error indicating the Kiro_CLI could not be used and SHALL identify the remediation step.
+6. IF any required configuration setting is missing or invalid at startup, THEN THE Plugin_Builder SHALL halt startup and emit an error indicating which configuration setting is missing or invalid.
+### Requirement 21: Project-Folder History and Reuse
+**User Story:** As a plugin author, I want each plugin's work saved in its own project folder with history, so that I can look up, reuse, and resume prior builds later.
+#### Acceptance Criteria
+1. WHEN a plugin is created, THE Plugin_Builder SHALL create a Project_Folder for that plugin on the local filesystem.
+2. WHEN a plugin is generated, built, or exported, THE Plugin_Builder SHALL store the current Plugin_Spec, generated code, documentation, and build artifacts in that plugin's Project_Folder.
+3. THE Plugin_Builder SHALL retain, within the Project_Folder, a record of each prior version including its Plugin_Spec and export outcome.
+4. WHEN the user requests the list of previously created plugins, THE Plugin_Builder SHALL return each plugin recorded in a Project_Folder with its name, current version, and last modification timestamp.
+5. WHEN the user selects a previously created plugin, THE Plugin_Builder SHALL load that plugin's most recent Plugin_Spec and code from its Project_Folder into an editable draft.
+6. IF a Project_Folder is missing required content or cannot be read when loading a plugin, THEN THE Plugin_Builder SHALL report the specific missing or unreadable content and SHALL NOT create a partial draft.
+### Requirement 22: Natural-Language Iteration on a Prior Build
+**User Story:** As a plugin author, I want to load a previous build and describe enhancements or bug fixes in natural language, so that I can evolve an existing plugin without starting over.
+#### Acceptance Criteria
+1. WHEN the user loads a previously created plugin and submits a natural-language enhancement request, THE Plugin_Builder SHALL apply the requested addition or change to the loaded draft while preserving all unaffected components.
+2. WHEN the user loads a previously created plugin and submits a natural-language bug-fix request identifying a defect, THE Plugin_Builder SHALL modify the affected code or Plugin_Spec to address the described defect while preserving unaffected components.
+3. WHEN the tool modifies a loaded plugin's Plugin_Spec by adding or changing an action, trigger, task, or connection, THE Plugin_Builder SHALL invoke the Insight_Plugin_CLI refresh operation to regenerate derived scaffolding rather than editing generated files by hand.
+4. WHEN an iteration changes a loaded plugin, THE Plugin_Builder SHALL re-run Spec_Validator and Code_Validator before permitting export.
+5. IF a natural-language iteration request cannot be mapped to a specific component or change, THEN THE Plugin_Builder SHALL request clarification identifying the ambiguity and SHALL leave the loaded draft unchanged.
+### Requirement 23: Tooling Update Management
+**User Story:** As a user, I want to know when newer versions of the tool's dependencies are available and to apply them on demand, so that my plugins are built against current, import-compatible tooling without unexpected changes.
+#### Acceptance Criteria
+1. WHEN the Plugin_Builder starts, THE Update_Manager SHALL record the currently installed version of each Managed_Tooling component.
+2. WHEN a plugin is built, THE Plugin_Builder SHALL store the Insight_Plugin_CLI version and the InsightConnect SDK version used for that build in the plugin's Project_Folder.
+3. WHEN the Plugin_Builder starts and at a configurable interval thereafter, THE Update_Manager SHALL check upstream sources for the latest available version of each Managed_Tooling component without blocking the Conversation_Interface.
+4. THE Update_Manager SHALL cache the result of an update check for a configurable duration and SHALL NOT perform a new upstream check until the cached result expires.
+5. WHERE network access is unavailable or offline mode is enabled in configuration, THE Update_Manager SHALL skip upstream update checks and SHALL continue operating using the installed Managed_Tooling versions.
+6. IF a newer version of any Managed_Tooling component is available, THEN THE Update_Manager SHALL notify the user of the component, the installed version, the available version, and a reference to the version's changelog.
+7. THE Update_Manager SHALL NOT upgrade any Managed_Tooling component without explicit user approval.
+8. WHEN the user approves an update, THE Update_Manager SHALL install the selected version, run a smoke test that validates a known-good sample plugin with the updated tooling, and record the new installed version only if the smoke test passes.
+9. IF the smoke test fails after installing an update, THEN THE Update_Manager SHALL roll back to the previously installed version and report that the update was not applied and why.
+10. WHERE a loaded plugin's pinned InsightConnect SDK version is behind the latest known-good SDK version, THE Plugin_Builder SHALL offer to update the plugin's SDK version during the next refresh, and SHALL leave the pinned version unchanged unless the user approves the update.
+### Requirement 24: Plugin Entry Mode Selection
+**User Story:** As a plugin author, I want to choose at the start whether I am creating a net-new plugin, iterating on a previously created custom plugin, or enhancing an existing production plugin, so that the tool loads the right starting point.
+#### Acceptance Criteria
+1. THE Conversation_Interface SHALL present three entry modes: create a net-new plugin, iterate on a previously created custom plugin, and enhance an existing production plugin.
+2. WHEN the user selects create a net-new plugin, THE Plugin_Builder SHALL begin with an empty draft.
+3. WHEN the user selects iterate on a previously created custom plugin, THE Plugin_Builder SHALL present the list of plugins recorded in Project_Folders for selection and load the chosen plugin into an editable draft.
+4. WHEN the user selects enhance an existing production plugin, THE Plugin_Builder SHALL prompt the user to select a Production_Plugin_Source and a plugin within it.
+5. WHEN a plugin draft is created through any entry mode, THE Plugin_Builder SHALL record a Provenance_Record identifying the entry mode used.
+### Requirement 25: Enhance Existing Production Plugin
+**User Story:** As a plugin author, I want to import a production plugin from the public or private repository and enhance it as a custom plugin, so that I can extend production functionality without altering or colliding with the production plugin.
+#### Acceptance Criteria
+1. THE Plugin_Builder SHALL read production plugins from a user-configured local clone of a Production_Plugin_Source.
+2. WHERE no local clone is configured or the requested plugin is absent locally, THE Plugin_Builder SHALL fetch the plugin from the remote Production_Plugin_Source, using stored git credentials for the private repository.
+3. WHEN the user selects a production plugin, THE Plugin_Builder SHALL copy the plugin into a new Project_Folder and SHALL NOT modify any file in the Production_Plugin_Source.
+4. WHEN a production plugin is imported for enhancement, THE Plugin_Builder SHALL apply the Custom_Vendor_Suffix to the vendor field, retain the original plugin name, and record a Provenance_Record containing the source repository, the original plugin name, and the original version.
+5. WHEN a production plugin is imported for enhancement, THE Plugin_Builder SHALL preserve the original license and attribution references in the plugin's resources.
+6. WHEN a plugin is imported from the private repository, THE Plugin_Builder SHALL display a notice that the source is private and subject to its usage restrictions.
+7. THE Plugin_Builder SHALL import production plugins that use either the current `icon_` package prefix or the legacy `komand_` package prefix.
+8. WHEN the user requests a diff for an enhanced production fork, THE Plugin_Builder SHALL display the differences between the current draft and the original production baseline.
+9. IF a required git credential for the private repository is missing when a remote fetch is attempted, THEN THE Plugin_Builder SHALL reject the fetch and report that the git credential is required.
+10. IF a selected production plugin cannot be read or does not conform to the InsightConnect plugin specification schema, THEN THE Plugin_Builder SHALL report the specific error and SHALL NOT create a partial draft.
