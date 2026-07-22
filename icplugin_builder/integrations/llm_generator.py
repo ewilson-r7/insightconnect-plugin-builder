@@ -168,7 +168,7 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def _clean_cli_output(stdout: str) -> str:
-    """Strip ANSI codes, the Kiro CLI '> ' prefix, and the credits footer.
+    """Strip ANSI codes, the Kiro CLI '> ' prefix, markdown fences, and the credits footer.
 
     Returns the LLM-generated content only, suitable for use as an artifact body.
     """
@@ -184,7 +184,14 @@ def _clean_cli_output(stdout: str) -> str:
             cleaned.append(line[2:])
         else:
             cleaned.append(line)
-    return "\n".join(cleaned).strip()
+    # Remove markdown fence artifacts that leak from the LLM (```python, ```, bare "python")
+    final = []
+    for line in cleaned:
+        stripped = line.strip()
+        if stripped in ("```python", "```", "python"):
+            continue
+        final.append(line)
+    return "\n".join(final).strip()
 
 
 def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
@@ -197,6 +204,14 @@ def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
     connection_fields = context.get("connection_fields", {})
     input_fields = context.get("input_fields", {})
     output_fields = context.get("output_fields", {})
+
+    # API endpoint details (may be populated from OpenAPI spec if available)
+    api_method = context.get("api_method", "")
+    api_path = context.get("api_path", "")
+    api_query_params = context.get("api_query_params", [])
+    api_request_body = context.get("api_request_body", "")
+    api_response_shape = context.get("api_response_shape", "")
+    api_success_status = context.get("api_success_status", 200)
 
     connection_summary = ""
     if connection_fields:
@@ -217,46 +232,76 @@ def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
     if output_fields:
         lines = []
         for name, info in output_fields.items():
-            lines.append(f"  - {name} ({info.get('type', 'string')}): {info.get('description', '')}")
+            req = "required" if info.get("required") else "optional"
+            lines.append(f"  - {name} ({info.get('type', 'string')}, {req}): {info.get('description', '')}")
         output_summary = "\n".join(lines)
 
-    return f"""You are writing Python code for a Rapid7 InsightConnect plugin action.
-Respond with ONLY the Python code body for the run() method. No explanation,
-no markdown fences, no class definition — just the implementation code that goes
-AFTER the input bindings and BEFORE the end of the run() method.
+    api_section = ""
+    if api_path:
+        api_section = "\n## API Endpoint\n\n"
+        api_section += f"HTTP method: {api_method}\n"
+        api_section += f"Full path: https://{{region}}.api.insight.rapid7.com/{api_path.lstrip('/')}\n"
+        api_section += f"Expected success status: {api_success_status}\n"
+        if api_query_params:
+            api_section += f"Query parameters: {', '.join(api_query_params)}\n"
+        if api_request_body:
+            api_section += f"Request body schema:\n{api_request_body}\n"
+        if api_response_shape:
+            api_section += f"Response shape:\n{api_response_shape}\n"
+        if api_success_status == 204:
+            api_section += (
+                "IMPORTANT: 204 means success with NO response body. "
+                "Do NOT call response.json(). Just check status_code.\n"
+            )
 
-## Context
+    prompt_parts = []
+    prompt_parts.append(
+        "You are writing Python code for a Rapid7 InsightConnect plugin action.\n"
+        "Respond with ONLY the Python code body for the run() method. No explanation,\n"
+        "no markdown fences, no class definition, no language identifiers — just raw\n"
+        "Python code that goes AFTER the input bindings and BEFORE the end of the method."
+    )
+    prompt_parts.append(f"\n## Context\n\nPlugin: {plugin_name} — {plugin_desc}")
+    prompt_parts.append(f"Action: {action_name} ({action_title}) — {action_desc}")
+    prompt_parts.append(f"\nConnection fields (available via self.connection):\n{connection_summary or '  (none)'}")
+    if api_section:
+        prompt_parts.append(api_section)
+    prompt_parts.append(
+        f"\nInput parameters (already bound to local variables via params.get(Input.X)):\n"
+        f"{input_summary or '  (none)'}"
+    )
+    prompt_parts.append(
+        f"\nExpected output (return a dict matching these Output constant keys):\n" f"{output_summary or '  (none)'}"
+    )
+    prompt_parts.append("""
+## Mandatory patterns
 
-Plugin: {plugin_name} — {plugin_desc}
-Action: {action_name} ({action_title}) — {action_desc}
+1. Use `requests` for HTTP calls (already imported in the file).
+2. Access connection: self.connection.region, self.connection.org_id, self.connection.api_key.
+3. For credential_token fields (api_key): it is ALREADY a plain string.
+   Access directly as self.connection.api_key. Do NOT call .get("secretKey") or .get("token").
+4. Base URL: f"https://{self.connection.region}.api.insight.rapid7.com"
+5. Service path prefix for this plugin: /insight-velociraptor/v1/orgs/{self.connection.org_id}/
+6. Headers: {"X-Api-Key": self.connection.api_key, "Content-Type": "application/json"}
+7. Error handling: raise PluginException(cause=..., assistance=..., data=response.text)
+   (PluginException is already imported in the file).
+8. For paginated responses, the JSON uses: {"data": [...], "cursor": "...", "size": N}.
+   Parse with .get("data", []) and .get("cursor", "").
+9. Wrap the return dict in clean() (already imported) when any output is optional.
+   This strips None/empty values.
+10. NEVER shadow Python builtins as variable names: avoid os, type, id, list, filter,
+    format, hash, map, range, set. Use os_filter, artifact_type, client_id, etc.
+11. Status code handling: check response.status_code against the expected success code.
+    For 204, do NOT parse JSON — just return the success indicator dict.
+12. All actions in this plugin MUST use the same URL prefix pattern consistently.
+13. Do NOT output any markdown, code fences, or the word 'python' on its own line.
+14. Do NOT include imports, class definition, method signature, or input bindings.
 
-Connection fields (available via self.connection):
-{connection_summary or "  (none)"}
+## Output
 
-Input parameters (already bound to local variables via params.get(Input.X)):
-{input_summary or "  (none)"}
+Raw Python code only. Nothing else.""")
 
-Expected output (return a dict matching these keys):
-{output_summary or "  (none)"}
-
-## Requirements
-
-1. Use the `requests` library for HTTP calls.
-2. Access connection values via: self.connection.region, self.connection.org_id, etc.
-3. Build the base URL from the region: f"https://{{region}}.api.insight.rapid7.com"
-4. Include the API key in headers as: {{"X-Api-Key": self.connection.api_key}}
-5. Handle errors by raising insightconnect_plugin_runtime.exceptions.PluginException
-   with cause, assistance, and data fields.
-6. Return a dict with keys matching the Output constants (e.g. Output.CLIENT, Output.FLOW_ID).
-7. Use proper status code checking on the response.
-8. Do NOT include the method signature, class, imports, or input bindings — ONLY the
-   implementation logic that goes after the END INPUT BINDING comment.
-9. Keep the code clean and production-ready.
-
-## Output format
-
-Respond with ONLY Python code. No explanation. No markdown. Just code.
-"""
+    return "\n".join(prompt_parts) + "\n"
 
 
 def estimate_tokens(text: str) -> int:
