@@ -380,11 +380,17 @@ class Interpreter:
         return None
 
     def _parse_reasoning(self, raw: Any) -> List[GenerationRequest]:
-        """Parse the reasoning array from the LLM response."""
+        """Parse the reasoning array from the LLM response.
+
+        When action_logic requests are present, automatically prepends an
+        api_client request (to generate util/api.py) and a connection_logic
+        request (to generate connection.py) so the full architecture is produced.
+        """
         if not isinstance(raw, list):
             return []
 
         requests: List[GenerationRequest] = []
+        has_action_logic = False
         for item in raw:
             if not isinstance(item, dict):
                 continue
@@ -396,7 +402,21 @@ class Interpreter:
             params = item.get("parameters", {})
             if not isinstance(params, dict):
                 params = {}
+            if kind == ArtifactKind.ACTION_LOGIC:
+                has_action_logic = True
             requests.append(GenerationRequest(kind=kind, parameters=params))
+
+        # When action_logic is requested, prepend api_client + connection_logic
+        # so the pipeline generates util/api.py and connection.py FIRST, then
+        # action bodies that reference self.connection.api_client.
+        if has_action_logic:
+            prefixed: List[GenerationRequest] = [
+                GenerationRequest(kind=ArtifactKind.API_CLIENT, parameters={}),
+                GenerationRequest(kind=ArtifactKind.CONNECTION_LOGIC, parameters={}),
+            ]
+            prefixed.extend(requests)
+            return prefixed
+
         return requests
 
     async def _invoke(self, command: Sequence[str], prompt: str) -> tuple:

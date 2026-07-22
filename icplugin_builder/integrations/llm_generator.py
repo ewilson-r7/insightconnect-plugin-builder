@@ -168,7 +168,7 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def _clean_cli_output(stdout: str) -> str:
-    """Strip ANSI codes, the Kiro CLI '> ' prefix, markdown fences, and the credits footer.
+    """Strip ANSI codes, the Kiro CLI '> ' prefix, markdown fences, monologue, and the credits footer.
 
     Returns the LLM-generated content only, suitable for use as an artifact body.
     """
@@ -185,13 +185,36 @@ def _clean_cli_output(stdout: str) -> str:
         else:
             cleaned.append(line)
     # Remove markdown fence artifacts that leak from the LLM (```python, ```, bare "python")
+    # Remove LLM inner-monologue lines that sometimes leak into output
+    _MONOLOGUE_PREFIXES = ("Wait,", "Let me", "Actually,", "Hmm,", "OK,", "Ok,", "Sure,", "Here", "I'll", "I need")
     final = []
     for line in cleaned:
         stripped = line.strip()
-        if stripped in ("```python", "```", "python"):
+        if stripped in ("```python", "```", "python", "```py"):
+            continue
+        # Skip monologue lines (only at the start before code begins)
+        if not final and any(stripped.startswith(prefix) for prefix in _MONOLOGUE_PREFIXES):
             continue
         final.append(line)
-    return "\n".join(final).strip()
+    # Strip trailing monologue that sometimes appears after code
+    while final and any(final[-1].strip().startswith(prefix) for prefix in _MONOLOGUE_PREFIXES):
+        final.pop()
+
+    result = "\n".join(final).strip()
+
+    # Normalize indentation: if all lines are indented more than expected (e.g. 16 spaces
+    # instead of 0 for standalone code), strip the common leading whitespace.
+    result_lines = result.split("\n")
+    if result_lines:
+        # Find minimum non-empty indent
+        indents = [len(line) - len(line.lstrip()) for line in result_lines if line.strip()]
+        if indents:
+            min_indent = min(indents)
+            if min_indent > 0:
+                result_lines = [line[min_indent:] if len(line) >= min_indent else line for line in result_lines]
+                result = "\n".join(result_lines)
+
+    return result
 
 
 def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
@@ -289,26 +312,204 @@ def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
     prompt_parts.append("""
 ## Mandatory patterns
 
-1. Use `requests` for HTTP calls (already imported in the file).
-2. Access connection: self.connection.region, self.connection.org_id, self.connection.api_key.
-3. For credential_token fields (api_key): it is ALREADY a plain string.
-   Access directly as self.connection.api_key. Do NOT call .get("secretKey") or .get("token").
-4. Base URL: f"https://{self.connection.region}.api.insight.rapid7.com"
-5. Service path prefix for this plugin: /insight-velociraptor/v1/orgs/{self.connection.org_id}/
-6. Headers: {"X-Api-Key": self.connection.api_key, "Content-Type": "application/json"}
-7. Error handling: raise PluginException(cause=..., assistance=..., data=response.text)
-   (PluginException is already imported in the file).
-8. For paginated responses, the JSON uses: {"data": [...], "cursor": "...", "size": N}.
-   Parse with .get("data", []) and .get("cursor", "").
-9. Wrap the return dict in clean() (already imported) when any output is optional.
-   This strips None/empty values.
-10. NEVER shadow Python builtins as variable names: avoid os, type, id, list, filter,
-    format, hash, map, range, set. Use os_filter, artifact_type, client_id, etc.
-11. Status code handling: check response.status_code against the expected success code.
-    For 204, do NOT parse JSON — just return the success indicator dict.
-12. All actions in this plugin MUST use the same URL prefix pattern consistently.
-13. Do NOT output any markdown, code fences, or the word 'python' on its own line.
-14. Do NOT include imports, class definition, method signature, or input bindings.
+1. Access the API EXCLUSIVELY through self.connection.api_client.
+   Call domain-specific methods like:
+     self.connection.api_client.get_client(client_id)
+     self.connection.api_client.search_clients(params)
+   NEVER import requests in action files.
+   NEVER construct URLs or set headers in action files.
+
+2. The API client (util/api.py) already handles:
+   - Base URL construction from the region
+   - Auth headers (X-Api-Key)
+   - Status code to PluginException mapping
+   - JSON parsing with error handling
+   - Network error (Timeout, ConnectionError) handling
+
+3. For actions with optional output fields, wrap the return in clean():
+     from insightconnect_plugin_runtime.helper import clean
+     return clean({Output.ITEMS: items, Output.NEXT_CURSOR: next_cursor})
+
+4. Return a dict with keys matching the Output constants.
+
+5. Use self.logger for any logging — never print().
+
+6. Raise PluginException ONLY for action-level validation errors.
+   HTTP errors are handled by the client.
+
+7. Do NOT include the method signature, class, imports, or input bindings —
+   ONLY the implementation logic after the END INPUT BINDING comment.
+
+8. NEVER shadow Python builtins (os, type, id, list, filter, format, hash, map, range, set).
+
+9. Keep actions MINIMAL: 5-15 lines. Build a params dict from inputs,
+   call self.connection.api_client.method_name(args), return the result.
+
+10. For paginated endpoints, the client returns {"data": [...], "cursor": "..."}.
+    Access with response.get("data", []) and response.get("cursor", "").
+
+11. Do NOT output any markdown, code fences, or the word 'python' on its own line.
+
+## Output
+
+Raw Python code only. Nothing else.""")
+
+    return "\n".join(prompt_parts) + "\n"
+
+
+def _build_api_client_prompt(context: Mapping[str, Any]) -> str:
+    """Build a prompt for generating the util/api.py API client class."""
+    plugin_name = context.get("plugin_name", "unknown")
+    plugin_desc = context.get("plugin_description", "")
+    connection_fields = context.get("connection_fields", {})
+    actions_summary = context.get("actions_summary", [])
+    api_endpoints = context.get("api_endpoints", {})
+
+    conn_lines = ""
+    if connection_fields:
+        lines = []
+        for name, info in connection_fields.items():
+            lines.append(f"  - {name} ({info.get('type', 'string')}): {info.get('description', '')}")
+        conn_lines = "\n".join(lines)
+
+    actions_lines = ""
+    if actions_summary:
+        actions_lines = "\n".join(f"  - {a}" for a in actions_summary)
+
+    endpoints_section = ""
+    if api_endpoints:
+        lines = []
+        for action_name, ep in api_endpoints.items():
+            method = ep.get("method", "GET")
+            path = ep.get("path", "")
+            lines.append(f"  - {action_name}: {method} {path}")
+        endpoints_section = "\n## Known API Endpoints\n\n" + "\n".join(lines) + "\n"
+
+    prompt_parts = []
+    prompt_parts.append(
+        "You are generating a Python API client class for a Rapid7 InsightConnect plugin.\n"
+        "Respond with ONLY the complete Python file content for util/api.py.\n"
+        "No explanation, no markdown fences — just the raw Python file."
+    )
+    prompt_parts.append(f"\n## Plugin\n\nName: {plugin_name}\nDescription: {plugin_desc}")
+    prompt_parts.append(f"\nConnection fields:\n{conn_lines or '  (none)'}")
+    if endpoints_section:
+        prompt_parts.append(endpoints_section)
+    prompt_parts.append(f"\nActions that need client methods:\n{actions_lines or '  (none)'}")
+    prompt_parts.append("""
+## Required structure
+
+```
+import json
+from logging import Logger
+import requests
+from insightconnect_plugin_runtime.exceptions import PluginException
+from insightconnect_plugin_runtime.helper import clean
+
+class <PluginName>API:
+    BASE_URL = "https://{region}.api.insight.rapid7.com/<service-path>/v1/orgs/{org_id}"
+
+    def __init__(self, region: str, org_id: str, api_key: str, logger: Logger):
+        # Store credentials, build base URL
+
+    def _get_headers(self) -> dict:
+        # Return {"X-Api-Key": ..., "Content-Type": "application/json"}
+
+    def _make_request(self, method: str, endpoint: str, params=None, json_data=None) -> requests.Response:
+        # Build URL, make request, handle ConnectionError/Timeout
+        # Call _raise_for_status
+
+    def _make_json_request(self, method: str, endpoint: str, **kwargs) -> dict:
+        # Call _make_request, parse JSON, handle JSONDecodeError
+        # Return clean(response.json()) for 200/201
+        # Return {} for 204 (no body)
+
+    def _raise_for_status(self, response: requests.Response) -> None:
+        # Map status codes to PluginException presets:
+        # 400 -> BAD_REQUEST, 401 -> UNAUTHORIZED, 403 -> custom,
+        # 404 -> NOT_FOUND, 429 -> RATE_LIMIT, 5xx -> SERVER_ERROR
+
+    # One domain method per action:
+    def get_client(self, client_id: str) -> dict: ...
+    def search_clients(self, params: dict) -> dict: ...
+    # etc.
+
+    def test(self) -> None:
+        # Simple connectivity test (e.g. list first page of clients)
+```
+
+## Rules
+
+1. The class name should be PascalCase of the plugin name (e.g. VelociraptorAPI).
+2. Each action gets exactly one public method with a clear signature.
+3. Paginated list methods accept a params dict and return the raw response dict.
+4. Create methods return the created resource ID (string) or the full response dict.
+5. Delete/update methods that return 204 should return None or an empty dict.
+6. The test() method validates credentials by making a lightweight GET call.
+7. Use PluginException presets where available (BAD_REQUEST, UNAUTHORIZED, etc.).
+8. Do NOT output markdown, code fences, or explanations. Just the Python file.
+
+## Output
+
+Raw Python code for the complete util/api.py file. Nothing else.""")
+
+    return "\n".join(prompt_parts) + "\n"
+
+
+def _build_connection_prompt(context: Mapping[str, Any]) -> str:
+    """Build a prompt for generating the connection.py connect/test logic."""
+    plugin_name = context.get("plugin_name", "unknown")
+    connection_fields = context.get("connection_fields", {})
+    api_class_name = context.get("api_class_name", "API")
+
+    conn_lines = ""
+    if connection_fields:
+        lines = []
+        for name, info in connection_fields.items():
+            cred_type = info.get("type", "string")
+            lines.append(f"  - {name} (type: {cred_type}): {info.get('description', '')}")
+        conn_lines = "\n".join(lines)
+
+    prompt_parts = []
+    prompt_parts.append(
+        "You are generating the connect() and test() method bodies for an InsightConnect\n"
+        "plugin's connection.py. Respond with ONLY the Python code for the two method\n"
+        "bodies (connect and test). No class definition, no imports, no markdown."
+    )
+    prompt_parts.append(f"\nPlugin: {plugin_name}")
+    prompt_parts.append(f"API client class: {api_class_name} (from util/api.py)")
+    prompt_parts.append(f"\nConnection fields (Input constants):\n{conn_lines or '  (none)'}")
+    prompt_parts.append("""
+## Pattern
+
+For connect():
+```
+self.api_client = <APIClass>(
+    region=params.get(Input.REGION, "").strip(),
+    org_id=params.get(Input.ORG_ID, "").strip(),
+    api_key=params.get(Input.API_KEY, {}).get("token", "").strip(),
+    logger=self.logger,
+)
+```
+Note: credential_token fields store the token in .get("token"), NOT .get("secretKey").
+
+For test():
+```
+try:
+    self.api_client.test()
+    return {"success": True}
+except PluginException as error:
+    raise ConnectionTestException(cause=error.cause, assistance=error.assistance, data=error.data)
+```
+
+## Rules
+
+1. Output TWO code blocks separated by a comment: # --- connect body --- and # --- test body ---
+2. Access credential_token via params.get(Input.API_KEY, {}).get("token", "").strip()
+3. Access string fields via params.get(Input.FIELD_NAME, "").strip()
+4. Store the client as self.api_client (actions access it via self.connection.api_client)
+5. The test() method should call self.api_client.test() which is already defined.
+6. Do NOT output markdown, code fences, or explanations. Just raw Python.
 
 ## Output
 
@@ -538,6 +739,10 @@ class LLMGenerator:
         """
         if kind == ArtifactKind.ACTION_LOGIC:
             return _build_action_logic_prompt(scoped_context)
+        if kind == ArtifactKind.API_CLIENT:
+            return _build_api_client_prompt(scoped_context)
+        if kind == ArtifactKind.CONNECTION_LOGIC:
+            return _build_connection_prompt(scoped_context)
         # Fallback for other reasoning kinds (field_description, help_text).
         try:
             context_json = json.dumps(dict(scoped_context), sort_keys=True, default=str)

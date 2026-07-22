@@ -62,6 +62,8 @@ class ArtifactKind(str, Enum):
     FIELD_DESCRIPTION = "field_description"
     HELP_TEXT = "help_text"
     TEMPLATE_MATCH = "template_match"
+    API_CLIENT = "api_client"
+    CONNECTION_LOGIC = "connection_logic"
 
 
 class Route(str, Enum):
@@ -93,6 +95,8 @@ REASONING_ARTIFACT_KINDS = frozenset(
         ArtifactKind.ACTION_LOGIC,
         ArtifactKind.FIELD_DESCRIPTION,
         ArtifactKind.HELP_TEXT,
+        ArtifactKind.API_CLIENT,
+        ArtifactKind.CONNECTION_LOGIC,
     }
 )
 
@@ -106,6 +110,8 @@ REQUESTABLE_ARTIFACT_KINDS = frozenset(
         ArtifactKind.ACTION_LOGIC,
         ArtifactKind.FIELD_DESCRIPTION,
         ArtifactKind.HELP_TEXT,
+        ArtifactKind.API_CLIENT,
+        ArtifactKind.CONNECTION_LOGIC,
     }
 )
 

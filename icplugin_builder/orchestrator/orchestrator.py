@@ -927,15 +927,58 @@ def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
 def _enrich_reasoning_context(session: SessionState, request: GenerationRequest) -> Dict[str, Any]:
     """Build a rich scoped context for the LLM so it can produce working code.
 
-    For ``action_logic`` requests, includes the action's I/O schema, the plugin
-    connection fields, the plugin name, and — when an OpenAPI spec is stored on
-    the session — the matching endpoint's HTTP method, path, query params,
-    request body schema, and response shape.
+    For ``api_client`` and ``connection_logic`` kinds, provides the full plugin
+    overview (all actions, all endpoints). For ``action_logic``, provides the
+    single action's I/O schema and matching endpoint details.
     """
     from ..integrations.api_spec_parser import find_endpoint_for_action, parse_openapi_spec
 
     context: Dict[str, Any] = dict(request.parameters)
     spec = session.spec
+
+    context["plugin_name"] = spec.name
+    context["plugin_description"] = spec.description
+    if spec.connection:
+        context["connection_fields"] = {
+            name: {"type": fs.type, "required": fs.required, "description": fs.description}
+            for name, fs in spec.connection.items()
+        }
+
+    # For API_CLIENT and CONNECTION_LOGIC, provide full plugin context (all actions + endpoints)
+    if request.kind in (ArtifactKind.API_CLIENT, ArtifactKind.CONNECTION_LOGIC):
+        # Build actions summary (list of action names)
+        context["actions_summary"] = list((spec.actions or {}).keys())
+
+        # Build API class name from plugin name
+        parts = (spec.name or "plugin").split("_")
+        # Remove common prefixes like 'rapid7', 'komand'
+        if parts[0] in ("rapid7", "komand", "icon"):
+            parts = parts[1:]
+        class_name = "".join(word.capitalize() for word in parts) + "API"
+        context["api_class_name"] = class_name
+
+        # Extract all endpoint details from the OpenAPI spec if available
+        if session.api_spec_content:
+            parsed_spec = parse_openapi_spec(session.api_spec_content)
+            if parsed_spec:
+                api_endpoints: Dict[str, Dict[str, Any]] = {}
+                for action_name in spec.actions or {}:
+                    endpoint = find_endpoint_for_action(parsed_spec, action_name)
+                    if endpoint:
+                        api_endpoints[action_name] = {
+                            "method": endpoint.http_method,
+                            "path": endpoint.path,
+                            "query_params": endpoint.query_params,
+                            "request_body": endpoint.request_body,
+                            "response_shape": endpoint.response_shape,
+                            "success_status": endpoint.success_status,
+                        }
+                if api_endpoints:
+                    context["api_endpoints"] = api_endpoints
+
+        return context
+
+    # For ACTION_LOGIC: single-action context
     action_name = request.parameters.get("action", "")
 
     if action_name and action_name in (spec.actions or {}):
@@ -949,14 +992,6 @@ def _enrich_reasoning_context(session: SessionState, request: GenerationRequest)
         context["output_fields"] = {
             name: {"type": fs.type, "required": fs.required, "description": fs.description}
             for name, fs in (action.output or {}).items()
-        }
-
-    context["plugin_name"] = spec.name
-    context["plugin_description"] = spec.description
-    if spec.connection:
-        context["connection_fields"] = {
-            name: {"type": fs.type, "required": fs.required, "description": fs.description}
-            for name, fs in spec.connection.items()
         }
 
     # Phase 1: If an OpenAPI spec is stored on the session, extract per-action endpoint details.
@@ -1009,61 +1044,160 @@ def _get_api_doc_cache() -> Any:
 
 
 def _inject_action_logic(project_path: Path, generated: Sequence[GeneratedArtifact]) -> None:
-    """Write generated action-logic artifacts into the corresponding action.py files.
+    """Write generated artifacts into the project's files on disk.
 
-    Each ``action_logic`` artifact's content is injected into the action's
-    ``run()`` method, replacing the placeholder ``return {Output.X: None}`` body
-    while preserving the input bindings the scaffolder generated.
+    Handles three artifact kinds:
+    - API_CLIENT: writes content to util/api.py (creates the file/directory)
+    - CONNECTION_LOGIC: injects connect/test bodies into connection/connection.py
+    - ACTION_LOGIC: injects run() body into each action's action.py
     """
     import glob as _glob
     import re as _re
 
     for artifact in generated:
-        if artifact.kind != ArtifactKind.ACTION_LOGIC:
-            continue
         if not artifact.content or not artifact.content.strip():
             continue
 
-        # The artifact should be tagged with the action name it belongs to.
-        action_name = getattr(artifact, "name", None) or ""
-        if not action_name:
-            continue
+        if artifact.kind == ArtifactKind.API_CLIENT:
+            _write_api_client(project_path, artifact.content)
+        elif artifact.kind == ArtifactKind.CONNECTION_LOGIC:
+            _write_connection_logic(project_path, artifact.content)
+        elif artifact.kind == ArtifactKind.ACTION_LOGIC:
+            action_name = getattr(artifact, "name", None) or ""
+            if not action_name:
+                continue
+            _write_action_logic(project_path, action_name, artifact.content, _glob, _re)
 
-        # Find the action.py file — the scaffolder puts it under
-        # <package>/actions/<action_name>/action.py
-        pattern = str(project_path / "**" / "actions" / action_name / "action.py")
-        matches = _glob.glob(pattern, recursive=True)
-        if not matches:
-            continue
 
-        action_file = Path(matches[0])
-        try:
-            original = action_file.read_text(encoding="utf-8")
-        except OSError:
-            continue
+def _write_api_client(project_path: Path, content: str) -> None:
+    """Write the generated API client to util/api.py in the project."""
+    import glob as _glob
 
-        # Replace the body after "# END INPUT BINDING" with the generated logic.
-        # Keep everything up to and including the END INPUT BINDING comment,
-        # then inject the generated content (indented to match the method body).
-        end_marker = "# END INPUT BINDING - DO NOT REMOVE"
-        if end_marker not in original:
-            # Fallback: replace the entire return statement
-            new_content = _re.sub(
-                r"(\s+)return \{[^}]*\}",
-                lambda m: m.group(1) + artifact.content.strip().replace("\n", "\n" + m.group(1)),
-                original,
-                count=1,
-            )
+    # Find the package directory (the one with actions/ in it)
+    pattern = str(project_path / "*" / "actions")
+    matches = _glob.glob(pattern)
+    if not matches:
+        # Fallback: look for any subdirectory that looks like a package
+        pattern = str(project_path / "*" / "__init__.py")
+        matches = _glob.glob(pattern)
+        if matches:
+            package_dir = Path(matches[0]).parent
         else:
-            # Split at the marker, keep everything before + marker, add generated logic
-            parts = original.split(end_marker, 1)
-            # The part after the marker contains the placeholder return statement
-            indent = "        "  # 8 spaces (inside run() method body)
-            logic_lines = artifact.content.strip().split("\n")
-            indented_logic = "\n".join(indent + line if line.strip() else "" for line in logic_lines)
-            new_content = parts[0] + end_marker + "\n\n" + indented_logic + "\n"
+            return
+    else:
+        package_dir = Path(matches[0]).parent
 
-        action_file.write_text(new_content, encoding="utf-8")
+    util_dir = package_dir / "util"
+    util_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write __init__.py if it doesn't exist
+    init_file = util_dir / "__init__.py"
+    if not init_file.exists():
+        init_file.write_text("", encoding="utf-8")
+
+    # Write the API client file
+    api_file = util_dir / "api.py"
+    api_file.write_text(content.strip() + "\n", encoding="utf-8")
+
+
+def _write_connection_logic(project_path: Path, content: str) -> None:
+    """Inject generated connect/test logic into connection/connection.py."""
+    import glob as _glob
+
+    # Find connection.py
+    pattern = str(project_path / "*" / "connection" / "connection.py")
+    matches = _glob.glob(pattern)
+    if not matches:
+        return
+
+    conn_file = Path(matches[0])
+    try:
+        original = conn_file.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    # The connection.py has a connect() method with a pass or placeholder.
+    # We need to inject the generated logic. Look for the connect method body.
+    # Strategy: find "def connect(self, params" and replace its body.
+
+    # Split the content into connect body and test body
+    # The LLM outputs them separated by "# --- connect body ---" / "# --- test body ---"
+    connect_body = ""
+    test_body = ""
+
+    if "# --- connect body ---" in content and "# --- test body ---" in content:
+        parts = content.split("# --- test body ---")
+        connect_part = parts[0].replace("# --- connect body ---", "").strip()
+        test_part = parts[1].strip() if len(parts) > 1 else ""
+        connect_body = connect_part
+        test_body = test_part
+    else:
+        # Just use the whole content as the connect body
+        connect_body = content.strip()
+
+    # Inject connect body
+    if connect_body:
+        # Find the connect method and replace its body
+        # Pattern: def connect(self, params=...):  followed by indented body
+        import re
+
+        # Replace existing connect body (everything between def connect and the next def or end)
+        connect_pattern = r"(def connect\(self, params[^)]*\):\s*\n)(\s+.*?)(?=\n    def |\n\nclass |\Z)"
+        indent = "        "
+        indented_connect = "\n".join(indent + line if line.strip() else "" for line in connect_body.split("\n"))
+        replacement = r"\1" + indented_connect + "\n"
+        new_content = re.sub(connect_pattern, replacement, original, count=1, flags=re.DOTALL)
+
+        if new_content != original:
+            original = new_content
+
+    # Inject test body
+    if test_body:
+        import re
+
+        test_pattern = r"(def test\(self[^)]*\):\s*\n)(\s+.*?)(?=\n    def |\n\nclass |\Z)"
+        indent = "        "
+        indented_test = "\n".join(indent + line if line.strip() else "" for line in test_body.split("\n"))
+        replacement = r"\1" + indented_test + "\n"
+        new_content = re.sub(test_pattern, replacement, original, count=1, flags=re.DOTALL)
+
+        if new_content != original:
+            original = new_content
+
+    conn_file.write_text(original, encoding="utf-8")
+
+
+def _write_action_logic(project_path: Path, action_name: str, content: str, _glob: Any, _re: Any) -> None:
+    """Inject generated logic into a single action's action.py file."""
+    pattern = str(project_path / "**" / "actions" / action_name / "action.py")
+    matches = _glob.glob(pattern, recursive=True)
+    if not matches:
+        return
+
+    action_file = Path(matches[0])
+    try:
+        original = action_file.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    end_marker = "# END INPUT BINDING - DO NOT REMOVE"
+    if end_marker not in original:
+        # Fallback: replace the entire return statement
+        new_content = _re.sub(
+            r"(\s+)return \{[^}]*\}",
+            lambda m: m.group(1) + content.strip().replace("\n", "\n" + m.group(1)),
+            original,
+            count=1,
+        )
+    else:
+        # Split at the marker, keep everything before + marker, add generated logic
+        parts = original.split(end_marker, 1)
+        indent = "        "  # 8 spaces (inside run() method body)
+        logic_lines = content.strip().split("\n")
+        indented_logic = "\n".join(indent + line if line.strip() else "" for line in logic_lines)
+        new_content = parts[0] + end_marker + "\n\n" + indented_logic + "\n"
+
+    action_file.write_text(new_content, encoding="utf-8")
 
 
 def _read_dir_tree(root: Union[str, Path]) -> Dict[str, Any]:
