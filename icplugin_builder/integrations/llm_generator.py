@@ -162,6 +162,31 @@ class GenerationResult:
         return self.measurement.estimated
 
 
+# --- Kiro CLI output cleaning ------------------------------------------------
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _clean_cli_output(stdout: str) -> str:
+    """Strip ANSI codes, the Kiro CLI '> ' prefix, and the credits footer.
+
+    Returns the LLM-generated content only, suitable for use as an artifact body.
+    """
+    text = _ANSI_RE.sub("", stdout)
+    lines = text.strip().split("\n")
+    # Remove trailing credits/timing line (e.g. " ▸ Credits: 0.05 • Time: 2s")
+    while lines and (lines[-1].strip().startswith("\u25b8") or lines[-1].strip() == ""):
+        lines.pop()
+    # Strip leading "> " prompt prefix from each line
+    cleaned = []
+    for line in lines:
+        if line.startswith("> "):
+            cleaned.append(line[2:])
+        else:
+            cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def estimate_tokens(text: str) -> int:
     """Estimate the token count of ``text`` with a ~4-characters-per-token heuristic.
 
@@ -321,7 +346,7 @@ class LLMGenerator:
             raise CostLimitError(decision)
 
         prompt = self._build_prompt(resolved_kind, scoped_context)
-        command = [*self._command_prefix, "--kind", resolved_kind.value]
+        command = [*self._command_prefix, "chat", "--no-interactive"]
 
         try:
             returncode, stdout, stderr = await self._invoke(command, prompt)
@@ -345,7 +370,7 @@ class LLMGenerator:
                 stderr=stderr,
             )
 
-        content = stdout.strip()
+        content = _clean_cli_output(stdout)
         measurement = self._measure_tokens(prompt=prompt, stdout=stdout, content=content)
         session_total = self._cost_controller.record_usage(session_id, measurement.tokens, succeeded=True)
         return GenerationResult(

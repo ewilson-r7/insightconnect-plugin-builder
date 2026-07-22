@@ -130,7 +130,7 @@ class TestWiredReasoningDispatch:
         # Exactly one dispatch, and it went to the Kiro CLI executable for this kind.
         assert cli.dispatch_count == 1
         assert cli.dispatched[0][0] == DEFAULT_EXECUTABLE
-        assert cli.dispatched[0] == [DEFAULT_EXECUTABLE, "--kind", ArtifactKind.ACTION_LOGIC.value]
+        assert cli.dispatched[0] == [DEFAULT_EXECUTABLE, "chat", "--no-interactive"]
         assert result.kind is ArtifactKind.ACTION_LOGIC
         # The reported figure was recorded on the real controller's session total.
         assert result.measurement.source == TOKEN_SOURCE_REPORTED

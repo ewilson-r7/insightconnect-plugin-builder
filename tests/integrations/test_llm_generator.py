@@ -100,7 +100,7 @@ class TestReasoningRestriction:
         result = run_generate(generator, kind=kind)
 
         assert result.kind is kind
-        assert calls and "--kind" in calls[0] and kind.value in calls[0]
+        assert calls and "chat" in calls[0] and "--no-interactive" in calls[0]
 
 
 class TestDispatch:

@@ -603,6 +603,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     """
     from ..persistence.registry import PluginRegistry
     from ..orchestrator.interpreter import Interpreter
+    from ..integrations.llm_generator import LLMGenerator
 
     projects_root = Path(config.paths.projects_root).expanduser()
     projects_root.mkdir(parents=True, exist_ok=True)
@@ -611,9 +612,11 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
 
     registry = PluginRegistry(config_root / "registry.db")
     cost_controller = _build_cost_controller(config)
+    llm_generator = LLMGenerator(cost_controller, executable=config.llm.kiro_cli_path)
     interpreter = Interpreter(executable=config.llm.kiro_cli_path)
     orchestrator = Orchestrator(
         cost_controller=cost_controller,
+        llm_generator=llm_generator,
         registry=registry,
         projects_root=projects_root,
     )

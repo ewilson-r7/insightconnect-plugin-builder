@@ -161,8 +161,7 @@ def test_generate_dispatches_only_for_reasoning_kinds(kind):
             assert result.kind is kind
             # Exactly one dispatch occurred, tagged with the reasoning kind.
             assert len(calls) == 1
-            assert "--kind" in calls[0]
-            assert kind.value in calls[0]
+            assert "chat" in calls[0] and "--no-interactive" in calls[0]
         else:
             with pytest.raises(ValueError):
                 asyncio.run(generator.generate(kind, {"action": "list_things"}, session_id="s1", user_id="u1"))
