@@ -103,8 +103,15 @@ a JSON response describing the operations to perform on the plugin draft.
      "required": true|false, "title": "Human Title",
      "description": "What this field is."}}
 
-6. For actions that will need generated implementation code, include a reasoning
-   entry with kind "action_logic" and parameters {{"action": "the_action_name"}}.
+6. IMPORTANT - two-phase workflow: By DEFAULT, only define plugin STRUCTURE
+   (components, fields, connection, metadata). Leave "reasoning" as an EMPTY
+   list [] so no code is generated yet. This lets the user review the structure
+   before spending tokens on implementation.
+   ONLY include "action_logic" reasoning entries when the user EXPLICITLY asks
+   to generate/implement/write the code or logic (e.g. "generate the
+   implementation", "write the action logic", "implement the actions"). When
+   they do, add a reasoning entry with kind "action_logic" and parameters
+   {{"action": "the_action_name"}} for each action needing logic.
 
 7. Use snake_case for component and field names.
 8. When adding an action, always include at least a title and description.

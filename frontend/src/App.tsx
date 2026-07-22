@@ -52,6 +52,9 @@ export function App() {
     }
     getSession(savedId, passphrase)
       .then((state) => {
+        if (state.visualization) {
+          setVisualization(state.visualization);
+        }
         setSession(state);
       })
       .catch(() => {
@@ -75,6 +78,9 @@ export function App() {
         passphrase,
       );
       sessionStorage.setItem(SESSION_STORAGE_KEY, state.session_id);
+      if (state.visualization) {
+        setVisualization(state.visualization);
+      }
       setSession(state);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Could not start the session.";
