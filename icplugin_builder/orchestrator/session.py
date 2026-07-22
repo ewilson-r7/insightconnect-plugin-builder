@@ -231,6 +231,7 @@ class SessionState:
     last_artifact: Optional[PlgArtifact] = None
     private_source_notice: Optional[str] = None
     generated: List[GeneratedArtifact] = field(default_factory=list)
+    api_spec_content: Optional[str] = None
 
     @property
     def plugin_name(self) -> str:

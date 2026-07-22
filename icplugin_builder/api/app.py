@@ -545,6 +545,14 @@ def create_app(
                 # via the Kiro CLI, then pass it to the orchestrator.
                 plan = None
                 attachments = frame.get("attachments") or []
+                # Store spec-like attachments on the session for use during code generation.
+                if attachments:
+                    session_state = orchestrator.session(session_id)
+                    for att in attachments:
+                        name = (att.get("name") or "").lower()
+                        if name.endswith((".json", ".yaml", ".yml")):
+                            session_state.api_spec_content = att.get("content", "")
+                            break
                 if interpreter is not None:
                     try:
                         current_spec = orchestrator.session(session_id).spec

@@ -266,6 +266,19 @@ def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
     prompt_parts.append(f"\nConnection fields (available via self.connection):\n{connection_summary or '  (none)'}")
     if api_section:
         prompt_parts.append(api_section)
+
+    # Phase 2: Web-searched API documentation fallback (when no OpenAPI spec was attached)
+    web_docs = context.get("web_api_docs", "")
+    if web_docs and not api_section:
+        web_source = context.get("web_api_docs_source", "")
+        prompt_parts.append(
+            f"\n## Reference API Documentation (from web search)\n\n"
+            f"Source: {web_source}\n\n"
+            f"Relevant excerpt:\n{web_docs}\n\n"
+            f"Use this documentation to determine the correct endpoint path, HTTP method,\n"
+            f"query parameters vs body parameters, and response shape for this action.\n"
+        )
+
     prompt_parts.append(
         f"\nInput parameters (already bound to local variables via params.get(Input.X)):\n"
         f"{input_summary or '  (none)'}"

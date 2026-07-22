@@ -928,9 +928,12 @@ def _enrich_reasoning_context(session: SessionState, request: GenerationRequest)
     """Build a rich scoped context for the LLM so it can produce working code.
 
     For ``action_logic`` requests, includes the action's I/O schema, the plugin
-    connection fields, and the plugin name so the LLM knows what API to call and
-    how to structure the response.
+    connection fields, the plugin name, and — when an OpenAPI spec is stored on
+    the session — the matching endpoint's HTTP method, path, query params,
+    request body schema, and response shape.
     """
+    from ..integrations.api_spec_parser import find_endpoint_for_action, parse_openapi_spec
+
     context: Dict[str, Any] = dict(request.parameters)
     spec = session.spec
     action_name = request.parameters.get("action", "")
@@ -956,7 +959,53 @@ def _enrich_reasoning_context(session: SessionState, request: GenerationRequest)
             for name, fs in spec.connection.items()
         }
 
+    # Phase 1: If an OpenAPI spec is stored on the session, extract per-action endpoint details.
+    if session.api_spec_content and action_name:
+        parsed_spec = parse_openapi_spec(session.api_spec_content)
+        if parsed_spec:
+            endpoint = find_endpoint_for_action(parsed_spec, action_name)
+            if endpoint:
+                context["api_method"] = endpoint.http_method
+                context["api_path"] = endpoint.path
+                context["api_query_params"] = endpoint.query_params
+                context["api_request_body"] = endpoint.request_body
+                context["api_response_shape"] = endpoint.response_shape
+                context["api_success_status"] = endpoint.success_status
+
+    # Phase 2: If no API endpoint details were found (no spec attached or no match),
+    # fall back to web search for API documentation.
+    if "api_method" not in context and action_name:
+        from ..integrations.api_doc_search import search_api_docs
+
+        # Use a module-level cache so repeated actions in the same plugin share one fetch.
+        cache = _get_api_doc_cache()
+        action_desc = context.get("action_description", "")
+        result = search_api_docs(
+            plugin_name=spec.name or "",
+            plugin_description=spec.description or "",
+            action_name=action_name,
+            action_description=action_desc,
+            cache=cache,
+        )
+        if result.found and result.relevant_content:
+            context["web_api_docs"] = result.relevant_content
+            context["web_api_docs_source"] = result.source_url
+
     return context
+
+
+# Module-level cache for web-fetched API docs (shared across actions in one server process).
+_api_doc_cache: Any = None
+
+
+def _get_api_doc_cache() -> Any:
+    """Return the module-level API doc search cache (lazy init)."""
+    global _api_doc_cache
+    if _api_doc_cache is None:
+        from ..integrations.api_doc_search import ApiDocCache
+
+        _api_doc_cache = ApiDocCache()
+    return _api_doc_cache
 
 
 def _inject_action_logic(project_path: Path, generated: Sequence[GeneratedArtifact]) -> None:
