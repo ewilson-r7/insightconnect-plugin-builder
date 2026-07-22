@@ -109,10 +109,20 @@ export interface VisualizationPayload {
 // WebSocket frames (/ws/{session_id})
 // ---------------------------------------------------------------------------
 
+/** A file attached to a message (e.g. an API spec for the LLM to digest). */
+export interface MessageAttachment {
+  /** Original filename (e.g. "openapi.yaml"). */
+  name: string;
+  /** The full text content of the file. */
+  content: string;
+}
+
 /** The single outbound frame the backend accepts on the session channel. */
 export interface WsSubmitMessageFrame {
   type: "submit_message";
   text: string;
+  /** Optional file attachments (API specs, schemas) sent alongside the message. */
+  attachments?: MessageAttachment[];
 }
 
 /** Pushed on connect: the full session state (`_serialize_session`). */

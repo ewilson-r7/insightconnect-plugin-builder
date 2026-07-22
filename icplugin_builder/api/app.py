@@ -256,6 +256,7 @@ def create_app(
     registry: Optional[Any] = None,
     source_provider: Optional[Any] = None,
     update_manager: Optional[Any] = None,
+    interpreter: Optional[Any] = None,
     static_dir: Optional[Any] = None,
 ) -> FastAPI:
     """Build the FastAPI app wiring the orchestrator behind HTTP + WebSocket.
@@ -536,7 +537,21 @@ def create_app(
                     await websocket.send_json({"type": "error", "detail": "expected a submit_message frame"})
                     continue
                 text = frame.get("text", "")
-                result = await orchestrator.submit_message(session_id, text)
+                # Interpret the user's natural-language message into a TurnPlan
+                # via the Kiro CLI, then pass it to the orchestrator.
+                plan = None
+                attachments = frame.get("attachments") or []
+                if interpreter is not None:
+                    try:
+                        current_spec = orchestrator.session(session_id).spec
+                        plan = await interpreter.interpret(text, current_spec, attachments=attachments)
+                    except Exception as interpret_err:
+                        # Interpretation failure: surface as an error frame but
+                        # don't crash the connection; fall through with plan=None
+                        # which will ask for clarification.
+                        await websocket.send_json({"type": "error", "detail": f"Interpretation error: {interpret_err}"})
+                        continue
+                result = await orchestrator.submit_message(session_id, text, plan)
                 await websocket.send_json({"type": "turn", "result": _serialize_turn_result(result)})
                 await websocket.send_json({"type": "tokens", "token_total": result.token_total})
                 current = orchestrator.session(session_id)
@@ -587,6 +602,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         A configured :class:`FastAPI` application.
     """
     from ..persistence.registry import PluginRegistry
+    from ..orchestrator.interpreter import Interpreter
 
     projects_root = Path(config.paths.projects_root).expanduser()
     projects_root.mkdir(parents=True, exist_ok=True)
@@ -595,6 +611,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
 
     registry = PluginRegistry(config_root / "registry.db")
     cost_controller = _build_cost_controller(config)
+    interpreter = Interpreter(executable=config.llm.kiro_cli_path)
     orchestrator = Orchestrator(
         cost_controller=cost_controller,
         registry=registry,
@@ -607,6 +624,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         config=config,
         access_controller=access_controller,
         registry=registry,
+        interpreter=interpreter,
         static_dir=static_dir,
     )
 

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SessionSocket, type ConnectionStatus } from "../api/socket";
-import type { SessionState, VisualizationPayload, WsInboundFrame } from "../types";
+import type { MessageAttachment, SessionState, VisualizationPayload, WsInboundFrame } from "../types";
 import { foldVisualizationFrame } from "../visualization/useVisualization";
 import { validateMessage } from "../validation";
 import {
@@ -94,9 +94,9 @@ export function useConversation({
   }, [session.session_id, passphrase, handleFrame]);
 
   const submit = useCallback(
-    (text: string): { accepted: boolean; reason?: string } => {
+    (text: string, attachments?: MessageAttachment[]): { accepted: boolean; reason?: string } => {
       const validation = validateMessage(text);
-      if (!validation.valid) {
+      if (!validation.valid && (!attachments || attachments.length === 0)) {
         // Reject locally without mutating the draft (Req 1.6).
         setMessages((prev) => [
           ...prev,
@@ -104,7 +104,7 @@ export function useConversation({
         ]);
         return { accepted: false, reason: validation.reason };
       }
-      const sent = socketRef.current?.submitMessage(text) ?? false;
+      const sent = socketRef.current?.submitMessage(text, attachments) ?? false;
       if (!sent) {
         setMessages((prev) => [
           ...prev,
@@ -112,7 +112,10 @@ export function useConversation({
         ]);
         return { accepted: false, reason: "not connected" };
       }
-      setMessages((prev) => [...prev, userMessage(text)]);
+      const displayText = attachments?.length
+        ? `${text}\n[Attached: ${attachments.map((a) => a.name).join(", ")}]`
+        : text;
+      setMessages((prev) => [...prev, userMessage(displayText)]);
       return { accepted: true };
     },
     [],

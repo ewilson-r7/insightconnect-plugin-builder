@@ -5,7 +5,7 @@
 // This class abstracts connect/reconnect and frame parsing so the React layer
 // only deals with typed callbacks.
 
-import type { WsInboundFrame, WsSubmitMessageFrame } from "../types";
+import type { MessageAttachment, WsInboundFrame, WsSubmitMessageFrame } from "../types";
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
@@ -69,11 +69,14 @@ export class SessionSocket {
   }
 
   /** Send a message-submission frame; returns false if the socket is not open. */
-  submitMessage(text: string): boolean {
+  submitMessage(text: string, attachments?: MessageAttachment[]): boolean {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return false;
     }
     const frame: WsSubmitMessageFrame = { type: "submit_message", text };
+    if (attachments && attachments.length > 0) {
+      frame.attachments = attachments;
+    }
     this.socket.send(JSON.stringify(frame));
     return true;
   }
