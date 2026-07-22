@@ -548,6 +548,7 @@ def create_app(
                 if interpreter is not None:
                     try:
                         current_spec = orchestrator.session(session_id).spec
+                        await websocket.send_json({"type": "status", "message": "Interpreting your request..."})
                         plan = await interpreter.interpret(text, current_spec, attachments=attachments)
                     except Exception as interpret_err:
                         # Interpretation failure: surface as an error frame but
@@ -555,6 +556,14 @@ def create_app(
                         # which will ask for clarification.
                         await websocket.send_json({"type": "error", "detail": f"Interpretation error: {interpret_err}"})
                         continue
+                if plan and plan.reasoning:
+                    await websocket.send_json(
+                        {"type": "status", "message": f"Generating logic for {len(plan.reasoning)} action(s)..."}
+                    )
+                elif plan and plan.operations:
+                    await websocket.send_json(
+                        {"type": "status", "message": f"Applying {len(plan.operations)} operation(s)..."}
+                    )
                 result = await orchestrator.submit_message(session_id, text, plan)
                 await websocket.send_json({"type": "turn", "result": _serialize_turn_result(result)})
                 await websocket.send_json({"type": "tokens", "token_total": result.token_total})

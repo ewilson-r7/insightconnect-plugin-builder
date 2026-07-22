@@ -155,13 +155,20 @@ export interface WsErrorFrame {
   detail: string;
 }
 
+/** Pushed as a progress indicator while interpretation/generation is running. */
+export interface WsStatusFrame {
+  type: "status";
+  message: string;
+}
+
 /** Every inbound frame the session channel can deliver. */
 export type WsInboundFrame =
   | WsStateFrame
   | WsTurnFrame
   | WsTokensFrame
   | WsVisualizationFrame
-  | WsErrorFrame;
+  | WsErrorFrame
+  | WsStatusFrame;
 
 // ---------------------------------------------------------------------------
 // Preview / diff / export (Req 12, 16, 19) -- serialized by

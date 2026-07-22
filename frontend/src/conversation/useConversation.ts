@@ -72,6 +72,9 @@ export function useConversation({
       case "error":
         setMessages((prev) => [...prev, systemMessage(frame.detail, "error")]);
         break;
+      case "status":
+        setMessages((prev) => [...prev, systemMessage(frame.message, "info")]);
+        break;
       case "visualization":
         // The payload was already folded above; the Visualization_View
         // (task 23.2) renders it, so the chat has nothing more to do here.

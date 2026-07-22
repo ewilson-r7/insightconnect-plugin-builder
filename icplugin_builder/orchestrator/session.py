@@ -83,12 +83,14 @@ class GeneratedArtifact:
         from_llm: ``True`` when the Kiro CLI produced it; ``False`` when it was
             rendered deterministically from a template (Req 3.3).
         tokens: tokens consumed (``0`` for a deterministic render).
+        name: optional name tag (e.g. the action name for action_logic artifacts).
     """
 
     kind: ArtifactKind
     content: str
     from_llm: bool
     tokens: int = 0
+    name: Optional[str] = None
 
 
 @dataclass(frozen=True)

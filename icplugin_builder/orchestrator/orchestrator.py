@@ -52,6 +52,7 @@ from ..core.cost_controller import CostController
 from ..core.diff import diff_file_trees
 from ..core.draft import ComponentNotFoundError, Draft, DraftError
 from ..core.generation import (
+    ArtifactKind,
     GenerationRequest,
     TemplateLibrary,
     classify_request,
@@ -499,6 +500,10 @@ class Orchestrator:
         session.draft = new_draft
         session.generated.extend(generated)
 
+        # 5. Write generated action logic into action.py files on disk (if project folder exists).
+        if generated and session.project_folder is not None:
+            _inject_action_logic(session.project_folder.path, generated)
+
         return TurnResult(
             status=TurnStatus.APPLIED,
             spec=new_draft.spec,
@@ -537,6 +542,7 @@ class Orchestrator:
                         content=result.content,
                         from_llm=True,
                         tokens=result.tokens,
+                        name=request.parameters.get("action") or request.name,
                     )
                 )
             else:
@@ -913,6 +919,64 @@ def _suffix_vendor(draft: Draft) -> Draft:
 def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
     """Coerce a draft's code-file mapping to the ``generated_files`` shape."""
     return {str(path): content for path, content in code_files.items()}
+
+
+def _inject_action_logic(project_path: Path, generated: Sequence[GeneratedArtifact]) -> None:
+    """Write generated action-logic artifacts into the corresponding action.py files.
+
+    Each ``action_logic`` artifact's content is injected into the action's
+    ``run()`` method, replacing the placeholder ``return {Output.X: None}`` body
+    while preserving the input bindings the scaffolder generated.
+    """
+    import glob as _glob
+    import re as _re
+
+    for artifact in generated:
+        if artifact.kind != ArtifactKind.ACTION_LOGIC:
+            continue
+        if not artifact.content or not artifact.content.strip():
+            continue
+
+        # The artifact should be tagged with the action name it belongs to.
+        action_name = getattr(artifact, "name", None) or ""
+        if not action_name:
+            continue
+
+        # Find the action.py file — the scaffolder puts it under
+        # <package>/actions/<action_name>/action.py
+        pattern = str(project_path / "**" / "actions" / action_name / "action.py")
+        matches = _glob.glob(pattern, recursive=True)
+        if not matches:
+            continue
+
+        action_file = Path(matches[0])
+        try:
+            original = action_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        # Replace the body after "# END INPUT BINDING" with the generated logic.
+        # Keep everything up to and including the END INPUT BINDING comment,
+        # then inject the generated content (indented to match the method body).
+        end_marker = "# END INPUT BINDING - DO NOT REMOVE"
+        if end_marker not in original:
+            # Fallback: replace the entire return statement
+            new_content = _re.sub(
+                r"(\s+)return \{[^}]*\}",
+                lambda m: m.group(1) + artifact.content.strip().replace("\n", "\n" + m.group(1)),
+                original,
+                count=1,
+            )
+        else:
+            # Split at the marker, keep everything before + marker, add generated logic
+            parts = original.split(end_marker, 1)
+            # The part after the marker contains the placeholder return statement
+            indent = "        "  # 8 spaces (inside run() method body)
+            logic_lines = artifact.content.strip().split("\n")
+            indented_logic = "\n".join(indent + line if line.strip() else "" for line in logic_lines)
+            new_content = parts[0] + end_marker + "\n\n" + indented_logic + "\n"
+
+        action_file.write_text(new_content, encoding="utf-8")
 
 
 def _read_dir_tree(root: Union[str, Path]) -> Dict[str, Any]:
