@@ -530,9 +530,12 @@ class Orchestrator:
             if classification.requires_llm:
                 if self._llm is None:
                     raise LLMGeneratorError("an LLM_Generator is required to produce reasoning content")
+                # Enrich the scoped context with the action's spec details so the
+                # LLM has enough information to produce working implementation code.
+                scoped = _enrich_reasoning_context(session, request)
                 result = await self._llm.generate(
                     classification.kind,
-                    dict(request.parameters),
+                    scoped,
                     session_id=session.session_id,
                     user_id=session.user_id,
                 )
@@ -919,6 +922,41 @@ def _suffix_vendor(draft: Draft) -> Draft:
 def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
     """Coerce a draft's code-file mapping to the ``generated_files`` shape."""
     return {str(path): content for path, content in code_files.items()}
+
+
+def _enrich_reasoning_context(session: SessionState, request: GenerationRequest) -> Dict[str, Any]:
+    """Build a rich scoped context for the LLM so it can produce working code.
+
+    For ``action_logic`` requests, includes the action's I/O schema, the plugin
+    connection fields, and the plugin name so the LLM knows what API to call and
+    how to structure the response.
+    """
+    context: Dict[str, Any] = dict(request.parameters)
+    spec = session.spec
+    action_name = request.parameters.get("action", "")
+
+    if action_name and action_name in (spec.actions or {}):
+        action = spec.actions[action_name]
+        context["action_title"] = action.title
+        context["action_description"] = action.description
+        context["input_fields"] = {
+            name: {"type": fs.type, "required": fs.required, "description": fs.description}
+            for name, fs in (action.input or {}).items()
+        }
+        context["output_fields"] = {
+            name: {"type": fs.type, "required": fs.required, "description": fs.description}
+            for name, fs in (action.output or {}).items()
+        }
+
+    context["plugin_name"] = spec.name
+    context["plugin_description"] = spec.description
+    if spec.connection:
+        context["connection_fields"] = {
+            name: {"type": fs.type, "required": fs.required, "description": fs.description}
+            for name, fs in spec.connection.items()
+        }
+
+    return context
 
 
 def _inject_action_logic(project_path: Path, generated: Sequence[GeneratedArtifact]) -> None:

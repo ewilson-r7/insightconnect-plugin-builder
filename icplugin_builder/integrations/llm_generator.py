@@ -187,6 +187,78 @@ def _clean_cli_output(stdout: str) -> str:
     return "\n".join(cleaned).strip()
 
 
+def _build_action_logic_prompt(context: Mapping[str, Any]) -> str:
+    """Build a detailed prompt for generating InsightConnect action Python code."""
+    action_name = context.get("action", "unknown")
+    action_title = context.get("action_title", action_name)
+    action_desc = context.get("action_description", "")
+    plugin_name = context.get("plugin_name", "")
+    plugin_desc = context.get("plugin_description", "")
+    connection_fields = context.get("connection_fields", {})
+    input_fields = context.get("input_fields", {})
+    output_fields = context.get("output_fields", {})
+
+    connection_summary = ""
+    if connection_fields:
+        lines = []
+        for name, info in connection_fields.items():
+            lines.append(f"  - {name} ({info.get('type', 'string')}): {info.get('description', '')}")
+        connection_summary = "\n".join(lines)
+
+    input_summary = ""
+    if input_fields:
+        lines = []
+        for name, info in input_fields.items():
+            req = "required" if info.get("required") else "optional"
+            lines.append(f"  - {name} ({info.get('type', 'string')}, {req}): {info.get('description', '')}")
+        input_summary = "\n".join(lines)
+
+    output_summary = ""
+    if output_fields:
+        lines = []
+        for name, info in output_fields.items():
+            lines.append(f"  - {name} ({info.get('type', 'string')}): {info.get('description', '')}")
+        output_summary = "\n".join(lines)
+
+    return f"""You are writing Python code for a Rapid7 InsightConnect plugin action.
+Respond with ONLY the Python code body for the run() method. No explanation,
+no markdown fences, no class definition — just the implementation code that goes
+AFTER the input bindings and BEFORE the end of the run() method.
+
+## Context
+
+Plugin: {plugin_name} — {plugin_desc}
+Action: {action_name} ({action_title}) — {action_desc}
+
+Connection fields (available via self.connection):
+{connection_summary or "  (none)"}
+
+Input parameters (already bound to local variables via params.get(Input.X)):
+{input_summary or "  (none)"}
+
+Expected output (return a dict matching these keys):
+{output_summary or "  (none)"}
+
+## Requirements
+
+1. Use the `requests` library for HTTP calls.
+2. Access connection values via: self.connection.region, self.connection.org_id, etc.
+3. Build the base URL from the region: f"https://{{region}}.api.insight.rapid7.com"
+4. Include the API key in headers as: {{"X-Api-Key": self.connection.api_key}}
+5. Handle errors by raising insightconnect_plugin_runtime.exceptions.PluginException
+   with cause, assistance, and data fields.
+6. Return a dict with keys matching the Output constants (e.g. Output.CLIENT, Output.FLOW_ID).
+7. Use proper status code checking on the response.
+8. Do NOT include the method signature, class, imports, or input bindings — ONLY the
+   implementation logic that goes after the END INPUT BINDING comment.
+9. Keep the code clean and production-ready.
+
+## Output format
+
+Respond with ONLY Python code. No explanation. No markdown. Just code.
+"""
+
+
 def estimate_tokens(text: str) -> int:
     """Estimate the token count of ``text`` with a ~4-characters-per-token heuristic.
 
@@ -403,10 +475,12 @@ class LLMGenerator:
     def _build_prompt(kind: ArtifactKind, scoped_context: Mapping[str, Any]) -> str:
         """Build the scoped Kiro CLI prompt for ``kind`` from ``scoped_context``.
 
-        Only the supplied scoped slice is serialized; the caller is responsible
-        for narrowing the context to the relevant action/connection (design
-        "Prompt scoping").
+        Produces a structured prompt that tells the LLM exactly what code to
+        generate, including the action's I/O schema and connection details.
         """
+        if kind == ArtifactKind.ACTION_LOGIC:
+            return _build_action_logic_prompt(scoped_context)
+        # Fallback for other reasoning kinds (field_description, help_text).
         try:
             context_json = json.dumps(dict(scoped_context), sort_keys=True, default=str)
         except (TypeError, ValueError):
