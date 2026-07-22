@@ -145,6 +145,25 @@ export function ExportPanel({
     (outcome.status === "build_failed" || outcome.status === "export_failed");
   const canConfirm = Boolean(plan?.permitted && confirmed && phase === "previewing");
 
+  const handleForceExport = useCallback(async () => {
+    setError(null);
+    setPhase("exporting");
+    const body: ConfirmExportBody = {
+      confirmed: true,
+      target: "local",
+      output_dir: null,
+      force: true,
+    };
+    try {
+      const result = await client.confirmExport(sessionId, body, options);
+      setOutcome(result);
+      setPhase("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase("previewing");
+    }
+  }, [client, sessionId, options]);
+
   return (
     <div aria-label="Export controls" data-testid="export-panel">
       <div>
@@ -191,7 +210,7 @@ export function ExportPanel({
               onCancel={handleCancel}
             />
           ) : (
-            <BlockedNotice plan={plan} onCancel={handleCancel} />
+            <BlockedNotice plan={plan} onCancel={handleCancel} onForceExport={handleForceExport} />
           )}
         </div>
       ) : null}
@@ -341,9 +360,11 @@ function ExportConfirmControls(props: ExportConfirmControlsProps): JSX.Element {
 function BlockedNotice({
   plan,
   onCancel,
+  onForceExport,
 }: {
   plan: ExportPlan;
   onCancel: () => void;
+  onForceExport: () => void;
 }): JSX.Element {
   return (
     <section role="alert" data-testid="export-blocked">
@@ -371,9 +392,20 @@ function BlockedNotice({
           </ul>
         </div>
       ) : null}
-      <button type="button" onClick={onCancel} data-testid="blocked-dismiss">
-        Dismiss
-      </button>
+      <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+        <button type="button" onClick={onCancel} data-testid="blocked-dismiss">
+          Dismiss
+        </button>
+        <button
+          type="button"
+          onClick={onForceExport}
+          data-testid="force-export"
+          style={{ opacity: 0.8 }}
+          title="Export the plugin spec without passing code validation"
+        >
+          Force Export (skip validation)
+        </button>
+      </div>
     </section>
   );
 }

@@ -103,6 +103,7 @@ class ConfirmExportRequest(BaseModel):
     output_dir: Optional[str] = Field(None, description="User-accessible directory for a local .plg.")
     region_base_url: Optional[str] = Field(None, description="Tenant region base URL (tenant target).")
     api_key: Optional[str] = Field(None, description="Tenant API key (tenant target).")
+    force: bool = Field(False, description="Skip validation gate and force export even when blocked.")
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +401,9 @@ def create_app(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="No prepared export for this session; call export/prepare first.",
             )
+        # Allow force-export to bypass the validation gate.
+        if body.force:
+            plan._force = True
         credentials = None
         if body.target == "tenant":
             if not body.region_base_url or not body.api_key:
@@ -601,23 +605,59 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     Returns:
         A configured :class:`FastAPI` application.
     """
-    from ..persistence.registry import PluginRegistry
-    from ..orchestrator.interpreter import Interpreter
+    from ..integrations.build_engine import BuildEngine
+    from ..integrations.code_validator import CodeValidator
+    from ..integrations.export_manager import ExportManager
+    from ..integrations.insight_plugin_cli import InsightPluginCli
     from ..integrations.llm_generator import LLMGenerator
+    from ..integrations.refresh_coordinator import RefreshCoordinator
+    from ..orchestrator.interpreter import Interpreter
+    from ..persistence.audit_log import AuditLog
+    from ..persistence.registry import PluginRegistry
 
     projects_root = Path(config.paths.projects_root).expanduser()
     projects_root.mkdir(parents=True, exist_ok=True)
     config_root = Path(config.paths.config_root).expanduser()
     config_root.mkdir(parents=True, exist_ok=True)
 
+    # Persistence
     registry = PluginRegistry(config_root / "registry.db")
+    audit_log = AuditLog(config_root / "audit.log")
+
+    # Cost control
     cost_controller = _build_cost_controller(config)
+
+    # LLM generation (reasoning artifacts: action logic, field descriptions, help text)
     llm_generator = LLMGenerator(cost_controller, executable=config.llm.kiro_cli_path)
+
+    # insight-plugin CLI (scaffolding + refresh after structural edits)
+    insight_plugin_cli = InsightPluginCli(executable="insight-plugin")
+    refresh_coordinator = RefreshCoordinator(cli=insight_plugin_cli)
+
+    # Code validation (flake8 + Docker build/test + insight-plugin validate)
+    code_validator = CodeValidator(
+        lint_command=("flake8", "."),
+        docker_executable="docker",
+        insight_plugin_executable="insight-plugin",
+    )
+
+    # Build + export
+    build_engine = BuildEngine()
+    export_manager = ExportManager(build_engine=build_engine)
+
+    # NL interpretation layer
     interpreter = Interpreter(executable=config.llm.kiro_cli_path)
+
+    # Orchestrator with all collaborators
     orchestrator = Orchestrator(
         cost_controller=cost_controller,
         llm_generator=llm_generator,
+        refresh_coordinator=refresh_coordinator,
+        code_validator=code_validator,
+        build_engine=build_engine,
+        export_manager=export_manager,
         registry=registry,
+        audit_log=audit_log,
         projects_root=projects_root,
     )
     access_controller = AccessController(config.access, network_config=config.network)

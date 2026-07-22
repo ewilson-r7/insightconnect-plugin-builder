@@ -129,7 +129,7 @@ export function App() {
       <AppHeader />
       <main>
         <EntryModeSelector
-          onSelect={(mode) => start(mode)}
+          onSelect={(mode, extras) => start(mode, extras)}
           busy={busy}
           error={error}
         />

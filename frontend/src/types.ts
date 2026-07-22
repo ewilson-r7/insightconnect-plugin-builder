@@ -251,4 +251,5 @@ export interface ConfirmExportBody {
   output_dir?: string | null;
   region_base_url?: string | null;
   api_key?: string | null;
+  force?: boolean;
 }

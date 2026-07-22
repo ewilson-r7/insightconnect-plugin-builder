@@ -158,6 +158,7 @@ h1, h2, h3, h4, .r7-heading {
   flex: 1;
   min-height: 0;
   position: relative;
+  height: 100%;
 }
 
 .workspace__export {
@@ -238,6 +239,61 @@ h1, h2, h3, h4, .r7-heading {
 .entry-mode__error {
   color: var(--error);
   margin-top: 16px;
+}
+
+.entry-mode__description {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.entry-mode__input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.entry-mode__input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.entry-mode__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.entry-mode__input-submit {
+  background: var(--r7-flame-orange);
+  color: var(--r7-white);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.entry-mode__input-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.entry-mode__back-link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  margin-top: 12px;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.entry-mode__back-link:hover {
+  color: var(--text);
 }
 
 /* ==========================================================================
@@ -569,6 +625,7 @@ h1, h2, h3, h4, .r7-heading {
 .visualization-view__graph {
   position: relative;
   min-height: 0;
+  height: 100%;
 }
 
 .visualization-view__empty {

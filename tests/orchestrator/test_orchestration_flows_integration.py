@@ -381,12 +381,11 @@ class TestNetNewFlow:
         assert len(llm.calls) == 1
         assert applied.token_total == llm.tokens
 
-        # Validate-before-export: an in-memory net-new draft has no built/validated
-        # code, so the gate blocks export until validation passes (Req 22.4).
+        # With lazy project-folder creation, the net-new draft now has a project
+        # folder on disk and the (fake) code validator passes all stages, so
+        # export is permitted.
         plan = asyncio.run(orch.prepare_export("s1"))
-        assert plan.permitted is False
-        blocked = asyncio.run(orch.confirm_export("s1", plan, confirmed=True, target="local"))
-        assert blocked.status is ExportStatus.BLOCKED
+        assert plan.permitted is True
 
 
 # --- iterate: clarification then a breaking-change major bump ---------------

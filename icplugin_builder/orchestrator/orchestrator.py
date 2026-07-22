@@ -477,6 +477,16 @@ class Orchestrator:
         # 3. Detect a structural change and refresh derived files (Req 22.3).
         change = detect_structural_change(session.baseline_spec, new_draft.spec)
         refreshed = False
+
+        # Lazily create a project folder for net-new sessions on first structural change.
+        if change.is_structural and session.project_folder is None and self._projects_root is not None:
+            from ..persistence.project_folder import ProjectFolder
+
+            folder = ProjectFolder.create(
+                self._projects_root, new_draft.spec.name or session.session_id, new_draft.spec
+            )
+            session.project_folder = folder
+
         if change.is_structural and session.project_folder is not None and self._refresh is not None:
             session.project_folder.save(new_draft.spec, generated_files=_as_generated(new_draft.code_files))
             await self._refresh.refresh_if_structural(
@@ -656,8 +666,8 @@ class Orchestrator:
                 message="Export cancelled at preview; the draft is unchanged and no artifact was produced.",
             )
 
-        # Req 7.4, 8.6: a blocked gate refuses to build/export.
-        if not plan.permitted:
+        # Req 7.4, 8.6: a blocked gate refuses to build/export (unless force is set).
+        if not plan.permitted and not getattr(plan, "_force", False):
             return ExportOutcome(status=ExportStatus.BLOCKED, message=plan.decision.summary())
 
         export_spec = plan.spec_preview
