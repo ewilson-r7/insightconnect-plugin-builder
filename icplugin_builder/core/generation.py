@@ -36,6 +36,7 @@ __all__ = [
     "Route",
     "DETERMINISTIC_ARTIFACT_KINDS",
     "REASONING_ARTIFACT_KINDS",
+    "CODE_ARTIFACT_KINDS",
     "REQUESTABLE_ARTIFACT_KINDS",
     "GenerationRequest",
     "Classification",
@@ -95,6 +96,21 @@ REASONING_ARTIFACT_KINDS = frozenset(
         ArtifactKind.ACTION_LOGIC,
         ArtifactKind.FIELD_DESCRIPTION,
         ArtifactKind.HELP_TEXT,
+        ArtifactKind.API_CLIENT,
+        ArtifactKind.CONNECTION_LOGIC,
+    }
+)
+
+#: The reasoning kinds that mean "write plugin code". These are delegated to the
+#: Kiro CLI running as an *agent* in the plugin's working tree rather than
+#: requested as a text completion per artifact: they are interdependent files
+#: (the action bodies call the API client, the connection constructs it, the
+#: tests mock it) and correctness can only be established by running the
+#: toolchain over the result. The remaining reasoning kinds -- field descriptions
+#: and help text -- are self-contained prose and are generated directly.
+CODE_ARTIFACT_KINDS = frozenset(
+    {
+        ArtifactKind.ACTION_LOGIC,
         ArtifactKind.API_CLIENT,
         ArtifactKind.CONNECTION_LOGIC,
     }

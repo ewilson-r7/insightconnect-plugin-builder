@@ -110,6 +110,29 @@ class FakeLLM:
         return SimpleNamespace(kind=kind, content=self.content, tokens=self.tokens, session_total=self.tokens)
 
 
+class FakeAgent:
+    """A stand-in PluginAgent recording the implementation tasks it was given."""
+
+    def __init__(self, summary="Implemented 1 action; insight-plugin validate passed.", tokens=31):
+        self.summary = summary
+        self.tokens = tokens
+        self.calls = []
+
+    async def implement(self, project_dir, instruction, *, session_id, user_id):
+        self.calls.append((str(project_dir), instruction, session_id, user_id))
+        return SimpleNamespace(
+            succeeded=True,
+            summary=self.summary,
+            transcript=self.summary,
+            changed_files=("icon_x/util/api.py",),
+            credits=0.2,
+            tokens=self.tokens,
+            session_total=self.tokens,
+            returncode=0,
+            stderr="",
+        )
+
+
 class FakeUploader:
     """A tenant uploader returning a fixed HTTP status."""
 
@@ -319,16 +342,54 @@ class TestReasoningBoundary:
         assert "Acme" in result.generated[0].content
         assert llm.calls == []  # zero LLM calls for a template match (Req 3.3)
 
-    def test_unmatched_reasoning_dispatches_to_llm(self):
-        llm = FakeLLM(content="generated logic", tokens=17)
+    def test_unmatched_prose_reasoning_dispatches_to_llm(self):
+        llm = FakeLLM(content="Some help prose.", tokens=17)
         orch = Orchestrator(cost_controller=CostController(), llm_generator=llm)
         orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1")
-        request = GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, pattern=None, parameters={"action": "x"})
+        request = GenerationRequest(kind=ArtifactKind.HELP_TEXT, pattern=None, parameters={"topic": "x"})
         result = asyncio.run(orch.apply_turn("s1", TurnPlan(reasoning=[request])))
         assert result.generated[0].from_llm is True
-        assert result.generated[0].content == "generated logic"
+        assert result.generated[0].content == "Some help prose."
         assert result.generated[0].tokens == 17
         assert len(llm.calls) == 1
+
+    def test_code_reasoning_is_delegated_to_the_agent_not_the_llm(self, tmp_path):
+        # Code kinds are implemented by the delegated agent working in the
+        # project tree, never requested as a text completion from the LLM.
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        llm = FakeLLM()
+        agent = FakeAgent()
+        orch = Orchestrator(
+            cost_controller=CostController(),
+            llm_generator=llm,
+            plugin_agent=agent,
+            projects_root=tmp_path,
+        )
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        request = GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, pattern=None, parameters={"action": "list_things"})
+        result = asyncio.run(orch.apply_turn("s1", TurnPlan(reasoning=[request])))
+
+        assert result.status is TurnStatus.APPLIED
+        assert llm.calls == []  # the LLM is not asked to write code
+        assert len(agent.calls) == 1
+        project_dir, instruction, session_id, user_id = agent.calls[0]
+        assert project_dir.endswith("my_plugin")  # runs in the plugin's own tree
+        assert "list_things" in instruction  # the requested action is named
+        assert (session_id, user_id) == ("s1", "u1")
+        # The turn reports the agent's own account of what it did.
+        assert result.message == agent.summary
+
+    def test_code_reasoning_without_an_agent_is_a_no_op(self, tmp_path):
+        # No agent wired (e.g. Kiro CLI unavailable): the structural edit still
+        # applies rather than the turn failing outright.
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        llm = FakeLLM()
+        orch = Orchestrator(cost_controller=CostController(), llm_generator=llm, projects_root=tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        request = GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, pattern=None, parameters={"action": "x"})
+        result = asyncio.run(orch.apply_turn("s1", TurnPlan(reasoning=[request])))
+        assert result.status is TurnStatus.APPLIED
+        assert llm.calls == []
 
 
 # --- export preview (Req 12, 13, 16, 7, 8) ---------------------------------

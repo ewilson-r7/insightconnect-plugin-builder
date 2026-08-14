@@ -42,6 +42,7 @@ orchestrator-driving endpoints to the network.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -68,6 +69,8 @@ __all__ = [
     "create_app_from_config",
     "main",
 ]
+
+logger = logging.getLogger(__name__)
 
 #: Header carrying the optional access passphrase for protected HTTP routes.
 ACCESS_PASSPHRASE_HEADER = "X-Access-Passphrase"
@@ -622,11 +625,13 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     Returns:
         A configured :class:`FastAPI` application.
     """
+    from ..integrations.agent_config import AgentConfigError, missing_resources, write_agent_config
     from ..integrations.build_engine import BuildEngine
     from ..integrations.code_validator import CodeValidator
     from ..integrations.export_manager import ExportManager
     from ..integrations.insight_plugin_cli import InsightPluginCli
     from ..integrations.llm_generator import LLMGenerator
+    from ..integrations.plugin_agent import PluginAgent
     from ..integrations.refresh_coordinator import RefreshCoordinator
     from ..orchestrator.interpreter import Interpreter
     from ..persistence.audit_log import AuditLog
@@ -644,8 +649,26 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     # Cost control
     cost_controller = _build_cost_controller(config)
 
-    # LLM generation (reasoning artifacts: action logic, field descriptions, help text)
+    # LLM generation for prose reasoning artifacts (field descriptions, help text)
     llm_generator = LLMGenerator(cost_controller, executable=config.llm.kiro_cli_path)
+
+    # Delegated plugin implementation: the Kiro CLI run as an agent in the
+    # plugin's working tree, with the operator's plugin skills as its rulebook.
+    # Registering the agent config is best-effort -- a failure here must not stop
+    # the server from starting, because everything except code implementation
+    # still works without it.
+    try:
+        write_agent_config()
+    except AgentConfigError as error:  # pragma: no cover - filesystem dependent
+        logger.warning("could not register the plugin-builder agent config: %s", error)
+    absent = missing_resources()
+    if absent:
+        logger.warning(
+            "the plugin-builder agent will run with reduced guidance; "
+            "these plugin skills/steering files are not installed: %s",
+            ", ".join(absent),
+        )
+    plugin_agent = PluginAgent(cost_controller, executable=config.llm.kiro_cli_path)
 
     # insight-plugin CLI (scaffolding + refresh after structural edits)
     insight_plugin_cli = InsightPluginCli(executable="insight-plugin")
@@ -669,6 +692,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     orchestrator = Orchestrator(
         cost_controller=cost_controller,
         llm_generator=llm_generator,
+        plugin_agent=plugin_agent,
         refresh_coordinator=refresh_coordinator,
         code_validator=code_validator,
         build_engine=build_engine,

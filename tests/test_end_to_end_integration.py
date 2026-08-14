@@ -50,6 +50,7 @@ from icplugin_builder.integrations.code_validator import CodeValidator, StageNam
 from icplugin_builder.integrations.export_manager import ExportManager, UploadResponse
 from icplugin_builder.integrations.insight_plugin_cli import InsightPluginCli
 from icplugin_builder.integrations.llm_generator import LLMGenerator
+from icplugin_builder.integrations.plugin_agent import PluginAgent
 from icplugin_builder.integrations.refresh_coordinator import RefreshCoordinator
 from icplugin_builder.orchestrator import (
     AddComponent,
@@ -71,6 +72,19 @@ _KIRO_REPORTED_TOKENS = 37
 
 #: The action-logic body the mocked Kiro CLI "generates".
 _KIRO_CONTENT = "def run(self, params={}):\n    return {}"
+
+#: The transcript the mocked Kiro CLI *agent* run emits. Shaped like a real
+#: agentic run: narration of the tool calls it made, a ``> ``-prefixed closing
+#: report, and the credits footer. Nothing is parsed out of this as code -- the
+#: real agent writes files itself -- so the test asserts on the delegation
+#: happening and being accounted for, not on recovering a payload from stdout.
+_AGENT_TRANSCRIPT = (
+    "I'll create the following file: icon_acme_widget/util/api.py (using tool: write)\n"
+    "I will run the following command: insight-plugin validate (using tool: shell)\n"
+    "> Implemented list_widgets with an API client and unit tests. "
+    "insight-plugin validate and prospector both pass.\n"
+    " \u25b8 Credits: 0.42 \u2022 Time: 51s\n"
+)
 
 
 class _FakeProcess:
@@ -125,6 +139,8 @@ class MockedExternalProcesses:
             return "unknown"
         if argv[0] == "kiro":
             return "kiro"
+        if argv[0] == "kiro-cli":
+            return "agent"
         if argv[0] == "flake8":
             return StageName.LINT
         if argv[:2] == ["docker", "version"]:
@@ -156,6 +172,8 @@ class MockedExternalProcesses:
         if kind == "kiro":
             stdout = f"{_KIRO_CONTENT}\ntotal_tokens: {_KIRO_REPORTED_TOKENS}\n".encode("utf-8")
             return _FakeProcess(returncode=0, stdout=stdout)
+        if kind == "agent":
+            return _FakeProcess(returncode=0, stdout=_AGENT_TRANSCRIPT.encode("utf-8"))
         if kind == "docker_probe":
             return _FakeProcess(returncode=0, stdout=b"Docker version 25.0.0")
         # Every insight-plugin / docker / flake8 stage passes cleanly.
@@ -237,6 +255,7 @@ def _wire_real_stack(projects_root, *, uploader):
     orch = Orchestrator(
         cost_controller=cost,
         llm_generator=LLMGenerator(cost, executable="kiro"),
+        plugin_agent=PluginAgent(cost, executable="kiro-cli"),
         refresh_coordinator=RefreshCoordinator(cli=InsightPluginCli("insight-plugin")),
         code_validator=CodeValidator(
             lint_command=("flake8", "."),
@@ -288,17 +307,31 @@ class TestEndToEndCreateGenerateValidateBuildExport:
         )
 
         # -- generate: a structural turn drives the REAL refresh coordinator
-        # (insight-plugin refresh, mocked) and the REAL LLM_Generator (kiro,
+        # (insight-plugin refresh, mocked) and the REAL PluginAgent (kiro-cli,
         # mocked), gated and recorded by the real CostController.
         result = asyncio.run(orch.apply_turn("s1", _add_action_turn("list_widgets")))
         assert result.status is TurnStatus.APPLIED
         assert result.refreshed is True  # structural edit -> insight-plugin refresh (Req 22.3)
-        # The reasoning artifact came from the (mocked) Kiro CLI and its reported
-        # tokens were recorded on the cumulative session total (Req 3.5, 3.6).
-        assert any(g.from_llm for g in result.generated)
-        assert result.token_total == _KIRO_REPORTED_TOKENS
-        assert externals.count("kiro") == 1
         assert externals.count("insight-plugin:refresh") == 1
+
+        # Implementation was delegated to the Kiro CLI run as an agent: exactly
+        # one agent run, in the plugin's own project folder, with the prompt on
+        # stdin rather than in argv.
+        assert externals.count("agent") == 1
+        agent_argv, agent_cwd = next(
+            (argv, cwd) for argv, cwd in externals.dispatched if MockedExternalProcesses.classify(argv) == "agent"
+        )
+        assert "--no-interactive" in agent_argv
+        assert any(part.startswith("--trust-tools=") for part in agent_argv)
+        assert not any("list_widgets" in part for part in agent_argv)  # task is on stdin, not argv
+        assert str(agent_cwd).endswith("acme_widget")
+
+        # The turn reports the agent's own closing summary, and the run was
+        # recorded on the cumulative session total (Req 3.5, 3.6).
+        assert "insight-plugin validate" in result.message
+        assert result.token_total > 0
+        # No code was requested from the single-shot LLM path.
+        assert externals.count("kiro") == 0
 
         # -- validate + build + export are driven through the REAL FastAPI app,
         # the same HTTP surface the packaged UI calls (Req 20.1).

@@ -45,13 +45,14 @@ import copy
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from ..core.atomic import atomic_apply
 from ..core.cost_controller import CostController
 from ..core.diff import diff_file_trees
 from ..core.draft import ComponentNotFoundError, Draft, DraftError
 from ..core.generation import (
+    CODE_ARTIFACT_KINDS,
     ArtifactKind,
     GenerationRequest,
     TemplateLibrary,
@@ -73,6 +74,7 @@ from ..integrations.code_validator import CodeValidator, PipelineReport
 from ..integrations.export_gate import decide_export
 from ..integrations.export_manager import ExportManager, TenantCredentials
 from ..integrations.llm_generator import CostLimitError, LLMGenerator, LLMGeneratorError
+from ..integrations.plugin_agent import AgentRunResult, PluginAgent
 from ..integrations.refresh_coordinator import RefreshCoordinator, detect_structural_change
 from ..persistence.audit_log import AuditLog
 from ..persistence.project_folder import (
@@ -184,6 +186,7 @@ class Orchestrator:
         *,
         cost_controller: Optional[CostController] = None,
         llm_generator: Optional[LLMGenerator] = None,
+        plugin_agent: Optional[PluginAgent] = None,
         template_library: Optional[TemplateLibrary] = None,
         refresh_coordinator: Optional[RefreshCoordinator] = None,
         spec_validator: Optional[SpecValidator] = None,
@@ -200,8 +203,13 @@ class Orchestrator:
         Args:
             cost_controller: gates and records LLM usage; also the source of the
                 cumulative session token total (Req 3.6, 4).
-            llm_generator: the cost-gated Kiro CLI dispatcher for reasoning
-                artifacts (Req 3.2).
+            llm_generator: the cost-gated Kiro CLI dispatcher for prose reasoning
+                artifacts -- field descriptions and help text (Req 3.2).
+            plugin_agent: the delegated Kiro CLI *agent* that implements plugin
+                code in place (the API client, connection, action bodies, and
+                unit tests). Code implementation is delegated rather than
+                prompted for and spliced, so it requires a project folder on
+                disk to work in.
             template_library: templates consulted before dispatching to the LLM;
                 defaults to :func:`default_template_library` (Req 3.3).
             refresh_coordinator: runs ``insight-plugin refresh`` after structural
@@ -222,6 +230,7 @@ class Orchestrator:
         """
         self._cost_controller = cost_controller
         self._llm = llm_generator
+        self._agent = plugin_agent
         self._template_library = template_library if template_library is not None else default_template_library()
         self._refresh = refresh_coordinator
         self._spec_validator = spec_validator if spec_validator is not None else SpecValidator()
@@ -463,9 +472,13 @@ class Orchestrator:
                 token_total=self.token_total(session_id),
             )
 
-        # 2. Produce reasoning artifacts across the deterministic/LLM boundary.
+        # 2. Produce the prose reasoning artifacts (field descriptions, help
+        #    text). These are pure text and touch no files, so they can run
+        #    before the working tree exists. Code implementation is *not* done
+        #    here -- it is delegated in step 5, after the scaffold exists.
+        prose_requests, code_requests = _partition_reasoning(plan.reasoning)
         try:
-            generated = await self._dispatch_reasoning(session, plan.reasoning)
+            generated = await self._dispatch_reasoning(session, prose_requests)
         except (CostLimitError, LLMGeneratorError) as error:
             # Halt the step; nothing is committed, so the draft is unchanged (Req 1.7, 3.7).
             return TurnResult(
@@ -500,12 +513,42 @@ class Orchestrator:
         session.draft = new_draft
         session.generated.extend(generated)
 
-        # 5. Write generated action logic into action.py files on disk (if project folder exists).
-        if generated and session.project_folder is not None:
-            _inject_action_logic(session.project_folder.path, generated)
+        # 5. Delegate code implementation to the Kiro agent, in the project
+        #    folder, now that the scaffold exists. The agent edits the files
+        #    itself; nothing is spliced back from its output.
+        message = ""
+        if code_requests:
+            try:
+                run = await self._delegate_implementation(session, code_requests)
+            except (CostLimitError, LLMGeneratorError) as error:
+                # The draft edits are already committed and the scaffold is on
+                # disk; only the implementation failed. Report it as a failed
+                # turn carrying the current spec so the user can retry the
+                # implementation without redoing the structural edit.
+                return TurnResult(
+                    status=TurnStatus.FAILED,
+                    message=str(error),
+                    spec=new_draft.spec,
+                    refreshed=refreshed,
+                    structural_reasons=tuple(change.reasons),
+                    token_total=self.token_total(session_id),
+                )
+            if run is not None:
+                generated.append(
+                    GeneratedArtifact(
+                        kind=ArtifactKind.ACTION_LOGIC,
+                        content=run.summary,
+                        from_llm=True,
+                        tokens=run.tokens,
+                        name="implementation",
+                    )
+                )
+                session.generated.append(generated[-1])
+                message = run.summary
 
         return TurnResult(
             status=TurnStatus.APPLIED,
+            message=message,
             spec=new_draft.spec,
             generated=tuple(generated),
             refreshed=refreshed,
@@ -513,16 +556,59 @@ class Orchestrator:
             token_total=self.token_total(session_id),
         )
 
+    async def _delegate_implementation(
+        self,
+        session: SessionState,
+        requests: Sequence[GenerationRequest],
+    ) -> Optional[AgentRunResult]:
+        """Delegate plugin code implementation to the Kiro agent (one run per turn).
+
+        The agent is given the project directory and a task naming the components
+        to implement; it reads the spec, writes the API client, connection, action
+        bodies, and unit tests, and runs the toolchain to verify itself. The
+        standing rules and the definition of done live in the agent config, and
+        the plugin conventions live in the skills that config references, so the
+        instruction assembled here stays a task rather than a restated rulebook.
+
+        Returns:
+            The :class:`AgentRunResult`, or ``None`` when delegation could not be
+            attempted because no agent or project folder is available.
+
+        Raises:
+            CostLimitError: if the Cost_Controller blocks the run.
+            PluginAgentError: if the agent run fails; carries the CLI's stderr.
+        """
+        if self._agent is None or session.project_folder is None:
+            return None
+
+        actions = [
+            str(request.parameters.get("action"))
+            for request in requests
+            if request.kind is ArtifactKind.ACTION_LOGIC and request.parameters.get("action")
+        ]
+        return await self._agent.implement(
+            session.project_folder.path,
+            _implementation_instruction(session.spec, actions),
+            session_id=session.session_id,
+            user_id=session.user_id,
+        )
+
     async def _dispatch_reasoning(
         self,
         session: SessionState,
         requests: Sequence[GenerationRequest],
     ) -> List[GeneratedArtifact]:
-        """Classify and produce each reasoning artifact (Req 3.2, 3.3, 3.4).
+        """Classify and produce each *prose* reasoning artifact (Req 3.2, 3.3, 3.4).
 
         A request that matches a template is rendered deterministically with zero
         LLM calls; otherwise it is dispatched to the cost-gated
         :class:`LLMGenerator`.
+
+        Code artifacts do not come through here. Implementing plugin code means
+        writing several interdependent files and running the toolchain to check
+        them, which is delegated to the Kiro agent in
+        :meth:`_delegate_implementation` rather than requested as a text
+        completion per artifact.
         """
         produced: List[GeneratedArtifact] = []
         for request in requests:
@@ -530,9 +616,7 @@ class Orchestrator:
             if classification.requires_llm:
                 if self._llm is None:
                     raise LLMGeneratorError("an LLM_Generator is required to produce reasoning content")
-                # Enrich the scoped context with the action's spec details so the
-                # LLM has enough information to produce working implementation code.
-                scoped = _enrich_reasoning_context(session, request)
+                scoped = _prose_context(session, request)
                 result = await self._llm.generate(
                     classification.kind,
                     scoped,
@@ -924,19 +1008,40 @@ def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
     return {str(path): content for path, content in code_files.items()}
 
 
-def _enrich_reasoning_context(session: SessionState, request: GenerationRequest) -> Dict[str, Any]:
-    """Build a rich scoped context for the LLM so it can produce working code.
+def _partition_reasoning(
+    requests: Sequence[GenerationRequest],
+) -> Tuple[List[GenerationRequest], List[GenerationRequest]]:
+    """Split reasoning requests into (prose, code).
 
-    For ``api_client`` and ``connection_logic`` kinds, provides the full plugin
-    overview (all actions, all endpoints). For ``action_logic``, provides the
-    single action's I/O schema and matching endpoint details.
+    Prose artifacts -- field descriptions and help text -- are single pieces of
+    text with no dependency on the working tree, so they are generated directly.
+    Code artifacts are delegated to the Kiro agent as one implementation task,
+    because writing an API client, a connection, action bodies and their tests
+    is a set of interdependent edits that has to be verified by running the
+    toolchain, not a set of independent completions.
     """
-    from ..integrations.api_spec_parser import find_endpoint_for_action, parse_openapi_spec
+    prose: List[GenerationRequest] = []
+    code: List[GenerationRequest] = []
+    for request in requests:
+        if request.kind in CODE_ARTIFACT_KINDS:
+            code.append(request)
+        else:
+            prose.append(request)
+    return prose, code
 
+
+def _prose_context(session: SessionState, request: GenerationRequest) -> Dict[str, Any]:
+    """Build the scoped context for a prose artifact (field description, help text).
+
+    Scoped on purpose (design "Prompt scoping"): the plugin's identity and its
+    connection contract are enough to describe a field or write help prose, and
+    the whole project tree is never sent.
+    """
     context: Dict[str, Any] = dict(request.parameters)
     spec = session.spec
 
     context["plugin_name"] = spec.name
+    context["plugin_title"] = spec.title
     context["plugin_description"] = spec.description
     if spec.connection:
         context["connection_fields"] = {
@@ -944,260 +1049,52 @@ def _enrich_reasoning_context(session: SessionState, request: GenerationRequest)
             for name, fs in spec.connection.items()
         }
 
-    # For API_CLIENT and CONNECTION_LOGIC, provide full plugin context (all actions + endpoints)
-    if request.kind in (ArtifactKind.API_CLIENT, ArtifactKind.CONNECTION_LOGIC):
-        # Build actions summary (list of action names)
-        context["actions_summary"] = list((spec.actions or {}).keys())
-
-        # Build API class name from plugin name
-        parts = (spec.name or "plugin").split("_")
-        # Remove common prefixes like 'rapid7', 'komand'
-        if parts[0] in ("rapid7", "komand", "icon"):
-            parts = parts[1:]
-        class_name = "".join(word.capitalize() for word in parts) + "API"
-        context["api_class_name"] = class_name
-
-        # Extract all endpoint details from the OpenAPI spec if available
-        if session.api_spec_content:
-            parsed_spec = parse_openapi_spec(session.api_spec_content)
-            if parsed_spec:
-                api_endpoints: Dict[str, Dict[str, Any]] = {}
-                for action_name in spec.actions or {}:
-                    endpoint = find_endpoint_for_action(parsed_spec, action_name)
-                    if endpoint:
-                        api_endpoints[action_name] = {
-                            "method": endpoint.http_method,
-                            "path": endpoint.path,
-                            "query_params": endpoint.query_params,
-                            "request_body": endpoint.request_body,
-                            "response_shape": endpoint.response_shape,
-                            "success_status": endpoint.success_status,
-                        }
-                if api_endpoints:
-                    context["api_endpoints"] = api_endpoints
-
-        return context
-
-    # For ACTION_LOGIC: single-action context
     action_name = request.parameters.get("action", "")
-
     if action_name and action_name in (spec.actions or {}):
         action = spec.actions[action_name]
         context["action_title"] = action.title
         context["action_description"] = action.description
-        context["input_fields"] = {
-            name: {"type": fs.type, "required": fs.required, "description": fs.description}
-            for name, fs in (action.input or {}).items()
-        }
-        context["output_fields"] = {
-            name: {"type": fs.type, "required": fs.required, "description": fs.description}
-            for name, fs in (action.output or {}).items()
-        }
-
-    # Phase 1: If an OpenAPI spec is stored on the session, extract per-action endpoint details.
-    if session.api_spec_content and action_name:
-        parsed_spec = parse_openapi_spec(session.api_spec_content)
-        if parsed_spec:
-            endpoint = find_endpoint_for_action(parsed_spec, action_name)
-            if endpoint:
-                context["api_method"] = endpoint.http_method
-                context["api_path"] = endpoint.path
-                context["api_query_params"] = endpoint.query_params
-                context["api_request_body"] = endpoint.request_body
-                context["api_response_shape"] = endpoint.response_shape
-                context["api_success_status"] = endpoint.success_status
-
-    # Phase 2: If no API endpoint details were found (no spec attached or no match),
-    # fall back to web search for API documentation.
-    if "api_method" not in context and action_name:
-        from ..integrations.api_doc_search import search_api_docs
-
-        # Use a module-level cache so repeated actions in the same plugin share one fetch.
-        cache = _get_api_doc_cache()
-        action_desc = context.get("action_description", "")
-        result = search_api_docs(
-            plugin_name=spec.name or "",
-            plugin_description=spec.description or "",
-            action_name=action_name,
-            action_description=action_desc,
-            cache=cache,
-        )
-        if result.found and result.relevant_content:
-            context["web_api_docs"] = result.relevant_content
-            context["web_api_docs_source"] = result.source_url
 
     return context
 
 
-# Module-level cache for web-fetched API docs (shared across actions in one server process).
-_api_doc_cache: Any = None
+def _implementation_instruction(spec: PluginSpec, actions: Sequence[str]) -> str:
+    """Build the task handed to the delegated agent.
 
+    Task only. The standing rules and the definition of done live in the agent
+    config, and the plugin conventions live in the skills that config loads, so
+    nothing here restates them -- a second copy of those rules maintained in this
+    codebase would drift from the real ones and then contradict them.
 
-def _get_api_doc_cache() -> Any:
-    """Return the module-level API doc search cache (lazy init)."""
-    global _api_doc_cache
-    if _api_doc_cache is None:
-        from ..integrations.api_doc_search import ApiDocCache
-
-        _api_doc_cache = ApiDocCache()
-    return _api_doc_cache
-
-
-def _inject_action_logic(project_path: Path, generated: Sequence[GeneratedArtifact]) -> None:
-    """Write generated artifacts into the project's files on disk.
-
-    Handles three artifact kinds:
-    - API_CLIENT: writes content to util/api.py (creates the file/directory)
-    - CONNECTION_LOGIC: injects connect/test bodies into connection/connection.py
-    - ACTION_LOGIC: injects run() body into each action's action.py
+    The spec itself is not inlined: it is on disk as ``plugin.spec.yaml`` in the
+    directory the agent is working in, and the agent can read it. Passing a
+    serialized copy in the prompt would risk it diverging from the file the
+    toolchain actually reads.
     """
-    import glob as _glob
-    import re as _re
-
-    for artifact in generated:
-        if not artifact.content or not artifact.content.strip():
-            continue
-
-        if artifact.kind == ArtifactKind.API_CLIENT:
-            _write_api_client(project_path, artifact.content)
-        elif artifact.kind == ArtifactKind.CONNECTION_LOGIC:
-            _write_connection_logic(project_path, artifact.content)
-        elif artifact.kind == ArtifactKind.ACTION_LOGIC:
-            action_name = getattr(artifact, "name", None) or ""
-            if not action_name:
-                continue
-            _write_action_logic(project_path, action_name, artifact.content, _glob, _re)
-
-
-def _write_api_client(project_path: Path, content: str) -> None:
-    """Write the generated API client to util/api.py in the project."""
-    import glob as _glob
-
-    # Find the package directory (the one with actions/ in it)
-    pattern = str(project_path / "*" / "actions")
-    matches = _glob.glob(pattern)
-    if not matches:
-        # Fallback: look for any subdirectory that looks like a package
-        pattern = str(project_path / "*" / "__init__.py")
-        matches = _glob.glob(pattern)
-        if matches:
-            package_dir = Path(matches[0]).parent
-        else:
-            return
-    else:
-        package_dir = Path(matches[0]).parent
-
-    util_dir = package_dir / "util"
-    util_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write __init__.py if it doesn't exist
-    init_file = util_dir / "__init__.py"
-    if not init_file.exists():
-        init_file.write_text("", encoding="utf-8")
-
-    # Write the API client file
-    api_file = util_dir / "api.py"
-    api_file.write_text(content.strip() + "\n", encoding="utf-8")
-
-
-def _write_connection_logic(project_path: Path, content: str) -> None:
-    """Inject generated connect/test logic into connection/connection.py."""
-    import glob as _glob
-
-    # Find connection.py
-    pattern = str(project_path / "*" / "connection" / "connection.py")
-    matches = _glob.glob(pattern)
-    if not matches:
-        return
-
-    conn_file = Path(matches[0])
-    try:
-        original = conn_file.read_text(encoding="utf-8")
-    except OSError:
-        return
-
-    # The connection.py has a connect() method with a pass or placeholder.
-    # We need to inject the generated logic. Look for the connect method body.
-    # Strategy: find "def connect(self, params" and replace its body.
-
-    # Split the content into connect body and test body
-    # The LLM outputs them separated by "# --- connect body ---" / "# --- test body ---"
-    connect_body = ""
-    test_body = ""
-
-    if "# --- connect body ---" in content and "# --- test body ---" in content:
-        parts = content.split("# --- test body ---")
-        connect_part = parts[0].replace("# --- connect body ---", "").strip()
-        test_part = parts[1].strip() if len(parts) > 1 else ""
-        connect_body = connect_part
-        test_body = test_part
-    else:
-        # Just use the whole content as the connect body
-        connect_body = content.strip()
-
-    # Inject connect body
-    if connect_body:
-        # Find the connect method and replace its body
-        # Pattern: def connect(self, params=...):  followed by indented body
-        import re
-
-        # Replace existing connect body (everything between def connect and the next def or end)
-        connect_pattern = r"(def connect\(self, params[^)]*\):\s*\n)(\s+.*?)(?=\n    def |\n\nclass |\Z)"
-        indent = "        "
-        indented_connect = "\n".join(indent + line if line.strip() else "" for line in connect_body.split("\n"))
-        replacement = r"\1" + indented_connect + "\n"
-        new_content = re.sub(connect_pattern, replacement, original, count=1, flags=re.DOTALL)
-
-        if new_content != original:
-            original = new_content
-
-    # Inject test body
-    if test_body:
-        import re
-
-        test_pattern = r"(def test\(self[^)]*\):\s*\n)(\s+.*?)(?=\n    def |\n\nclass |\Z)"
-        indent = "        "
-        indented_test = "\n".join(indent + line if line.strip() else "" for line in test_body.split("\n"))
-        replacement = r"\1" + indented_test + "\n"
-        new_content = re.sub(test_pattern, replacement, original, count=1, flags=re.DOTALL)
-
-        if new_content != original:
-            original = new_content
-
-    conn_file.write_text(original, encoding="utf-8")
-
-
-def _write_action_logic(project_path: Path, action_name: str, content: str, _glob: Any, _re: Any) -> None:
-    """Inject generated logic into a single action's action.py file."""
-    pattern = str(project_path / "**" / "actions" / action_name / "action.py")
-    matches = _glob.glob(pattern, recursive=True)
-    if not matches:
-        return
-
-    action_file = Path(matches[0])
-    try:
-        original = action_file.read_text(encoding="utf-8")
-    except OSError:
-        return
-
-    end_marker = "# END INPUT BINDING - DO NOT REMOVE"
-    if end_marker not in original:
-        # Fallback: replace the entire return statement
-        new_content = _re.sub(
-            r"(\s+)return \{[^}]*\}",
-            lambda m: m.group(1) + content.strip().replace("\n", "\n" + m.group(1)),
-            original,
-            count=1,
+    lines = [
+        f"Implement the InsightConnect plugin '{spec.name}' in this directory.",
+        "",
+        "Read plugin.spec.yaml for what to build.",
+    ]
+    if actions:
+        listed = ", ".join(sorted(set(actions)))
+        lines.extend(
+            [
+                "",
+                f"Actions to implement in this pass: {listed}.",
+                "Also implement whatever shared code they need (API client, connection,",
+                "constants) and unit tests covering them.",
+            ]
         )
     else:
-        # Split at the marker, keep everything before + marker, add generated logic
-        parts = original.split(end_marker, 1)
-        indent = "        "  # 8 spaces (inside run() method body)
-        logic_lines = content.strip().split("\n")
-        indented_logic = "\n".join(indent + line if line.strip() else "" for line in logic_lines)
-        new_content = parts[0] + end_marker + "\n\n" + indented_logic + "\n"
-
-    action_file.write_text(new_content, encoding="utf-8")
+        lines.extend(
+            [
+                "",
+                "Implement the connection, the API client, every action defined in the",
+                "spec, and unit tests covering them.",
+            ]
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _read_dir_tree(root: Union[str, Path]) -> Dict[str, Any]:

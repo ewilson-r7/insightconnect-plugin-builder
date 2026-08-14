@@ -124,6 +124,36 @@ class FakeLLM:
         return SimpleNamespace(kind=kind, content=self.content, tokens=self.tokens, session_total=total)
 
 
+class FakeAgent:
+    """A stand-in delegated PluginAgent that records usage against the controller.
+
+    Code implementation is delegated to the Kiro CLI running as an agent in the
+    plugin's working tree, so the flow tests assert that the delegation happened
+    and was accounted for -- not that a code string came back to be spliced in.
+    """
+
+    def __init__(self, cost_controller, *, summary="Implemented; validate passed.", tokens=50):
+        self.cost = cost_controller
+        self.summary = summary
+        self.tokens = tokens
+        self.calls = []
+
+    async def implement(self, project_dir, instruction, *, session_id, user_id):
+        self.calls.append((str(project_dir), instruction, session_id, user_id))
+        total = self.cost.record_usage(session_id, self.tokens, True)
+        return SimpleNamespace(
+            succeeded=True,
+            summary=self.summary,
+            transcript=self.summary,
+            changed_files=("icon_acme_widget/util/api.py",),
+            credits=0.3,
+            tokens=self.tokens,
+            session_total=total,
+            returncode=0,
+            stderr="",
+        )
+
+
 class FakeUploader:
     """A tenant uploader returning a fixed HTTP status for every upload."""
 
@@ -167,10 +197,12 @@ def build_orchestrator(projects_root, *, uploader=None):
     """Wire an orchestrator with real logic/persistence and mocked externals."""
     cost = CostController()
     llm = FakeLLM(cost)
+    agent = FakeAgent(cost)
     export_manager = ExportManager(uploader=uploader) if uploader is not None else ExportManager()
     orch = Orchestrator(
         cost_controller=cost,
         llm_generator=llm,
+        plugin_agent=agent,
         refresh_coordinator=RefreshCoordinator(cli=FakeCli()),
         code_validator=FakeCodeValidator(passing=True),
         registry=PluginRegistry(str(projects_root / "registry.db")),
@@ -178,7 +210,7 @@ def build_orchestrator(projects_root, *, uploader=None):
         export_manager=export_manager,
         projects_root=projects_root,
     )
-    return orch, llm
+    return orch, llm, agent
 
 
 # --- iterate: full two-export lifecycle ------------------------------------
@@ -189,13 +221,14 @@ class TestIterateLifecycleFlow:
 
     def test_iterate_create_export_iterate_reexport_end_to_end(self, tmp_path):
         seed_project(tmp_path, name="acme_widget", vendor="acme")
-        orch, llm = build_orchestrator(tmp_path, uploader=FakeUploader(status_code=200))
+        orch, llm, agent = build_orchestrator(tmp_path, uploader=FakeUploader(status_code=200))
         state = orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="acme_widget")
         assert state.entry_mode == ENTRY_MODE_ITERATE_CUSTOM
 
         # Turn 1: add an action plus two reasoning artifacts. The field
-        # description matches a template (zero LLM calls) while the action logic
-        # has no template and is dispatched to the mocked LLM (Req 3.2, 3.3).
+        # description matches a template and renders with zero LLM calls
+        # (Req 3.3); the action logic is code, so it is delegated to the agent
+        # working in the project tree rather than prompted for as text.
         turn1 = TurnPlan(
             operations=[AddComponent(ComponentKind.ACTION, "list_widgets", make_action())],
             reasoning=[
@@ -216,8 +249,13 @@ class TestIterateLifecycleFlow:
         assert result1.refreshed is True  # structural edit refreshed derived files (Req 22.3)
         kinds = {(g.kind, g.from_llm) for g in result1.generated}
         assert (ArtifactKind.TEMPLATE_MATCH, False) in kinds  # rendered deterministically
-        assert (ArtifactKind.ACTION_LOGIC, True) in kinds  # dispatched to the LLM
-        assert result1.token_total == llm.tokens  # only the LLM call counts (Req 3.5, 3.6)
+        # The code artifact was implemented by the delegated agent, in the
+        # plugin's own project folder, and the LLM was not asked for code.
+        assert llm.calls == []
+        assert len(agent.calls) == 1
+        assert agent.calls[0][0].endswith("acme_widget")
+        assert "list_widgets" in agent.calls[0][1]
+        assert result1.token_total == agent.tokens  # only the delegated run counts (Req 3.5, 3.6)
 
         # Turn 2: a metadata-only edit is non-structural and triggers no refresh.
         result2 = asyncio.run(orch.apply_turn("s1", TurnPlan(operations=[UpdateMetadata(title="Acme Widget Pro")])))
@@ -307,7 +345,7 @@ class TestEnhanceForkFlow:
         )
         source_provider = SimpleNamespace(import_plugin=lambda source, name: import_result)
 
-        orch, _ = build_orchestrator(tmp_path)
+        orch, _, _ = build_orchestrator(tmp_path)
         orch._source_provider = source_provider  # inject the mocked source provider
 
         state = orch.start_session(
@@ -349,7 +387,7 @@ class TestNetNewFlow:
     """Start empty, walk the input/clarification/reasoning turns, gate export."""
 
     def test_net_new_conversation_then_export_gate_blocks_unvalidated_draft(self, tmp_path):
-        orch, llm = build_orchestrator(tmp_path)
+        orch, llm, agent = build_orchestrator(tmp_path)
         state = orch.start_session(
             ENTRY_MODE_CREATE_NEW,
             session_id="s1",
@@ -370,7 +408,7 @@ class TestNetNewFlow:
         assert clar.status is TurnStatus.CLARIFICATION
         assert orch.session("s1").spec is before
 
-        # A concrete turn adds an action and dispatches an LLM reasoning artifact.
+        # A concrete turn adds an action and delegates its implementation.
         turn = TurnPlan(
             operations=[AddComponent(ComponentKind.ACTION, "scan", make_action())],
             reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, pattern=None, parameters={"action": "scan"})],
@@ -378,8 +416,8 @@ class TestNetNewFlow:
         applied = asyncio.run(orch.submit_message("s1", "add a scan action", plan=turn))
         assert applied.status is TurnStatus.APPLIED
         assert "scan" in orch.session("s1").spec.actions
-        assert len(llm.calls) == 1
-        assert applied.token_total == llm.tokens
+        assert len(agent.calls) == 1
+        assert applied.token_total == agent.tokens
 
         # With lazy project-folder creation, the net-new draft now has a project
         # folder on disk and the (fake) code validator passes all stages, so
@@ -399,7 +437,7 @@ class TestBreakingChangeBumpFlow:
         # prior 1.0.0 export so a bump has a baseline to exceed.
         action = make_action(inputs={"host": FieldSchema(type="string", required=False, title="Host")})
         seed_project(tmp_path, name="acme_gadget", vendor="acme", actions={"list_items": action})
-        orch, _ = build_orchestrator(tmp_path)
+        orch, _, _ = build_orchestrator(tmp_path)
         registry = PluginRegistry(str(tmp_path / "registry.db"))
         registry.record_creation("acme_gadget", "acme_custom", "1.0.0")
         registry.record_export("acme_gadget", "1.0.0", target="local")
