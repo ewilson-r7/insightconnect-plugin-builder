@@ -517,6 +517,129 @@ Tasks marked with `*` are optional test tasks and can be skipped for a faster MV
 - [x] 25. Final checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
+## Revision: delegated implementation and corrective validation
+
+Tasks 1–25 above are a faithful record of the original build and are left as
+completed, because that work was genuinely done. It produced a tool that
+satisfied every requirement it was given and emitted plugins with unparseable
+Python, no API client, stub connection tests, and unimplemented unit tests. The
+tasks below cover the revision that followed, against the revised Requirement 3
+and the new Requirements 26–30.
+
+- [x] 26. Establish the agent rulebook and prerequisites
+  - [x] 26.1 Install the operator's plugin skills and steering at user level so they resolve from any working directory
+    - _Requirements: 20.7_
+  - [x] 26.2 Record the project's definition of done and conventions as workspace steering
+    - _Requirements: 27.1_
+
+- [x] 27. Delegate implementation to the Kiro CLI as an agent
+  - [x] 27.1 Implement the default-deny environment construction for delegated subprocesses
+    - Admit only a fixed base set plus the tool's own auth prefixes; report withheld names without values
+    - _Requirements: 29.1, 29.2, 29.7_
+  - [x] 27.2 Generate the agent configuration referencing the operator's skills as resources
+    - Enumerate granted tools explicitly; never overwrite an operator-authored config; prune absent resources and report reduced guidance
+    - _Requirements: 20.7, 20.8, 29.4_
+  - [x] 27.3 Implement the delegation seam
+    - Prompt on stdin, plugin directory as cwd, stderr surfaced on failure, change set observed by tree comparison
+    - _Requirements: 3.4, 3.6, 29.3, 29.5_
+  - [x] 27.4 Remove the text-splicing path and the hand-maintained prompt rulebook
+    - _Requirements: 3.5, 3.7, 20.7_
+  - [x] 27.5 Property test: code generation is delegated, never assembled from model text
+    - **Property 8** — **Validates: Requirements 3.4, 3.5, 3.7**
+  - [x] 27.6 Property test: observed change set, not reported change set
+    - **Property 52** — **Validates: Requirements 3.6, 27.4**
+  - [x] 27.7 Property test: delegated subprocesses receive a default-deny environment
+    - **Property 59** — **Validates: Requirements 29.1, 29.2, 29.3**
+
+- [x] 28. Scaffold deterministically and resolve versions from source
+  - [x] 28.1 Correct the insight-plugin create wrapper's contract
+    - Invoke from the parent; stage the spec out of tree; judge success by whether the tree appeared; detect the prefix from the result
+    - _Requirements: 3.2, 3.3_
+  - [x] 28.2 Add project-folder adoption for an already-scaffolded tree
+    - _Requirements: 3.2, 21.1_
+  - [x] 28.3 Implement build prep: SDK version from the changelog, target interpreter from the installed set, tool presence
+    - _Requirements: 30.6, 30.7, 30.9, 30.10_
+  - [x] 28.4 Stamp the resolved SDK version onto the draft before scaffolding
+    - _Requirements: 30.8_
+  - [x] 28.5 Implement the spec completeness check, reported separately from schema validation
+    - _Requirements: 30.1, 30.2, 30.3, 30.4, 30.5_
+  - [x] 28.6 Property test: scaffolding success is judged by outcome
+    - **Property 53** — **Validates: Requirements 3.2, 3.3**
+  - [x] 28.7 Property test: spec completeness is reported separately and completely
+    - **Property 61** — **Validates: Requirements 30.1, 30.2, 30.3, 30.5**
+  - [x] 28.8 Property test: resolved versions come from their authoritative source
+    - **Property 62** — **Validates: Requirements 30.6, 30.7, 30.8**
+
+- [x] 29. Make validation corrective
+  - [x] 29.1 Implement the quality gate: parse, format, lint, unit tests, coverage
+    - Exclude generated files; report an unavailable tool as skipped; drop coverage rather than break the test run when unmeasurable
+    - _Requirements: 26.1, 26.2, 26.3, 26.4_
+  - [x] 29.2 Implement the repair loop with deterministic termination
+    - Finding-key comparison; stall on zero resolved; explicit round limit; "nothing remains" derived from findings
+    - _Requirements: 26.5, 26.6, 26.7, 26.8, 26.9_
+  - [x] 29.3 Wire repair after implementation and instruct against editing generated files
+    - _Requirements: 26.5, 26.12_
+  - [x] 29.4 Property test: generated files produce no findings
+    - **Property 54** — **Validates: Requirements 26.3**
+  - [x] 29.5 Property test: finding identity is stable under position shift
+    - **Property 55** — **Validates: Requirements 26.10, 26.11**
+  - [x] 29.6 Property test: repair termination is total, deterministic, and honestly labelled
+    - **Property 56** — **Validates: Requirements 26.6, 26.7, 26.8, 26.9**
+  - [x] 29.7 Property test: a skipped check is distinguishable from a passing check
+    - **Property 58** — **Validates: Requirements 26.4, 30.9**
+
+- [x] 30. Supply vendor reference material to the agent
+  - [x] 30.1 Retain attachments on the session and stage them in the project folder
+    - Verbatim; inside the tool-owned subtree; filename derived so a supplied name cannot escape
+    - _Requirements: 28.1, 28.2, 28.3, 28.4, 28.7_
+  - [x] 30.2 Name the staged files in the delegation instruction with what to use them for
+    - _Requirements: 28.5, 28.6_
+  - [x] 30.3 Property test: reference material reaches the agent intact and leaves nothing behind
+    - **Property 60** — **Validates: Requirements 28.2, 28.3, 28.4, 28.5, 28.6**
+
+- [x] 31. Correct usage accounting
+  - [x] 31.1 Read the reported usage figure from the stream the CLI writes it to
+    - Search all captured streams; represent an unreported figure as unknown rather than zero
+    - _Requirements: 3.11, 3.12_
+  - [x] 31.2 Accumulate reported usage across implementation and repair runs and expose it alongside the token total
+    - _Requirements: 3.9, 3.10, 3.11_
+
+- [x] 32. Bring the specification back in line with the implementation
+  - [x] 32.1 Revise Requirement 3 and add Requirements 26–30
+    - _Requirements: all_
+  - [x] 32.2 Revise the design's overview, decision boundary, and Properties 7–8; add Properties 52–62
+    - _Requirements: all_
+  - [x] 32.3 Record the revision in this plan
+    - _Requirements: all_
+
+## Remaining work
+
+Not yet implemented. Listed so the gap between this plan and the code is visible
+rather than discovered.
+
+- [ ] 33. Enforce the definition of done as a single checkable gate
+  - [ ] 33.1 Evaluate every Definition_Of_Done condition and report each unmet or unverified one by name
+    - Currently the conditions are checked in pieces across the quality gate, the spec completeness check, and the four-stage validator, and no single component reports the conjunction. Requirement 27 is therefore only partly enforced.
+    - _Requirements: 27.1, 27.2, 27.3, 27.5_
+  - [ ] 33.2 Property test: an unmet condition is never reported as done
+    - **Property 57** — **Validates: Requirements 27.1, 27.2, 27.3, 27.5**
+
+- [ ] 34. Run the quality gate before export, not only after implementation
+  - The repair loop runs on the implementation path. An export of a draft that was never implemented in this session is gated only by the four-stage validator, so a plugin can reach the export preview without its hand-written code having been checked.
+  - _Requirements: 26.1, 27.1_
+
+- [ ] 35. Make the repair round limit configurable
+  - Fixed at three. Requirement 26.8 refers to a "configured" maximum; it is currently a constant.
+  - _Requirements: 26.8_
+
+- [ ] 36. Decide and implement how vendor documentation is obtained
+  - The agent has no web access: the Kiro CLI's tools are read/write/shell/search plus MCP, and no fetch server is enabled. Reference material must currently be attached by the user. Options are to enable a scoped fetch MCP server and grant it, or to rely on shell network access — the latter being materially wider. Requires an operator decision before implementation.
+  - _Requirements: 28.1_
+
+- [ ] 37. Reconcile Requirement 8 with the checks that actually run
+  - Requirement 8 names four stages (lint, build, test, validate). The real validation surface is larger: parse, format, lint, unit tests, coverage, spec completeness, plus the containerized stages. The four-stage wording no longer describes it.
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 26.2_
+
 ## Notes
 
 - Tasks marked with `*` are optional test tasks and can be skipped for a faster MVP; core implementation tasks are never optional.

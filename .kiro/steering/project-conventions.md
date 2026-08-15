@@ -113,14 +113,20 @@ When writing code that reads or writes Kiro agent configs, skills, or steering,
 pull in `#agentic-harness-conventions` for the canonical paths rather than
 hardcoding them.
 
-## The spec in `.kiro/specs/` is known to be out of date
+## Relationship to `.kiro/specs/`
 
-`requirements.md` and `design.md` describe a plugin **spec editor**: they contain
-no requirement that the generated plugin runs, and none for vendor API research,
-API-client generation, unit-test generation, spec completeness, or a repair loop.
-All 25 requirements and 51 correctness properties are implemented and the suite
-is green, which is exactly why the output is still unusable -- the code matches
-the spec and the spec was aimed at the wrong target.
+The specification is current: Requirement 3 covers delegated implementation,
+Requirement 26 corrective validation, Requirement 27 the definition of done,
+Requirement 28 vendor reference material, Requirement 29 execution isolation, and
+Requirement 30 spec completeness and build readiness. Each document carries a
+revision note explaining what changed and why.
 
-Treat those documents as historical until they are rewritten. Where this file
-and the spec disagree about intent, this file is current.
+This file remains the short form of the same intent and is the quicker read. Where
+the two differ in detail, the specification is authoritative; if you find a real
+contradiction, that is a defect in one of them and worth fixing rather than
+working around.
+
+`tasks.md` has a **Remaining work** section. Check it before assuming a
+requirement is implemented -- several are specified and not yet built, notably the
+single definition-of-done gate (Requirement 27) and running the quality gate on
+the export path.

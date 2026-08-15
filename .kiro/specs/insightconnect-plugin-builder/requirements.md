@@ -1,13 +1,46 @@
 # Requirements Document
+
+> **Revision note.** This document was substantially revised after the initial
+> implementation. The first version specified a plugin *spec editor*: it required
+> the tool to produce a schema-valid `plugin.spec.yaml` and to report validation
+> results, but never required that the plugin it produced actually run. Every
+> requirement in it was implemented and the test suite was green, and the tool
+> still emitted plugins with unparseable Python, no API client, stub connection
+> tests, and unimplemented unit tests. The specification was satisfied and the
+> output was unusable.
+>
+> The revision changes three things: implementation is **delegated to an agent
+> with tools** rather than assembled from LLM text completions (Requirement 3,
+> Requirement 26); validation is **corrective** rather than advisory
+> (Requirement 8); and there is now an explicit, testable **definition of done**
+> for a generated plugin (Requirement 27). Requirements covering versioning,
+> credentials, audit, export, project folders, and entry modes were accurate and
+> are unchanged.
+
 ## Introduction
-The InsightConnect Plugin Builder is a locally-run, self-hosted single-user tool that lets a user create new Rapid7 InsightConnect plugins, or extend existing ones, by describing what they want in natural language. The user downloads the tool and runs it on their own machine or self-managed infrastructure; there is no hosted backend service and no multi-user account model. The tool combines Large Language Model (LLM) generation, using the Kiro CLI as its primary LLM provider, with deterministic scaffolding produced by the insight-plugin CLI to generate a valid InsightConnect plugin while minimizing token consumption. The user interacts through a conversational interface, sees a live graphical representation of the plugin structure (connection, actions, triggers, tasks, and their input/output schemas), and receives auto-generated plugin documentation. Once satisfied, the user builds the plugin into a `.plg` artifact and/or pushes it directly into an InsightConnect tenant through the InsightConnect API using credentials they provide. The tool offers three entry modes: create a net-new plugin, iterate on a previously created custom plugin, or enhance an existing production plugin sourced read-only from the public (rapid7/insightconnect-plugins) or private (komand-plugins) repositories.
+The InsightConnect Plugin Builder is a locally-run, self-hosted single-user tool that lets a user create new Rapid7 InsightConnect plugins, or extend existing ones, by describing what they want in natural language. The user downloads the tool and runs it on their own machine or self-managed infrastructure; there is no hosted backend service and no multi-user account model.
+
+The tool's purpose is to produce a plugin that **works on first import** -- not a plugin-shaped directory tree. It achieves this by combining deterministic scaffolding, produced by the insight-plugin CLI, with **delegated implementation**: the Kiro CLI is run as an agent inside the plugin's own working directory, where it reads the spec, writes the interdependent source files, runs the toolchain, reads the failures, and fixes them. The rules it follows are the operator's own InsightConnect plugin skills and steering, referenced as agent resources rather than restated inside this tool, so there is one rulebook and it cannot drift.
+
+The user interacts through a conversational interface, sees a live graphical representation of the plugin structure (connection, actions, triggers, tasks, and their input/output schemas), and receives auto-generated plugin documentation. Once satisfied, the user builds the plugin into a `.plg` artifact and/or pushes it directly into an InsightConnect tenant through the InsightConnect API using credentials they provide. The tool offers three entry modes: create a net-new plugin, iterate on a previously created custom plugin, or enhance an existing production plugin sourced read-only from the public (rapid7/insightconnect-plugins) or private (komand-plugins) repositories.
+
 The tool stores each plugin's work in a per-plugin project folder on the local filesystem for historical lookup and reuse, records each export, and automatically increments the plugin version when a prior export exists so that tenant imports do not fail on version collisions. Every generated plugin has the string `_custom` appended to its vendor field so custom plugins are visually distinct from production Rapid7 plugins. Because the tool runs locally for a single operator, it includes an optional local access guard, credential protection, validation guardrails, cost controls, and audit logging.
 ## Glossary
 - **Plugin_Builder**: The overall application described by this document, responsible for orchestrating conversation, generation, validation, build, and export.
 - **Conversation_Interface**: The user-facing chat/UI component through which a user describes the desired plugin and iterates on it.
-- **Generation_Engine**: The component that produces plugin artifacts using a combination of LLM calls and deterministic template scaffolding.
+- **Generation_Engine**: The component that produces plugin artifacts, combining deterministic scaffolding with delegated implementation.
 - **Deterministic_Scaffolder**: The subcomponent of the Generation_Engine that produces plugin structure (directories, boilerplate, spec skeleton) via the Insight_Plugin_CLI without LLM calls.
-- **LLM_Generator**: The subcomponent of the Generation_Engine that produces content requiring natural-language reasoning (action logic, descriptions, help text) using the Kiro_CLI.
+- **Plugin_Agent**: The Kiro_CLI run as an *agent* -- with file-read, file-write, and shell tools, and with the plugin's working directory as its working directory -- to implement the plugin's hand-written source. It writes files itself and runs the toolchain to check its own work. It is the component that does the development work.
+- **LLM_Generator**: The subcomponent that produces self-contained *prose* (field descriptions, help text) as text completions via the Kiro_CLI. It does not produce code.
+- **Agent_Rulebook**: The operator's InsightConnect plugin skills and steering files, referenced as Plugin_Agent resources. The authoritative statement of how a plugin is written; deliberately not duplicated inside the Plugin_Builder.
+- **Quality_Gate**: The component that checks a plugin's hand-written code and reports located, actionable findings (syntax, formatting, lint, unit-test outcomes, coverage), excluding files the Insight_Plugin_CLI generates.
+- **Repair_Loop**: The component that submits Quality_Gate findings to the Plugin_Agent for repair, re-checks, and repeats until the findings are resolved or it can no longer make progress. Its termination decision is deterministic.
+- **Finding**: One located, actionable defect, carrying a stable key so the same defect is recognizable across Repair_Loop rounds.
+- **Reference_Material**: Vendor API documentation or an API specification supplied by the user, staged in the Project_Folder for the Plugin_Agent to read.
+- **Environment_Guard**: The default-deny construction of the environment passed to a delegated subprocess, admitting only a fixed base set plus that tool's own authentication variables.
+- **Build_Prep**: The pre-build readiness step that resolves the current InsightConnect SDK version and the target Python interpreter from their authoritative sources, and reports which required tools are installed.
+- **Spec_Completeness**: The check for the spec fields and conventions the InsightConnect toolchain requires, as distinct from structural schema conformance.
+- **Definition_Of_Done**: The set of conditions in Requirement 27 that a generated plugin must satisfy before the Plugin_Builder may describe it as complete.
 - **Spec_Validator**: The component that validates a `plugin.spec.yaml` against the InsightConnect plugin specification schema.
 - **Code_Validator**: The component that lints, builds, validates, and runs tests against generated plugin code before export.
 - **Build_Engine**: The component that packages a validated plugin into a `.plg` artifact.
@@ -52,16 +85,34 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 4. IF an imported artifact does not conform to the InsightConnect plugin specification schema, THEN THE Plugin_Builder SHALL report each nonconformity identifying the affected specification location and the violated schema rule, and SHALL NOT create an editable draft.
 5. IF a provided PLG_Artifact cannot be extracted because it is not a valid gzipped tarball or does not contain a Plugin_Spec, THEN THE Plugin_Builder SHALL report an error indicating the extraction failure and SHALL NOT create an editable draft.
 6. IF a provided Plugin_Spec file cannot be parsed, THEN THE Plugin_Builder SHALL report an error indicating the parse failure and SHALL NOT create an editable draft.
-### Requirement 3: Hybrid Generation with Token Efficiency
-**User Story:** As an operator who pays for LLM usage, I want the tool to use deterministic scaffolding wherever possible and reserve LLM calls for tasks that require reasoning, so that plugin generation consumes as few tokens as possible.
+### Requirement 3: Deterministic Scaffolding and Delegated Implementation
+**User Story:** As a plugin author, I want everything mechanical produced mechanically and everything else implemented by an agent that can check its own work, so that the plugin is correct and my LLM spend stays visible.
+
+> **Revised.** The original version of this requirement restricted LLM use to
+> three content types -- action logic, field descriptions, help text -- produced
+> as text completions. That is what made the output unusable. Plugin source is
+> not three independent snippets: the action bodies call the API client, the
+> connection constructs it, the tests mock it, and correctness can only be
+> established by running the toolchain over the result. Asking for a snippet and
+> splicing the reply into a file produced invalid Python, because chat output is
+> a transcript rather than a payload. Implementation is now delegated to an agent
+> with tools and a working directory. Criterion 3.1 (deterministic scaffolding,
+> zero LLM) was correct and is unchanged.
+
 #### Acceptance Criteria
-1. THE Generation_Engine SHALL produce the plugin directory structure, spec skeleton, and boilerplate files using the Deterministic_Scaffolder, which invokes the Insight_Plugin_CLI create and refresh operations, and SHALL make zero LLM_Generator invocations while producing these artifacts.
-2. THE Generation_Engine SHALL restrict LLM_Generator invocations, which are served by the Kiro_CLI, to the following content types only: action logic, field descriptions, and help text, and SHALL NOT invoke the LLM_Generator for any artifact classified as directory structure, spec skeleton, or boilerplate.
-3. WHERE a requested artifact matches an available template, THE Generation_Engine SHALL produce the artifact from that template and SHALL make zero LLM_Generator invocations for that artifact.
-4. IF a requested artifact requires natural-language reasoning and no matching template is available, THEN THE Generation_Engine SHALL invoke the LLM_Generator, via the Kiro_CLI, to produce that artifact.
-5. WHEN an LLM_Generator invocation completes, THE Cost_Controller SHALL record the token count consumed by that invocation and SHALL add it to the cumulative session token total.
-6. WHEN a generation step completes, THE Plugin_Builder SHALL display to the user the cumulative session token total as a non-negative integer reflecting the sum of all recorded LLM_Generator invocations in the current session.
-7. IF an LLM_Generator invocation fails, THEN THE Generation_Engine SHALL halt the affected generation step, display an error message indicating that the invocation failed, and exclude the failed invocation from the cumulative session token total.
+1. THE Generation_Engine SHALL produce the plugin directory structure, spec skeleton, and boilerplate files using the Deterministic_Scaffolder, which invokes the Insight_Plugin_CLI create and refresh operations, and SHALL make zero LLM invocations while producing these artifacts.
+2. THE Generation_Engine SHALL produce a net-new plugin's working tree with the Insight_Plugin_CLI create operation, invoked from the parent directory of the plugin, and SHALL NOT substitute a refresh of a directory containing only a Plugin_Spec, because the two operations produce different package prefixes from identical input.
+3. IF the Insight_Plugin_CLI declines to scaffold, THEN THE Generation_Engine SHALL treat the operation as failed even when the CLI exits with status zero, determined by whether the working tree was produced.
+4. THE Generation_Engine SHALL delegate production of the plugin's hand-written source -- connection, API client, action, trigger and task logic, and unit tests -- to the Plugin_Agent, running with the plugin's Project_Folder as its working directory.
+5. THE Plugin_Builder SHALL NOT parse plugin source code out of the Plugin_Agent's output stream, and SHALL NOT insert, splice, or re-indent agent output into an existing file.
+6. THE Plugin_Builder SHALL determine which files a Plugin_Agent invocation changed by comparing the Project_Folder contents before and after the invocation, and SHALL NOT rely on the agent's own description of what it changed.
+7. THE Generation_Engine SHALL restrict LLM_Generator invocations to self-contained prose content -- field descriptions and help text -- and SHALL NOT invoke the LLM_Generator to produce plugin source code.
+8. WHERE a requested prose artifact matches an available template, THE Generation_Engine SHALL produce the artifact from that template and SHALL make zero LLM_Generator invocations for that artifact.
+9. WHEN a Plugin_Agent or LLM_Generator invocation completes, THE Cost_Controller SHALL record the usage consumed by that invocation and SHALL add it to the cumulative session total.
+10. WHEN a generation step completes, THE Plugin_Builder SHALL display to the user the cumulative session token total as a non-negative integer reflecting the sum of all recorded successful invocations in the current session.
+11. WHERE the Kiro_CLI reports a usage figure it measured directly, THE Plugin_Builder SHALL record and display that figure in addition to the token total, and SHALL indicate that the token total is an estimate.
+12. IF no usage figure was reported for an invocation, THEN THE Plugin_Builder SHALL represent the measured usage as unreported rather than as zero.
+13. IF a Plugin_Agent or LLM_Generator invocation fails, THEN THE Generation_Engine SHALL halt the affected generation step, report the failure together with the invoked command's error output, and exclude the failed invocation from the cumulative session total.
 ### Requirement 4: LLM Usage Cost Controls
 **User Story:** As an operator, I want configurable limits on LLM usage, so that a single session cannot incur unbounded cost.
 #### Acceptance Criteria
@@ -99,6 +150,13 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 6. WHEN the Plugin_Spec passes schema validation with no errors, THE Spec_Validator SHALL indicate validation success to the user.
 ### Requirement 8: Generated Code Validation
 **User Story:** As a plugin author, I want generated code validated, linted, built, and tested before export, so that I do not ship a plugin that fails to run.
+
+> **Note.** This requirement governs the pre-export gate: it records a pass or
+> fail per stage and blocks export. It is necessary and was implemented, but it
+> is not sufficient on its own -- recording four failures and stopping is what
+> allowed unusable plugins through. Requirement 26 adds the corrective step that
+> acts on findings while the plugin is still being built.
+
 #### Acceptance Criteria
 1. WHEN the user requests a build, THE Code_Validator SHALL run static lint checks against the generated plugin code and record a pass or fail result for the lint stage.
 2. WHEN the user requests a build, THE Code_Validator SHALL build the plugin container image defined by the plugin's Dockerfile and record a pass or fail result for the build stage.
@@ -206,10 +264,12 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 #### Acceptance Criteria
 1. THE Plugin_Builder SHALL run as a self-contained application that a user can start on a local machine or self-managed infrastructure without a hosted backend service.
 2. WHEN the Plugin_Builder starts, THE Plugin_Builder SHALL read its LLM provider, token budget, rate-limit, network bind address, and access-protection settings from local configuration.
-3. THE Plugin_Builder SHALL use the Kiro_CLI as its primary LLM provider for content generation.
+3. THE Plugin_Builder SHALL use the Kiro_CLI both as the Plugin_Agent that implements plugin source and as the LLM provider for prose content generation.
 4. WHERE tenant API access is unavailable, THE Plugin_Builder SHALL support local build and PLG_Artifact download without requiring an upload to a tenant.
 5. IF the Kiro_CLI is not available or not authenticated at startup, THEN THE Plugin_Builder SHALL report an error indicating the Kiro_CLI could not be used and SHALL identify the remediation step.
 6. IF any required configuration setting is missing or invalid at startup, THEN THE Plugin_Builder SHALL halt startup and emit an error indicating which configuration setting is missing or invalid.
+7. THE Plugin_Builder SHALL read the Agent_Rulebook from the operator's installed skills and steering, and SHALL NOT maintain its own copy of the plugin-authoring rules those files define.
+8. IF a file referenced by the Agent_Rulebook is not installed, THEN THE Plugin_Builder SHALL continue with the remaining files and report that the Plugin_Agent is operating with reduced guidance.
 ### Requirement 21: Project-Folder History and Reuse
 **User Story:** As a plugin author, I want each plugin's work saved in its own project folder with history, so that I can look up, reuse, and resume prior builds later.
 #### Acceptance Criteria
@@ -261,3 +321,95 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 8. WHEN the user requests a diff for an enhanced production fork, THE Plugin_Builder SHALL display the differences between the current draft and the original production baseline.
 9. IF a required git credential for the private repository is missing when a remote fetch is attempted, THEN THE Plugin_Builder SHALL reject the fetch and report that the git credential is required.
 10. IF a selected production plugin cannot be read or does not conform to the InsightConnect plugin specification schema, THEN THE Plugin_Builder SHALL report the specific error and SHALL NOT create a partial draft.
+
+### Requirement 26: Corrective Validation
+**User Story:** As a plugin author, I want the tool to fix what its own checks find, so that I am not handed a list of defects to repair by hand.
+
+> **New.** The original specification required the four-stage pipeline to record
+> results and block export. Nothing was required to *act* on those results, and
+> nothing did: a plugin with four unparseable action files was reported as built
+> because every stage had run and recorded its outcome. Reporting is not
+> repairing.
+
+#### Acceptance Criteria
+1. THE Quality_Gate SHALL check the plugin's hand-written code and produce a Finding for each defect, each Finding identifying the file, the location within it where one applies, a defect code, and a description.
+2. THE Quality_Gate SHALL check, at minimum: that every hand-written Python file parses; that formatting matches the formatter the Insight_Plugin_CLI applies; the linter named by the Agent_Rulebook; that the plugin's unit tests pass; and statement coverage of the plugin package.
+3. THE Quality_Gate SHALL exclude files generated by the Insight_Plugin_CLI from its Findings, because the Agent_Rulebook forbids editing them and a Finding against one is not actionable.
+4. IF a Quality_Gate check cannot run because its tool is unavailable, THEN THE Quality_Gate SHALL report that check as skipped and SHALL NOT report it as passed.
+5. WHEN the Quality_Gate produces one or more Findings, THE Repair_Loop SHALL submit them to the Plugin_Agent for repair and SHALL re-run the Quality_Gate afterwards.
+6. THE Repair_Loop SHALL decide whether to continue by comparing Finding keys between rounds, and SHALL NOT delegate that decision to a Plugin_Agent or LLM_Generator.
+7. IF a round resolves no Finding present in the previous round, THEN THE Repair_Loop SHALL stop and report that it made no progress.
+8. IF the Repair_Loop reaches its configured maximum number of rounds with Findings outstanding, THEN THE Repair_Loop SHALL stop and report that it reached the limit, and SHALL NOT report the outcome as successful.
+9. THE Repair_Loop SHALL derive whether any Findings remain from the Findings themselves and not from which stopping condition applied, so that a stalled or limit-reached outcome cannot be represented as complete.
+10. THE Repair_Loop SHALL treat a Finding whose location has moved by less than a bounded distance within the same file, with the same defect code, as the same Finding, so that repairs which shift surrounding lines do not appear as new defects.
+11. THE Repair_Loop SHALL treat two Findings of the same defect code in the same file at distinct locations as distinct Findings.
+12. WHEN the Repair_Loop asks the Plugin_Agent to repair Findings, THE Plugin_Builder SHALL instruct it not to edit files generated by the Insight_Plugin_CLI.
+
+### Requirement 27: Definition of Done for a Generated Plugin
+**User Story:** As a plugin author, I want the tool to tell me the plugin is finished only when it actually is, so that "done" means I can import and run it.
+
+> **New.** The original specification contained no requirement that a generated
+> plugin run. It required a schema-valid spec and recorded stage results, both of
+> which were delivered while the plugin was unusable. This requirement states the
+> conditions explicitly so they can be checked rather than assumed.
+
+#### Acceptance Criteria
+1. THE Plugin_Builder SHALL treat a plugin as complete only when all of the following hold: the Insight_Plugin_CLI validate operation passes; the Agent_Rulebook's linter reports no findings against hand-written code; every hand-written Python file parses; the plugin exposes an API client with centralized request handling and per-action methods; the connection's connect and test operations are implemented rather than stubbed; unit tests covering each action pass; statement coverage of the plugin package meets the configured minimum; and a dependency manifest exists.
+2. IF any Definition_Of_Done condition is unmet, THEN THE Plugin_Builder SHALL report the plugin as incomplete and SHALL name each unmet condition.
+3. THE Plugin_Builder SHALL NOT describe a plugin as complete, ready, or successful while any Definition_Of_Done condition is unmet.
+4. THE Plugin_Builder SHALL determine each Definition_Of_Done condition by executing a check, and SHALL NOT infer any of them from a Plugin_Agent's report of its own work.
+5. WHERE a Definition_Of_Done condition cannot be evaluated because a required tool is unavailable, THE Plugin_Builder SHALL report that condition as unverified rather than as met.
+
+### Requirement 28: Vendor Reference Material
+**User Story:** As a plugin author building against a real vendor API, I want to supply its documentation and have the implementation use it, so that endpoints and payloads are correct rather than guessed.
+
+> **New.** The Plugin_Agent has no means of retrieving vendor documentation
+> itself. Without supplied reference material it infers endpoint paths, methods,
+> and payload shapes, and inferred endpoints are wrong.
+
+#### Acceptance Criteria
+1. THE Conversation_Interface SHALL accept Reference_Material as an attachment alongside a natural-language message.
+2. WHEN Reference_Material is supplied, THE Plugin_Builder SHALL write it unmodified into the plugin's Project_Folder in a location the Plugin_Agent can read.
+3. THE Plugin_Builder SHALL store Reference_Material within the tool-owned metadata subtree so that it is excluded from the PLG_Artifact.
+4. THE Plugin_Builder SHALL derive the stored filename such that a supplied name cannot cause a write outside the Reference_Material location.
+5. WHEN delegating implementation for a plugin with Reference_Material, THE Plugin_Builder SHALL identify the stored files to the Plugin_Agent and instruct it to use them for endpoint paths, HTTP methods, request and response shapes, authentication, pagination, and error formats.
+6. THE Plugin_Builder SHALL pass Reference_Material to the Plugin_Agent as files rather than as extracted or summarized content in a prompt.
+7. IF Reference_Material cannot be written, THEN THE Plugin_Builder SHALL continue the delegation without it and report that it was unavailable, treating it as an aid rather than a precondition.
+
+### Requirement 29: Delegated Execution Isolation
+**User Story:** As a security-conscious operator, I want the delegated CLI to receive only what it needs, so that running it cannot expose my other credentials.
+
+> **New.** The Plugin_Builder decrypts InsightConnect tenant API keys and private
+> repository git credentials into its own process, and it launches a third-party
+> CLI as a subprocess. A subprocess launched without an explicit environment
+> inherits the parent's, which handed that CLI every secret in the operator's
+> environment.
+
+#### Acceptance Criteria
+1. WHEN the Plugin_Builder launches a delegated CLI, THE Environment_Guard SHALL construct the subprocess environment by admitting only a fixed set of base variables plus the name prefixes that CLI requires to authenticate, and SHALL exclude every other variable.
+2. THE Plugin_Builder SHALL NOT launch a delegated CLI with an inherited environment.
+3. THE Plugin_Builder SHALL pass a delegated CLI's prompt on standard input and SHALL NOT pass it as a command-line argument.
+4. THE Plugin_Builder SHALL grant the Plugin_Agent only the tools required to build a plugin, and SHALL enumerate the granted tools explicitly rather than granting all available tools.
+5. IF a delegated CLI invocation fails, THEN THE Plugin_Builder SHALL surface the invocation's error output and SHALL NOT return silently.
+6. THE Plugin_Builder SHALL NOT include content originating outside the tool -- imported production plugin source, PLG_Artifact contents, or Reference_Material -- in a prompt to a shell-capable agent.
+7. WHERE the Environment_Guard withholds variables, THE Plugin_Builder SHALL be able to report the withheld variable names without reporting any value.
+
+### Requirement 30: Spec Completeness and Build Readiness
+**User Story:** As a plugin author, I want the spec to carry every field the toolchain requires with current versions, so that validation does not fail on missing metadata.
+
+> **New.** Schema conformance and toolchain acceptance are different properties.
+> Specs the tool produced were structurally valid and rejected by
+> `insight-plugin validate` for absent metadata: no SDK block, no version
+> history, no supported versions, no resource URLs, and no output examples.
+
+#### Acceptance Criteria
+1. THE Spec_Completeness check SHALL report each absent or empty spec field that the InsightConnect toolchain requires, each reported separately with its location.
+2. THE Spec_Completeness check SHALL report each output field of an action, trigger, or task that carries no example value.
+3. THE Spec_Completeness check SHALL report a connection field whose declared credential type is not one the InsightConnect platform defines.
+4. THE Spec_Completeness check SHALL report spec text that the InsightConnect toolchain rejects or that produces invalid generated code.
+5. THE Spec_Completeness check SHALL be reported separately from structural schema validation, so that absent metadata does not render an in-progress draft schema-invalid.
+6. THE Build_Prep step SHALL resolve the InsightConnect SDK version from the SDK distribution's own changelog, and SHALL NOT use a version recorded in the Plugin_Builder.
+7. WHERE the SDK changelog is unavailable, THE Build_Prep step SHALL fall back to the installed SDK version and SHALL report which source was used.
+8. WHEN a Plugin_Spec carries no SDK version, THE Plugin_Builder SHALL record the resolved version into the spec before scaffolding, and SHALL leave an SDK version already present unchanged.
+9. THE Build_Prep step SHALL resolve the target Python interpreter from the installed interpreter set rather than from a version recorded in the Plugin_Builder, and SHALL report when it falls back to an interpreter it cannot confirm.
+10. THE Build_Prep step SHALL report which required external tools are installed.

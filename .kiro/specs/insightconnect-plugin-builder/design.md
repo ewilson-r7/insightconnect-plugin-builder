@@ -1,10 +1,27 @@
 # Design Document
 
+> **Revision note.** This design was substantially revised after the initial
+> implementation. Its original central idea — a strict split in which the LLM
+> emitted *text* for three narrow content types and the orchestrator assembled
+> that text into files — is the reason the implemented tool produced unusable
+> plugins, and it has been replaced. Sections describing persistence, versioning,
+> credentials, audit, export, and entry modes were accurate and are unchanged.
+> Where a superseded idea is retained below it is marked as such, with why.
+
 ## Overview
 
-The InsightConnect Plugin Builder is a locally-run, single-user desktop-style application that turns natural-language descriptions into valid Rapid7 InsightConnect plugins. It is a thin, token-efficient orchestration layer over the *real* InsightConnect toolchain — the `insight-plugin` CLI and the InsightConnect SDK — rather than a reimplementation of that toolchain. The `plugin.spec.yaml` file (plugin spec version `v2`) is the single source of truth for every plugin; all derived artifacts (`schema.py`, `__init__.py`, `Dockerfile`, `Makefile`, `setup.py`, `help.md`, `.CHECKSUM`) are produced deterministically by `insight-plugin refresh` and are never hand-edited.
+The InsightConnect Plugin Builder is a locally-run, single-user desktop-style application that turns natural-language descriptions into Rapid7 InsightConnect plugins that **work on first import**. It is a thin orchestration layer over the *real* InsightConnect toolchain — the `insight-plugin` CLI and the InsightConnect SDK — rather than a reimplementation of that toolchain. The `plugin.spec.yaml` file (plugin spec version `v2`) is the single source of truth for every plugin; all derived artifacts (`schema.py`, `__init__.py`, `Dockerfile`, `Makefile`, `setup.py`, `help.md`, `.CHECKSUM`) are produced deterministically by `insight-plugin refresh` and are never hand-edited.
 
-The core strategy is a **deterministic-first split**: everything that can be produced mechanically is produced by the `insight-plugin` CLI and template rendering with zero LLM calls; the LLM (the Kiro CLI, invoked as a subprocess) is reserved strictly for content that requires reasoning — action/trigger/task/connection logic, field descriptions, and help text. This keeps token consumption low and makes the deterministic parts of generation reproducible and auditable.
+The core strategy is **deterministic scaffolding plus delegated implementation**:
+
+- Everything mechanical — the directory tree, the spec skeleton, the boilerplate, and every derived file — is produced by the `insight-plugin` CLI with zero LLM involvement. This half is unchanged from the original design and was correct.
+- Everything hand-written — the connection, the API client, action/trigger/task logic, and the unit tests — is produced by the **Kiro CLI running as an agent** in the plugin's own working directory. It reads the spec, writes the interdependent files, runs the toolchain, reads the failures, and fixes them.
+
+The original design instead had the LLM return snippets of Python which the orchestrator spliced into files. That cannot work, and the reason is worth stating because it is the single most important lesson in this document: **plugin source is not a set of independent snippets, and chat output is not a payload.** The action bodies call the API client, the connection constructs it, the tests mock it; correctness is a property of the set, established by running the toolchain over it. Requesting each piece separately and pasting the replies produced files that did not parse, and on occasion wrote the model's own deliberation into a plugin as code.
+
+The agent's rulebook is the operator's own InsightConnect plugin skills and steering, referenced as agent resources. **The Plugin_Builder does not restate those rules.** It did once: a hand-maintained copy inside the prompt-building code drifted from the real steering, contradicting it on credential field types and hardcoding one specific vendor's API base URL into the prompt used for every plugin. One rulebook, read from where the operator maintains it, cannot drift.
+
+Validation is **corrective**, not advisory. Running the checks and recording their results is necessary for the export gate but insufficient during construction: the original design did exactly that and reported a plugin with four unparseable files as built. A repair loop now submits located findings to the agent, re-checks, and repeats until they are resolved or it stops making progress — with a termination decision that is arithmetic and never delegated to a model.
 
 The application:
 
@@ -170,9 +187,17 @@ Splits every requested artifact into a **classification** — `directory_structu
   - `create(spec) -> ProjectTree` → `insight-plugin create`
   - `refresh(project) -> ProjectTree` → `insight-plugin refresh` (regenerates `schema.py`, `__init__.py`, `Dockerfile`, `Makefile`, `setup.py`, `help.md`, `.CHECKSUM`) (Req 3.1, 22.3)
   - Makes **zero** LLM invocations (Req 3.1).
+- `Plugin_Agent`
+  - `implement(project_dir, instruction) -> AgentRunResult` — runs the Kiro CLI as an agent with the plugin directory as its working directory, its granted tools enumerated explicitly, its prompt on stdin, and a default-deny environment (Req 3.4, 29). Returns the agent's closing report, the observed change set, and the reported credits. Every call goes through `Cost_Controller.authorize()` first.
+  - The instruction is a *task*. The standing rules and the Definition_Of_Done live in the agent configuration; the plugin-authoring rules live in the `Agent_Rulebook` the configuration references. Nothing paraphrases them here (Req 20.7).
 - `LLM_Generator`
-  - `generate(kind, scoped_context) -> Content` where `kind ∈ {action_logic, field_description, help_text}` only (Req 3.2). Invoked via the Kiro CLI subprocess. Every call goes through `Cost_Controller.authorize()` first.
-  - `TemplateLibrary.match(request) -> Optional[Template]` — when a request matches a known pattern (e.g. paginated REST GET action, simple webhook trigger), the artifact is produced from the template with zero LLM calls (Req 3.3).
+  - `generate(kind, scoped_context) -> Content` where `kind ∈ {field_description, help_text}` — prose only, never source (Req 3.7). Invoked via the Kiro CLI subprocess, cost-gated identically.
+  - `TemplateLibrary.match(request) -> Optional[Template]` — a prose request matching a known pattern renders from a template with zero LLM calls (Req 3.8).
+- `Quality_Gate`
+  - `run(project_dir) -> QualityReport` — parses every hand-written Python file, checks formatting, runs the linter, runs the unit tests, and measures coverage of the plugin package, producing located `Finding`s and excluding generated files (Req 26.1–26.3). A check whose tool is missing is reported as skipped, never as passed (Req 26.4).
+  - Runs no containerized stage: these checks complete in seconds, which is what makes iterating viable. The four-stage `Code_Validator` remains the authoritative pre-export gate.
+- `Repair_Loop`
+  - `run(project_dir, fixer) -> RepairOutcome` — checks, submits findings for repair, re-checks, and stops on clean, stalled, or round-limit (Req 26.5–26.9). The decision is finding-key arithmetic; a fixer's account of its own success is not an input.
 
 ### Spec_Validator
 - `validate(spec) -> ValidationReport` — structural validation against the InsightConnect plugin spec schema within 5s (Req 7.1); semver check on `version` (Req 7.3, 7.5); returns every error with a field path + description (Req 7.2); success indication when clean (Req 7.6). A failing report blocks export (Req 7.4).
@@ -214,26 +239,57 @@ Resolves, lists, and read-only-imports production plugins for the "enhance an ex
 ### Plugin_Registry / Credential_Store / Audit_Log
 Interfaces detailed under Data Models.
 
-## Deterministic-vs-LLM Decision Boundary and Token Minimization
+## Deterministic / Delegated Decision Boundary
 
-This boundary is the heart of the design (Req 3) and is what keeps cost bounded (Req 4).
+This boundary is the heart of the design (Req 3) and, together with the
+`Cost_Controller`, is what keeps cost visible (Req 4).
 
-**Deterministic (zero LLM tokens):**
-- Directory structure, `plugin.spec.yaml` skeleton, and all boilerplate → `insight-plugin create`.
-- All derived/generated files (`schema.py`, `__init__.py`, `Dockerfile`, `Makefile`, `setup.py`, `help.md`, `.CHECKSUM`) → `insight-plugin refresh`.
-- Version arithmetic, `_custom` vendor suffixing, semver validation, diffing, packaging — pure functions, no LLM.
-- Any artifact matching a template in the `TemplateLibrary`.
+**Deterministic (zero LLM involvement):**
+- Directory structure, `plugin.spec.yaml` skeleton, and all boilerplate → `insight-plugin create`, invoked from the **parent** of the plugin directory. It always creates a subdirectory named after the plugin, and it declines to run over an existing directory *while still exiting zero* — so success is judged by whether the tree appeared, never by exit status (Req 3.2, 3.3).
+- All derived files (`schema.py`, `__init__.py`, `Dockerfile`, `Makefile`, `setup.py`, `help.md`, `.CHECKSUM`) → `insight-plugin refresh`.
+- Version arithmetic, `_custom` vendor suffixing, semver validation, spec completeness, diffing, packaging — pure functions.
+- The repair loop's termination decision — finding-key set arithmetic (Req 26.6).
 
-**LLM (Kiro CLI subprocess) — reasoning only:**
-- Action/trigger/task/connection logic (`action.py`, `connection.py`, `trigger.py`, `task.py`, `util/`).
-- Human-readable field descriptions/tooltips and help-text prose.
+**`create` and `refresh` are not interchangeable.** From byte-identical specs, `create` produces the current `icon_` package prefix while `refresh` against a directory holding only a spec produces the legacy `komand_` one. The original implementation used only `refresh`, which is why every plugin it built carried the legacy prefix. The prefix is read back off the scaffolded tree rather than assumed, because assuming it produced metadata that contradicted what was on disk.
 
-**Token-minimization techniques:**
-1. **Prompt scoping** — the LLM is given only the relevant slice of the spec (the single action being authored plus the connection contract), never the whole project tree.
-2. **Template library** — common patterns (paginated REST list action, single-resource GET, webhook trigger, poll-based trigger, key/username-password connection) are rendered from parameterized templates. A template hit means zero LLM calls for that artifact (Req 3.3).
-3. **Caching / memoization** — identical scoped generation requests (same normalized prompt inputs) reuse the prior result rather than re-invoking the LLM.
-4. **Deterministic-first ordering** — scaffold and refresh run before any LLM call so the LLM only fills in the small hand-written surface, never regenerable content.
-5. **Budget/rate gating** — every LLM call passes through the `Cost_Controller` first (Req 4).
+**Delegated to the Plugin_Agent (Kiro CLI with tools, in the plugin directory):**
+- `connection/connection.py`, `util/api.py`, `util/constants.py`, `actions/*/action.py`, `triggers/*`, `tasks/*`, and `unit_test/*`.
+- Repair of Quality_Gate findings.
+
+The agent is granted file-read, file-write, search, and **shell** — shell because the plugin workflow is defined in terms of running `insight-plugin`, the linter, and the tests, and an agent that cannot run them cannot verify its own work. Tools are enumerated explicitly rather than blanket-trusted (Req 29.4).
+
+**Prose only, via the LLM_Generator as a text completion:**
+- Field descriptions and help-text prose. These are self-contained and have no dependency on the working tree.
+
+### What is not carried over
+
+> **Superseded: prompt scoping.** The original design gave the LLM "only the
+> relevant slice of the spec … never the whole project tree", as a token measure.
+> The agent now reads whatever it needs from the tree it is working in, which is
+> the point of delegating. Scoping remains for the prose path, where it is
+> genuinely sufficient.
+
+> **Superseded: the TemplateLibrary as a primary mechanism.** Parameterized
+> templates for common patterns (paginated list, single-resource GET, webhook
+> trigger) were meant to avoid LLM calls for whole actions. In practice a template
+> match requires the caller to already know the pattern, and no code path supplies
+> one for code artifacts. The library is retained for prose (Req 3.8) and the
+> deterministic-render path is real, but it is not load-bearing for code, and it
+> should not be presented as though it were.
+
+> **Superseded: memoization of generation requests.** Identical scoped requests
+> reusing a prior result made sense for stateless text completions. An agent
+> invocation mutates a working tree, so replaying a cached result would be
+> incorrect.
+
+### Cost accounting
+
+Every delegated invocation passes through `Cost_Controller.authorize()` before dispatch and is recorded afterwards, and a failed invocation is excluded from the total (Req 3.9, 3.13).
+
+The Kiro CLI reports usage as **credits, on stderr** — not as a token count on stdout. Two consequences the original design did not anticipate:
+
+1. A reported-token path that looks for a usage figure on stdout never fires for this provider. It is retained for provider independence but must not be read as meaning the totals are exact.
+2. The token figure recorded against the session budget is a **floor, not a measurement**: it covers the instruction and the transcript and cannot see the file contents the agent chose to read. It bounds the budget monotonically, which is what Req 4 needs of it. Credits are the number to look at for real spend, and an unreported figure is represented as unknown rather than as zero (Req 3.11, 3.12).
 
 **Token accounting with the Kiro CLI.** Because the Kiro CLI subprocess may not reliably return exact token counts, the `Cost_Controller` measures usage with the following precedence and records which method was used:
 1. If the Kiro CLI emits a machine-readable usage figure (e.g. structured JSON on stdout or a usage line), use the reported value.
@@ -739,15 +795,21 @@ The properties below were derived from the prework classification and consolidat
 
 ### Property 7: Deterministic scaffolding makes zero LLM calls
 
-*For any* generation request classified as directory structure, spec skeleton, boilerplate, or matching an available template, the number of `LLM_Generator` invocations produced while creating that artifact is zero.
+*For any* generation request classified as directory structure, spec skeleton, boilerplate, or matching an available template, the number of LLM invocations produced while creating that artifact is zero.
 
-**Validates: Requirements 3.1, 3.3**
+**Validates: Requirements 3.1, 3.8**
 
-### Property 8: LLM invocations are restricted to reasoning content
+### Property 8: Code generation is delegated, never assembled from model text
 
-*For any* sequence of generation requests, every `LLM_Generator` invocation that occurs has an artifact kind in {action logic, field description, help text}, and no invocation occurs for a directory-structure, spec-skeleton, or boilerplate artifact.
+*For any* sequence of generation requests, every `LLM_Generator` invocation that occurs has an artifact kind in {field description, help text}; no `LLM_Generator` invocation occurs for an artifact kind that denotes plugin source; and no plugin file's content is derived from a delegated invocation's output stream.
 
-**Validates: Requirements 3.2**
+**Validates: Requirements 3.4, 3.5, 3.7**
+
+> **Revised.** The original Property 8 required every LLM invocation to be one of
+> {action logic, field description, help text} — that is, it asserted the
+> arrangement that produced unparseable plugins. The invariant worth holding is
+> the opposite one: that plugin source is never reconstructed from a model's
+> output stream.
 
 ### Property 9: Token accounting equals sum of successful invocations
 
@@ -1007,6 +1069,76 @@ The properties below were derived from the prework classification and consolidat
 
 **Validates: Requirements 24.5**
 
+### Property 52: Observed change set, not reported change set
+
+*For any* delegated invocation, the set of files reported as changed equals the set that actually differs between the working tree before and after the invocation, independent of anything the agent stated about its own work.
+
+**Validates: Requirements 3.6, 27.4**
+
+### Property 53: Scaffolding success is judged by outcome
+
+*For any* scaffold attempt, the operation is reported as successful if and only if the plugin working tree exists afterwards — never on the basis of the CLI's exit status alone — and the recorded package prefix equals the prefix actually present in that tree.
+
+**Validates: Requirements 3.2, 3.3**
+
+### Property 54: Generated files produce no findings
+
+*For any* plugin working tree, no `Finding` produced by the `Quality_Gate` refers to a file generated by the `Insight_Plugin_CLI`.
+
+**Validates: Requirements 26.3**
+
+This one is load-bearing rather than cosmetic: `insight-plugin` emits `schema.py` containing `super(self.__class__, self)`, which the linter flags and the `Agent_Rulebook` forbids editing. A loop counting those findings would request a change that must not be made, resolve nothing, and reach its round limit on every run. Excluding them is what makes "no findings" a reachable state.
+
+### Property 55: Finding identity is stable under position shift
+
+*For any* pair of findings with the same defect code in the same file, they share a key if and only if their locations lie within the same bounded bucket; and two findings of the same code at locations in different buckets have distinct keys.
+
+**Validates: Requirements 26.10, 26.11**
+
+Both directions matter. Without the first, a repair that shifts code down two lines makes every later finding look new and convergence can never be observed. Without the second, two failures in one file collapse to one key, and resolving one of them reads as resolving nothing.
+
+### Property 56: Repair termination is total, deterministic, and honestly labelled
+
+*For any* sequence of check results, the repair loop terminates in exactly one of {clean, repaired, stalled, limit-reached, no-fixer}; the outcome is a function of the finding-key sets alone and not of any agent's assertion; a round resolving no previously present key yields *stalled*; exhausting the configured rounds with findings open yields *limit-reached*; and the "nothing remains" indication is derived from the findings rather than from which condition applied.
+
+**Validates: Requirements 26.6, 26.7, 26.8, 26.9**
+
+### Property 57: An unmet condition is never reported as done
+
+*For any* combination of Definition_Of_Done condition results, the plugin is reported complete if and only if every condition is met; each unmet condition is named; and a condition that could not be evaluated is reported as unverified rather than met.
+
+**Validates: Requirements 27.1, 27.2, 27.3, 27.5**
+
+### Property 58: A skipped check is distinguishable from a passing check
+
+*For any* set of unavailable tools, each corresponding check is reported as skipped, and a report containing no findings while any check was skipped is not equivalent to a report in which every check ran and found nothing.
+
+**Validates: Requirements 26.4, 30.9**
+
+### Property 59: Delegated subprocesses receive a default-deny environment
+
+*For any* parent environment, the environment passed to a delegated CLI contains a variable if and only if its name is in the fixed base set or carries one of the allowed prefixes; no value present in the parent under any other name appears in it; and the prompt is absent from the argument vector.
+
+**Validates: Requirements 29.1, 29.2, 29.3**
+
+### Property 60: Reference material reaches the agent intact and leaves nothing behind
+
+*For any* supplied reference material, the stored file's content is byte-identical to what was supplied; the stored path lies within the reference location regardless of the supplied name; the stored file is absent from the set of files packaged into the `PLG_Artifact`; and the delegation instruction names the stored path.
+
+**Validates: Requirements 28.2, 28.3, 28.4, 28.5, 28.6**
+
+### Property 61: Spec completeness is reported separately and completely
+
+*For any* Plugin_Spec, the completeness report contains an entry for every required field that is absent or empty, every output field lacking an example, and every connection field whose credential type is not platform-defined; entries carry stable keys; and the report is independent of the structural validation report.
+
+**Validates: Requirements 30.1, 30.2, 30.3, 30.5**
+
+### Property 62: Resolved versions come from their authoritative source
+
+*For any* SDK changelog, the resolved SDK version equals the newest version recorded in it, and no version recorded inside the Plugin_Builder is used while that source is available; a spec carrying no SDK version receives the resolved one, and a spec already carrying one is left unchanged; and the source used is reported.
+
+**Validates: Requirements 30.6, 30.7, 30.8**
+
 ## Error Handling
 
 The error-handling strategy is uniform: **fail closed, preserve state, report specifically.**
@@ -1038,7 +1170,15 @@ The feature has a large **pure-logic core** (version arithmetic and monotonicity
 - **Production-plugin fixtures:** a `ProductionPluginSource` strategy generates on-disk source repositories of plugin directories using **both** the current `icon_` and legacy `komand_` package prefixes, with and without `resources.source_url`/`license_url` references, across public and private visibilities. It backs the read-only-import invariant (Property 47), fork identity (Property 48), package-prefix handling (Property 49), and baseline-diff correctness (Property 50, paired with a random-edit mutation strategy on the imported draft). A provenance strategy exercises all three entry modes for Property 51.
 - **Tagging:** each property test is annotated with a comment referencing its design property, using the format:
   `# Feature: insightconnect-plugin-builder, Property {number}: {property_text}`
-- **Single test per property:** each of the 51 correctness properties is implemented by exactly one property-based test.
+- **Single test per property:** each correctness property is covered by at least one test. Properties 1–51 are each implemented by exactly one property-based test. Properties 52–62 describe behavior at process and filesystem boundaries — subprocess environments, scaffolding outcomes, loop termination — where example-based tests over the real interfaces are more informative than generated inputs, and they are covered accordingly.
+
+### A note on what the original testing strategy did not catch
+
+The initial implementation satisfied all 51 properties with a green suite and produced unusable plugins. This is worth recording, because a reader could otherwise reasonably conclude the suite was inadequate in the ordinary sense. It was not: the properties were true of the code.
+
+The properties described the *mechanism* — that scaffolding made no LLM calls, that invocations were restricted to certain kinds, that stage results were recorded — and none described the *outcome*, that the plugin runs. Every assertion passed while the generated `action.py` files did not parse. Coverage of the stated properties was complete and the stated properties were the wrong ones.
+
+The corrective properties added above (54, 56, 57, 58) are deliberately outcome-shaped: a finding must be actionable, a stopping condition must be labelled honestly, an unmet condition must not read as done, a skipped check must not read as a pass. Requirement 27 exists so that "does the plugin work" is a checkable claim rather than an inference.
 
 ### Coverage focus called out in the requirements
 

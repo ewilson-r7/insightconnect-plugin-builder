@@ -63,15 +63,18 @@ cd frontend && npm run build            # UI, served as static assets
 plugin has to clear and the conventions for changing this repo. Read it before
 making changes.
 
-## A note on `.kiro/specs/`
+## The specification
 
-The requirements and design documents in `.kiro/specs/insightconnect-plugin-builder/`
-are **historical**. They specify a plugin spec *editor*: they contain no
-requirement that the generated plugin actually runs, and none for API-client
-generation, unit-test generation, spec completeness, or correcting validation
-failures. Every requirement in them is implemented and the test suite is green,
-which is precisely why green tests did not mean working plugins.
+`.kiro/specs/insightconnect-plugin-builder/` holds the requirements, design, and
+implementation plan, and is current as of the revision described in each document's
+revision note.
 
-They are kept for traceability and are being rewritten. Where they and
-`project-conventions.md` disagree about intent, `project-conventions.md` is
-current.
+Worth reading if you are changing this tool: the first version of that
+specification described a plugin spec *editor*. It required a schema-valid spec
+and recorded validation results, but never required that the generated plugin
+run. Every requirement was implemented, the suite was green, and the output was
+unusable. The revision added delegated implementation (Requirement 3), corrective
+validation (Requirement 26), and an explicit definition of done (Requirement 27).
+
+`tasks.md` carries a **Remaining work** section listing what is specified but not
+yet built, so the gap between plan and code is visible rather than discovered.
