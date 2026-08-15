@@ -43,7 +43,9 @@ from icplugin_builder.integrations.insight_plugin_cli import (
     ProjectTree,
     snapshot_tree,
 )
+from icplugin_builder.integrations.quality_gate import CodeFinding, QualityReport
 from icplugin_builder.integrations.refresh_coordinator import RefreshCoordinator
+from icplugin_builder.orchestrator.repair_loop import RepairLoop, RepairStatus
 from icplugin_builder.orchestrator import (
     AddComponent,
     EntryModeError,
@@ -331,6 +333,26 @@ class TestApplyTurn:
         assert cli.refresh_calls == []
 
 
+def _finding(path="icon_x/actions/a/action.py", line=10, code="unused-import"):
+    return CodeFinding(source="prospector", path=path, code=code, message="msg", line=line)
+
+
+def _report(findings=()):
+    return QualityReport(project_dir=Path("/tmp/x"), findings=tuple(findings))
+
+
+class ScriptedChecker:
+    """Returns a scripted sequence of quality reports, one per check."""
+
+    def __init__(self, reports):
+        self.reports = list(reports)
+        self.calls = 0
+
+    async def run(self, project_dir):
+        self.calls += 1
+        return self.reports[min(self.calls - 1, len(self.reports) - 1)]
+
+
 class FakeScaffolder:
     """A stand-in InsightPluginCli.create that produces a plugin tree."""
 
@@ -349,6 +371,86 @@ class FakeScaffolder:
         (package / "schema.py").write_text("# generated\n", encoding="utf-8")
         (root / "Dockerfile").write_text("FROM python:3.13\n", encoding="utf-8")
         return snapshot_tree(root)
+
+
+class TestRepairAfterImplementation:
+    """Implementation is followed by check-and-repair, not just by a report.
+
+    Running the validators and reporting the results is what the tool did before;
+    it is why plugins with unparseable files shipped. The orchestrator now runs
+    the repair loop after the agent implements, and surfaces its stopping
+    condition on the turn.
+    """
+
+    def _orch(self, tmp_path, *, reports, agent=None):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        return Orchestrator(
+            cost_controller=CostController(),
+            llm_generator=FakeLLM(),
+            plugin_agent=agent if agent is not None else FakeAgent(),
+            repair_loop=RepairLoop(ScriptedChecker(reports), max_rounds=3),
+            projects_root=tmp_path,
+        )
+
+    def _code_turn(self):
+        return TurnPlan(reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, parameters={"action": "scan"})])
+
+    def test_a_clean_check_needs_no_repair(self, tmp_path):
+        orch = self._orch(tmp_path, reports=[_report()])
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        result = asyncio.run(orch.apply_turn("s1", self._code_turn()))
+
+        assert result.status is TurnStatus.APPLIED
+        outcome = orch.session("s1").repair_outcome
+        assert outcome.status is RepairStatus.CLEAN
+        assert outcome.clean
+
+    def test_findings_are_repaired_and_the_turn_says_so(self, tmp_path):
+        orch = self._orch(tmp_path, reports=[_report([_finding()]), _report()])
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        result = asyncio.run(orch.apply_turn("s1", self._code_turn()))
+
+        outcome = orch.session("s1").repair_outcome
+        assert outcome.status is RepairStatus.REPAIRED
+        assert outcome.clean
+        assert "Repaired" in result.message
+
+    def test_the_agent_is_given_the_findings_to_fix(self, tmp_path):
+        agent = FakeAgent()
+        orch = self._orch(tmp_path, reports=[_report([_finding(path="icon_x/util/api.py")]), _report()], agent=agent)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        asyncio.run(orch.apply_turn("s1", self._code_turn()))
+
+        # Two agent runs: the implementation, then the repair carrying the finding.
+        assert len(agent.calls) == 2
+        repair_instruction = agent.calls[1][1]
+        assert "icon_x/util/api.py" in repair_instruction
+        # And the repair must not be to edit a generated file.
+        assert "Do not edit generated files" in repair_instruction
+
+    def test_an_unrepaired_result_is_reported_as_such_on_the_turn(self, tmp_path):
+        # The same finding keeps coming back: the loop stalls and the turn must
+        # not read as a success.
+        orch = self._orch(tmp_path, reports=[_report([_finding()])])
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        result = asyncio.run(orch.apply_turn("s1", self._code_turn()))
+
+        outcome = orch.session("s1").repair_outcome
+        assert not outcome.clean
+        assert outcome.status is RepairStatus.STALLED
+        assert "still open" in result.message
+
+    def test_no_repair_loop_configured_is_a_no_op(self, tmp_path):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        orch = Orchestrator(
+            cost_controller=CostController(),
+            plugin_agent=FakeAgent(),
+            projects_root=tmp_path,
+        )
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        result = asyncio.run(orch.apply_turn("s1", self._code_turn()))
+        assert result.status is TurnStatus.APPLIED
+        assert orch.session("s1").repair_outcome is None
 
 
 class TestNetNewScaffolding:

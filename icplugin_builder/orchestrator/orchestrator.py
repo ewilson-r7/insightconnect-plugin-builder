@@ -79,6 +79,7 @@ from ..integrations.export_manager import ExportManager, TenantCredentials
 from ..integrations.insight_plugin_cli import InsightPluginCli, InsightPluginCliError
 from ..integrations.llm_generator import CostLimitError, LLMGenerator, LLMGeneratorError
 from ..integrations.plugin_agent import AgentRunResult, PluginAgent
+from ..integrations.quality_gate import QualityReport
 from ..integrations.refresh_coordinator import RefreshCoordinator, detect_structural_change
 from ..persistence.audit_log import AuditLog
 from ..persistence.project_folder import (
@@ -92,6 +93,7 @@ from ..persistence.project_folder import (
 )
 from ..persistence.registry import PluginRegistry, RegistryError
 from .operations import DraftOperation
+from .repair_loop import Fixer, RepairLoop, RepairOutcome
 from .session import (
     ExportOutcome,
     ExportPlan,
@@ -195,6 +197,7 @@ class Orchestrator:
         llm_generator: Optional[LLMGenerator] = None,
         plugin_agent: Optional[PluginAgent] = None,
         scaffolder: Optional[InsightPluginCli] = None,
+        repair_loop: Optional[RepairLoop] = None,
         sdk_readme: Optional[Union[str, Path]] = None,
         template_library: Optional[TemplateLibrary] = None,
         refresh_coordinator: Optional[RefreshCoordinator] = None,
@@ -223,6 +226,10 @@ class Orchestrator:
                 net-new plugin tree deterministically (Req 3.1). Without it a
                 net-new draft gets a bare project folder populated by ``refresh``,
                 which yields the legacy ``komand_`` package prefix.
+            repair_loop: checks the implemented code and delegates repairs until
+                progress stops. Without it, findings are neither collected nor
+                acted on -- which is the behavior that let unusable plugins
+                through.
             sdk_readme: path to the InsightConnect SDK repository's ``README.md``,
                 whose changelog is the source of the SDK version stamped into a
                 new plugin's spec. ``None`` uses the conventional clone location.
@@ -248,6 +255,7 @@ class Orchestrator:
         self._llm = llm_generator
         self._agent = plugin_agent
         self._scaffolder = scaffolder
+        self._repair_loop = repair_loop
         self._sdk_readme = sdk_readme
         self._template_library = template_library if template_library is not None else default_template_library()
         self._refresh = refresh_coordinator
@@ -569,6 +577,15 @@ class Orchestrator:
                 session.generated.append(generated[-1])
                 message = run.summary
 
+            # 6. Check the implemented code and repair what is wrong. Reporting
+            #    failures without acting on them is what let broken plugins
+            #    through, so the loop runs here rather than leaving the findings
+            #    for someone to read later.
+            repair = await self._repair(session)
+            if repair is not None:
+                session.repair_outcome = repair
+                message = f"{message}\n\n{repair.summary()}".strip() if message else repair.summary()
+
         return TurnResult(
             status=TurnStatus.APPLIED,
             message=message,
@@ -578,6 +595,48 @@ class Orchestrator:
             structural_reasons=tuple(change.reasons),
             token_total=self.token_total(session_id),
         )
+
+    async def _repair(self, session: SessionState) -> Optional[RepairOutcome]:
+        """Check the implemented code and delegate repairs until progress stops.
+
+        The fixer is the same delegated agent that wrote the code: it is given the
+        findings, with their file and line, and asked to fix exactly those. The
+        decision about whether it succeeded is not its to make -- the loop
+        re-runs the check and compares finding keys.
+
+        Returns:
+            The :class:`RepairOutcome`, or ``None`` when no repair loop is
+            configured or the draft has no working tree to check.
+        """
+        if self._repair_loop is None or session.project_folder is None:
+            return None
+
+        fixer: Optional[Fixer] = self._agent_fixer(session) if self._agent is not None else None
+
+        try:
+            return await self._repair_loop.run(session.project_folder.path, fixer)
+        except (CostLimitError, LLMGeneratorError) as error:
+            # The budget ran out or a repair run failed. The implemented code
+            # stands; report how far the repair got rather than failing the turn.
+            logger.warning("repair loop stopped early: %s", error)
+            return None
+
+    def _agent_fixer(self, session: SessionState) -> Fixer:
+        """Return a :data:`Fixer` that asks the delegated agent to fix findings."""
+        agent = self._agent
+        session_id = session.session_id
+        user_id = session.user_id
+
+        async def fix(root: Path, report: QualityReport) -> object:
+            assert agent is not None  # guarded by the caller
+            return await agent.implement(
+                root,
+                _repair_instruction(report),
+                session_id=session_id,
+                user_id=user_id,
+            )
+
+        return fix
 
     async def _materialize_project_folder(self, session: SessionState, spec: PluginSpec) -> ProjectFolder:
         """Create the on-disk working tree for a net-new draft.
@@ -1157,6 +1216,29 @@ def _prose_context(session: SessionState, request: GenerationRequest) -> Dict[st
         context["action_description"] = action.description
 
     return context
+
+
+def _repair_instruction(report: QualityReport) -> str:
+    """Build the task for one repair round.
+
+    The findings are named with file and line so the fixer does not have to
+    re-derive them, and the instruction is bounded to fixing them. Generated
+    files are already excluded upstream, but the constraint is restated because
+    the obvious way to silence a finding in ``schema.py`` is to edit it, and the
+    fix must not be to edit a file ``insight-plugin refresh`` will overwrite.
+    """
+    return (
+        "The checks below found problems in this plugin's hand-written code.\n"
+        "Fix exactly these, then verify by re-running the checks yourself.\n\n"
+        f"{report.render()}\n\n"
+        "Constraints:\n"
+        "- Do not edit generated files (schema.py, __init__.py, setup.py, "
+        "Dockerfile, Makefile, help.md, .CHECKSUM, bin/). If a finding appears to "
+        "require it, change plugin.spec.yaml and run insight-plugin refresh instead.\n"
+        "- Do not silence a finding by deleting the code it refers to unless the "
+        "code is genuinely unused.\n"
+        "- Keep the plugin's behavior the same; this is a repair pass, not a rewrite.\n"
+    )
 
 
 def _implementation_instruction(spec: PluginSpec, actions: Sequence[str]) -> str:

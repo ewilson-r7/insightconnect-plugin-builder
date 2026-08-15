@@ -221,6 +221,10 @@ class SessionState:
         last_artifact: the most recently built ``.plg`` artifact, if any.
         private_source_notice: the usage-restriction notice when the draft was
             forked from the private production repository (Req 25.6).
+        repair_outcome: the most recent
+            :class:`~icplugin_builder.orchestrator.repair_loop.RepairOutcome`.
+            Typed loosely to keep this module free of an import cycle; the
+            orchestrator owns the concrete type.
     """
 
     session_id: str
@@ -237,6 +241,7 @@ class SessionState:
     last_artifact: Optional[PlgArtifact] = None
     private_source_notice: Optional[str] = None
     generated: List[GeneratedArtifact] = field(default_factory=list)
+    repair_outcome: Optional[Any] = None
 
     @property
     def plugin_name(self) -> str:

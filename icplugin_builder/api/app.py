@@ -633,7 +633,9 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     from ..integrations.insight_plugin_cli import InsightPluginCli
     from ..integrations.llm_generator import LLMGenerator
     from ..integrations.plugin_agent import PluginAgent
+    from ..integrations.quality_gate import QualityGate
     from ..integrations.refresh_coordinator import RefreshCoordinator
+    from ..orchestrator.repair_loop import RepairLoop
     from ..orchestrator.interpreter import Interpreter
     from ..persistence.audit_log import AuditLog
     from ..persistence.registry import PluginRegistry
@@ -699,6 +701,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         llm_generator=llm_generator,
         plugin_agent=plugin_agent,
         scaffolder=insight_plugin_cli,
+        repair_loop=RepairLoop(QualityGate()),
         refresh_coordinator=refresh_coordinator,
         code_validator=code_validator,
         build_engine=build_engine,
