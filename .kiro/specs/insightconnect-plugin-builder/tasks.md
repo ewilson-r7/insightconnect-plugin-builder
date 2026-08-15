@@ -632,6 +632,17 @@ and the new Requirements 26–30.
   - Verified against a real copy of the throwaway `abuseipdb` plugin with no implementation turn: the preview now reports 49 findings and names 8 unmet conditions plus 1 unverified, where before it said only "code not validated".
   - _Requirements: 26.1, 27.1, 27.2, 27.3_
 
+- [x] 38. Judge plugin code by the plugins repository's own lint and format rules
+  - The quality gate ran `black` and `prospector` bare. Both were therefore wrong, and wrong in the way that matters most: they produced findings the plugin never has to answer for, which the agent often *must not* fix, so the repair loop spent rounds requesting changes the steering forbids and `lint_clean`/`formatted` were unreachable on a stock scaffold.
+  - Four corrections, each traced to `rapid7/insightconnect-plugins`:
+    - `black --check --line-length 120`, per its `black.yml`. A generated plugin carries no `pyproject.toml`, so black was applying its own 88-column default. Verified: two files in the throwaway abuseipdb plugin are clean at 120 and fail at 88, so `formatted` was unmet for a purely false reason.
+    - `prospector --profile <prospector.yaml>`. The repository's profile disables thirteen pylint checks plus pyflakes F401, including `bad-super-call` and `dangerous-default-value` -- which come from the scaffolder's own templates.
+    - `--tool bandit --tool mccabe --tool pylint --tool pyflakes`, the four its CI names. Prospector's default set also enables pycodestyle, the source of the `E501` findings; the repository neither runs it nor treats long lines as defects.
+    - `unit_test/` excluded from lint only, matching the repository's own filter. Still compiled, still formatted, still run -- a unit test that does not parse is still a broken plugin.
+  - The profile is **discovered, not vendored as the primary source** (`build_prep.resolve_lint_profile`), for the same reason `resolve_sdk_version` reads the SDK's changelog: a second copy of someone else's rules drifts, and then the two disagree about what "clean" means. A vendored fallback ships for machines without the checkout, carries a provenance header, and is reported as possibly stale when used.
+  - Measured on the two throwaway plugins: findings fell from 49 to 17 (abuseipdb) and 181 to 48 (rapid7_velociraptor), with every remaining finding genuine -- including nine `undefined-variable` reports for a `requests` that is used and never imported, which is why that plugin fails at runtime.
+  - _Requirements: 26.1, 26.2, 26.3, 27.1_
+
 ## Remaining work
 
 Not yet implemented. Listed so the gap between this plan and the code is visible

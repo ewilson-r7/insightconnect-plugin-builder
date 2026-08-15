@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Sequence, Tuple, Union
 
+from .build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile, resolve_lint_profile
+
 __all__ = [
     "GENERATED_FILE_NAMES",
     "GENERATED_DIR_NAMES",
@@ -47,6 +49,7 @@ __all__ = [
     "QualityReport",
     "QualityGate",
     "is_generated",
+    "is_lint_excluded",
     "hand_written_python",
     "package_dir",
 ]
@@ -200,6 +203,23 @@ def is_generated(relative_path: Union[str, PurePosixPath]) -> bool:
     return bool(parts) and parts[-1] in GENERATED_FILE_NAMES
 
 
+def is_lint_excluded(relative_path: Union[str, PurePosixPath]) -> bool:
+    """Return ``True`` iff ``relative_path`` is outside the linter's remit.
+
+    Everything :func:`is_generated` covers, plus the unit tests. The plugins
+    repository's own static-analysis job filters ``unit_test/`` out before running
+    prospector, so a test that trips ``protected-access`` for mocking a private
+    method is not a defect the plugin has to answer for.
+
+    Deliberately *not* the same predicate as :func:`is_generated`: the unit tests
+    are still compiled, still formatted, and still run. Only the linter skips them.
+    """
+    if is_generated(relative_path):
+        return True
+    parts = PurePosixPath(str(relative_path)).parts
+    return _UNIT_TEST_DIR in parts
+
+
 def hand_written_python(project_dir: Union[str, Path]) -> Tuple[str, ...]:
     """Return the hand-written ``.py`` files under ``project_dir``, sorted.
 
@@ -232,6 +252,8 @@ class QualityGate:
         timeout_seconds: float = 300.0,
         run_tests: bool = True,
         coverage_threshold: float = DEFAULT_COVERAGE_THRESHOLD,
+        line_length: int = PLUGIN_LINE_LENGTH,
+        lint_profile: Optional[LintProfile] = None,
     ) -> None:
         """Configure the gate.
 
@@ -250,6 +272,14 @@ class QualityGate:
                 subprocess, so it is switchable for callers that would rather
                 leave that to the containerized test stage.
             coverage_threshold: minimum statement coverage percentage.
+            line_length: the width ``black`` is checked against. Defaults to
+                :data:`~icplugin_builder.integrations.build_prep.PLUGIN_LINE_LENGTH`,
+                which is what the plugins repository formats to -- not black's own
+                default, which is narrower and would fail correctly formatted code.
+            lint_profile: the prospector profile to judge findings against.
+                ``None`` resolves it per
+                :func:`~icplugin_builder.integrations.build_prep.resolve_lint_profile`
+                on each run, preferring the plugins repository's own copy.
         """
         self._python = python_executable
         self._black = black_executable
@@ -257,6 +287,8 @@ class QualityGate:
         self._timeout = timeout_seconds
         self._run_tests = run_tests
         self._coverage_threshold = coverage_threshold
+        self._line_length = line_length
+        self._profile = lint_profile
 
     async def run(self, project_dir: Union[str, Path]) -> QualityReport:
         """Run every check over ``project_dir`` and collect the findings.
@@ -344,7 +376,14 @@ class QualityGate:
     async def _check_format(self, root: Path, files: Sequence[str]) -> Tuple[List[CodeFinding], List[str]]:
         """Report files ``black`` would reformat."""
         findings: List[CodeFinding] = []
-        result = await self._run([self._black, "--check", "--quiet", *files], cwd=root)
+        # --line-length is not optional. A generated plugin carries no
+        # pyproject.toml, so black would otherwise apply its own 88-column
+        # default, while the plugins repository formats at 120. Without this,
+        # correctly formatted plugin code reports as needing reformatting, and the
+        # repair loop asks the agent to rewrap it to a width the repository's CI
+        # will then object to.
+        command = [self._black, "--check", "--quiet", f"--line-length={self._line_length}", *files]
+        result = await self._run(command, cwd=root)
         if result is None:
             return findings, [f"format ({self._black} not available)"]
 
@@ -376,26 +415,46 @@ class QualityGate:
         return findings, []
 
     async def _check_prospector(self, root: Path) -> Tuple[List[CodeFinding], List[str]]:
-        """Run prospector and parse its JSON output into findings."""
+        """Run prospector as the plugins repository runs it, and parse its JSON.
+
+        Both the profile and the explicit tool list matter, and for the same
+        reason: without them prospector reports defects against code the
+        repository merges without comment, and the repair loop cannot fix any of
+        them. See :func:`~icplugin_builder.integrations.build_prep.resolve_lint_profile`
+        and :data:`~icplugin_builder.integrations.build_prep.LINT_TOOLS`.
+        """
         findings: List[CodeFinding] = []
+        skipped: List[str] = []
+
+        command = [self._prospector, "--output-format", "json"]
+        profile = self._profile if self._profile is not None else resolve_lint_profile()
+        if profile.resolved:
+            command.extend(["--profile", str(profile.path)])
+            if not profile.is_authoritative:
+                skipped.append(f"prospector profile ({profile.detail})")
+        else:
+            skipped.append(f"prospector profile ({profile.detail})")
+        for tool in LINT_TOOLS:
+            command.extend(["--tool", tool])
+
         # Exit status is deliberately ignored: prospector's default is to exit 0
         # even when it reports messages, and the findings come from the JSON body
         # either way.
-        result = await self._run([self._prospector, "--output-format", "json"], cwd=root)
+        result = await self._run(command, cwd=root)
         if result is None:
             return findings, [f"prospector ({self._prospector} not available)"]
 
         _, stdout, _ = result
         payload = _first_json_object(stdout)
         if payload is None:
-            return findings, ["prospector (output was not parseable JSON)"]
+            return findings, skipped + ["prospector (output was not parseable JSON)"]
 
         for message in payload.get("messages", []) or []:
             if not isinstance(message, dict):
                 continue
             location = message.get("location") or {}
             path = str(location.get("path", "")).strip()
-            if not path or is_generated(path):
+            if not path or is_lint_excluded(path):
                 continue
             raw_line = location.get("line")
             findings.append(
@@ -407,7 +466,7 @@ class QualityGate:
                     message=str(message.get("message") or "").strip(),
                 )
             )
-        return findings, []
+        return findings, skipped
 
     async def _check_tests(self, root: Path) -> Tuple[List[CodeFinding], List[str], Optional[float]]:
         """Run the plugin's unit tests and measure coverage of its package.

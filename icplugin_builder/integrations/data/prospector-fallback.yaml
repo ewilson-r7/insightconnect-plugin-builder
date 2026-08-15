@@ -1,0 +1,40 @@
+# Vendored from rapid7/insightconnect-plugins -- do not edit here.
+#   asset:  prospector.yaml (repository root)
+#   source: https://github.com/rapid7/insightconnect-plugins
+#   copied: 2026-08-15
+#
+# This is a FALLBACK ONLY. `build_prep.resolve_lint_profile` prefers the real
+# file from a local insightconnect-plugins checkout and uses this copy solely
+# when that checkout is absent, reporting which source it used. The repository's
+# copy is authoritative; if the two disagree, the repository is right and this
+# file is stale.
+#
+# Why a copy exists at all: without a profile, prospector runs with its defaults
+# and reports `bad-super-call` and `dangerous-default-value` against the
+# scaffolder's own templates -- code the plugin steering forbids editing. Those
+# findings are unfixable, so the repair loop would request a change that must not
+# be made, resolve nothing, and hit its round limit on every run.
+
+pylint:
+  disable:
+    - unused-import
+    - import-error
+    - bad-super-call
+    - line-too-long
+    - dangerous-default-value
+    - too-many-locals
+    - useless-object-inheritance
+    - too-many-arguments
+    - too-many-positional-arguments
+    - raise-missing-from
+    - no-else-return
+    - no-else-raise
+    - inconsistent-return-statements
+
+pyflakes:
+  disable:
+    - F401
+
+mccabe:
+  options:
+    max-complexity: 10

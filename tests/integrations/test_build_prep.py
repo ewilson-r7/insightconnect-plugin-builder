@@ -158,3 +158,57 @@ class TestBuildPrepReport:
         summary = report.summary()
         assert "unresolved" in summary
         assert "missing" in summary
+
+
+class TestResolveLintProfile:
+    """The lint profile is discovered, not vendored as the primary source.
+
+    The profile decides which findings a plugin must answer for, so it belongs to
+    the plugins repository rather than to this tool. A second copy of someone
+    else's rules drifts from the original and then the two disagree about what
+    "clean" means -- which is why the repository's file is preferred and the
+    vendored copy is labelled when used.
+    """
+
+    def test_prefers_the_repository_profile_and_labels_it(self, tmp_path):
+        profile_path = tmp_path / "prospector.yaml"
+        profile_path.write_text("pylint:\n  disable:\n    - bad-super-call\n", encoding="utf-8")
+
+        resolved = bp.resolve_lint_profile(profile_path)
+
+        assert resolved.resolved is True
+        assert resolved.source == bp.LINT_PROFILE_SOURCE_REPOSITORY
+        assert resolved.is_authoritative is True
+        assert str(profile_path) in resolved.detail
+
+    def test_falls_back_to_the_vendored_copy_and_says_so(self, tmp_path):
+        resolved = bp.resolve_lint_profile(tmp_path / "absent.yaml")
+
+        assert resolved.resolved is True
+        assert resolved.source == bp.LINT_PROFILE_SOURCE_FALLBACK
+        # Not authoritative: it may lag the repository, and a caller comparing
+        # results across machines needs to know which profile judged the code.
+        assert resolved.is_authoritative is False
+        assert "vendored" in resolved.detail
+
+    def test_the_vendored_copy_ships_with_the_package(self):
+        # Read at runtime, so it has to exist next to the code rather than only in
+        # a source checkout.
+        assert bp.FALLBACK_LINT_PROFILE.is_file()
+
+    def test_the_vendored_copy_disables_the_unfixable_template_findings(self):
+        text = bp.FALLBACK_LINT_PROFILE.read_text(encoding="utf-8")
+        # These two come from the scaffolder's own templates, which the steering
+        # forbids editing. If the vendored copy stops disabling them the repair
+        # loop starts requesting changes that must not be made.
+        assert "bad-super-call" in text
+        assert "dangerous-default-value" in text
+
+    def test_the_named_tools_exclude_pycodestyle(self):
+        # E501 comes from pycodestyle. The repository disables pylint's
+        # line-too-long and never runs pycodestyle, so long lines are not defects.
+        assert "pycodestyle" not in bp.LINT_TOOLS
+        assert set(bp.LINT_TOOLS) == {"bandit", "mccabe", "pylint", "pyflakes"}
+
+    def test_the_plugin_line_length_matches_the_repository(self):
+        assert bp.PLUGIN_LINE_LENGTH == 120

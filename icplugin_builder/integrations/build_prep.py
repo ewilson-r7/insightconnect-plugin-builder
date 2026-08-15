@@ -42,10 +42,18 @@ __all__ = [
     "TARGET_PYTHON_SERIES",
     "PYTHON_SOURCE_PYENV",
     "PYTHON_SOURCE_FALLBACK",
+    "DEFAULT_LINT_PROFILE",
+    "FALLBACK_LINT_PROFILE",
+    "LINT_PROFILE_SOURCE_REPOSITORY",
+    "LINT_PROFILE_SOURCE_FALLBACK",
+    "LINT_TOOLS",
+    "PLUGIN_LINE_LENGTH",
+    "LintProfile",
     "parse_sdk_changelog_version",
     "parse_pyenv_versions",
     "resolve_sdk_version",
     "resolve_target_python",
+    "resolve_lint_profile",
     "check_tooling",
     "prepare_build",
 ]
@@ -68,6 +76,33 @@ TARGET_PYTHON_SERIES = "3.13"
 #: How a target interpreter was resolved.
 PYTHON_SOURCE_PYENV = "pyenv"
 PYTHON_SOURCE_FALLBACK = "path"
+
+#: Where the plugins repository is conventionally cloned. Its ``prospector.yaml``
+#: is the authoritative lint profile: it is what the repository's own CI runs a
+#: plugin against, so it decides which findings a plugin must actually answer for.
+DEFAULT_LINT_PROFILE = "~/Documents/GitHub/insightconnect-plugins/prospector.yaml"
+
+#: A copy of that profile, used only when the checkout above is absent. Marked as
+#: vendored in its own header; the repository's copy wins whenever it is present.
+FALLBACK_LINT_PROFILE = Path(__file__).parent / "data" / "prospector-fallback.yaml"
+
+#: How a lint profile was obtained.
+LINT_PROFILE_SOURCE_REPOSITORY = "repository"
+LINT_PROFILE_SOURCE_FALLBACK = "fallback"
+
+#: The analysers the plugins repository's CI names explicitly when it runs
+#: prospector. Naming them matters: prospector's default set also enables
+#: ``pycodestyle``, whose ``E501`` fires on lines the repository deliberately
+#: allows (its profile disables pylint's ``line-too-long`` and it never runs
+#: pycodestyle at all). Left to its defaults, this tool reports style violations
+#: against code the repository would merge without comment.
+LINT_TOOLS: Tuple[str, ...] = ("bandit", "mccabe", "pylint", "pyflakes")
+
+#: The line length a plugin's code is formatted to. The plugins repository's
+#: formatting CI runs ``black --check --line-length 120``; black's own default is
+#: 88, and a generated plugin carries no ``pyproject.toml`` to say otherwise, so
+#: omitting this makes correctly formatted plugin code report as unformatted.
+PLUGIN_LINE_LENGTH = 120
 
 #: The tools a build needs. ``docker`` is required for `insight-plugin validate`
 #: (its DockerValidator stage) and for the build/test stages, not for editing a
@@ -136,6 +171,35 @@ class TargetPython:
     def is_target_series(self) -> bool:
         """Return ``True`` iff this is a pyenv interpreter in the target series."""
         return self.source == PYTHON_SOURCE_PYENV
+
+
+@dataclass(frozen=True)
+class LintProfile:
+    """The prospector profile a plugin's code should be judged against.
+
+    Attributes:
+        path: the profile file to pass to ``prospector --profile``, or ``None``
+            when none could be found at all.
+        source: :data:`LINT_PROFILE_SOURCE_REPOSITORY` when it came from a local
+            plugins checkout (authoritative), or
+            :data:`LINT_PROFILE_SOURCE_FALLBACK` when it came from this package's
+            vendored copy, which may be stale.
+        detail: how it was resolved, for surfacing to the operator.
+    """
+
+    path: Optional[str]
+    source: Optional[str] = None
+    detail: str = ""
+
+    @property
+    def resolved(self) -> bool:
+        """Return ``True`` iff a profile was found."""
+        return self.path is not None
+
+    @property
+    def is_authoritative(self) -> bool:
+        """Return ``True`` iff the profile came from the plugins repository itself."""
+        return self.source == LINT_PROFILE_SOURCE_REPOSITORY
 
 
 @dataclass(frozen=True)
@@ -279,6 +343,57 @@ def resolve_sdk_version(sdk_readme: Optional[Union[str, Path]] = None) -> SdkVer
             detail=(f"{detail}; using the installed {SDK_DISTRIBUTION} version, which may lag the latest release"),
         )
     return SdkVersion(version=None, detail=detail)
+
+
+def resolve_lint_profile(profile: Optional[Union[str, Path]] = None) -> LintProfile:
+    """Resolve the prospector profile to judge a plugin's code against.
+
+    Prefers the ``prospector.yaml`` in a local ``insightconnect-plugins``
+    checkout, because that file *is* the bar: it is what the repository's CI
+    applies to a plugin, so a finding it disables is a finding the plugin will
+    never have to answer for. Falls back to this package's vendored copy and says
+    so, rather than silently running prospector bare -- bare prospector reports
+    ``bad-super-call`` and ``dangerous-default-value`` against the scaffolder's own
+    templates, which the steering forbids editing, so those findings can never be
+    resolved.
+
+    Discovery rather than a vendored constant, for the same reason
+    :func:`resolve_sdk_version` reads the SDK's changelog: a second copy of
+    someone else's rules drifts from the original, and then the two disagree about
+    what "clean" means.
+
+    Args:
+        profile: an explicit profile path. Defaults to
+            :data:`DEFAULT_LINT_PROFILE`.
+
+    Returns:
+        A :class:`LintProfile`; ``resolved`` is ``False`` only when even the
+        vendored copy is missing.
+    """
+    candidate = Path(profile if profile is not None else DEFAULT_LINT_PROFILE).expanduser()
+    if candidate.is_file():
+        return LintProfile(
+            path=str(candidate),
+            source=LINT_PROFILE_SOURCE_REPOSITORY,
+            detail=f"using the plugins repository's own profile at {candidate}",
+        )
+
+    if FALLBACK_LINT_PROFILE.is_file():
+        return LintProfile(
+            path=str(FALLBACK_LINT_PROFILE),
+            source=LINT_PROFILE_SOURCE_FALLBACK,
+            detail=(
+                f"no plugins checkout at {candidate}; using the vendored copy at "
+                f"{FALLBACK_LINT_PROFILE}, which may lag the repository"
+            ),
+        )
+
+    return LintProfile(
+        path=None,
+        detail=(
+            f"no lint profile found: neither {candidate} nor the vendored copy at " f"{FALLBACK_LINT_PROFILE} exists"
+        ),
+    )
 
 
 async def check_tooling(tools: Sequence[str] = REQUIRED_TOOLS) -> Dict[str, ToolStatus]:

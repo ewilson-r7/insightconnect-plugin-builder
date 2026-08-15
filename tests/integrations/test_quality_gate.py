@@ -11,6 +11,12 @@ file that does not parse is the defect this tool has actually shipped.
 
 import asyncio
 
+from icplugin_builder.integrations.build_prep import (
+    LINT_PROFILE_SOURCE_FALLBACK,
+    LINT_TOOLS,
+    PLUGIN_LINE_LENGTH,
+    LintProfile,
+)
 from icplugin_builder.integrations.quality_gate import (
     SOURCE_COMPILE,
     SOURCE_COVERAGE,
@@ -22,6 +28,7 @@ from icplugin_builder.integrations.quality_gate import (
     QualityReport,
     hand_written_python,
     is_generated,
+    is_lint_excluded,
 )
 
 
@@ -323,3 +330,186 @@ class TestMissingTools:
         assert len(report.skipped) == 4
         assert report.clean
         assert "skipped" in report.summary()
+
+
+class TestLintRemit:
+    """The linter's remit is narrower than the compiler's, and deliberately so."""
+
+    def test_generated_files_are_outside_the_lint_remit(self):
+        assert is_lint_excluded("icon_x/actions/a/schema.py")
+        assert is_lint_excluded("setup.py")
+
+    def test_unit_tests_are_outside_the_lint_remit(self):
+        # The plugins repository's static-analysis job filters unit_test/ out
+        # before running prospector, so a test that trips protected-access for
+        # mocking a private method is not a defect the plugin answers for.
+        assert is_lint_excluded("unit_test/test_action.py")
+        assert is_lint_excluded("unit_test/helpers/fixtures.py")
+
+    def test_plugin_code_is_inside_it(self):
+        assert not is_lint_excluded("icon_x/actions/a/action.py")
+        assert not is_lint_excluded("icon_x/util/api.py")
+        assert not is_lint_excluded("icon_x/connection/connection.py")
+
+    def test_unit_tests_are_still_compiled_and_formatted(self):
+        # Excluded from the *linter* only. A unit test that does not parse is
+        # still a broken plugin, so it must stay in the compile/format set.
+        assert is_lint_excluded("unit_test/test_action.py")
+        assert not is_generated("unit_test/test_action.py")
+
+
+class TestToolInvocation:
+    """The gate must run the tools the way the plugins repository runs them.
+
+    Every assertion here is a defect this tool actually had. Bare `black` applies
+    its own 88-column default to a plugin formatted at 120; bare `prospector`
+    loads no profile and enables pycodestyle, so it reported `bad-super-call`,
+    `dangerous-default-value` and `E501` against code the repository merges
+    without comment -- none of which the agent may fix, because the steering
+    forbids editing the templates they come from.
+    """
+
+    def _capture(self, tmp_path, **kwargs):
+        """Run the gate with its subprocess calls recorded instead of executed."""
+        (tmp_path / "icon_x").mkdir()
+        (tmp_path / "icon_x" / "api.py").write_text("x = 1\n", encoding="utf-8")
+
+        commands = []
+        gate = QualityGate(run_tests=False, **kwargs)
+
+        async def fake_run(command, *, cwd):
+            commands.append(list(command))
+            if "--output-format" in command:
+                return (0, '{"messages": []}', "")
+            return (0, "", "")
+
+        gate._run = fake_run  # noqa: SLF001 - asserting on the argv is the point
+        asyncio.run(gate.run(tmp_path))
+        return commands
+
+    def _command_for(self, commands, executable_fragment):
+        for command in commands:
+            if executable_fragment in command[0]:
+                return command
+        raise AssertionError(f"no command found for {executable_fragment}: {commands}")
+
+    def test_black_is_checked_at_the_plugin_line_length(self, tmp_path):
+        command = self._command_for(self._capture(tmp_path), "black")
+        assert f"--line-length={PLUGIN_LINE_LENGTH}" in command
+        assert PLUGIN_LINE_LENGTH == 120  # what the repository's CI formats to
+
+    def test_prospector_runs_with_a_profile(self, tmp_path):
+        command = self._command_for(self._capture(tmp_path), "prospector")
+        assert "--profile" in command
+        assert command[command.index("--profile") + 1].endswith(".yaml")
+
+    def test_prospector_runs_exactly_the_tools_the_repository_names(self, tmp_path):
+        command = self._command_for(self._capture(tmp_path), "prospector")
+        named = [command[i + 1] for i, token in enumerate(command) if token == "--tool"]
+        assert named == list(LINT_TOOLS)
+        # pycodestyle is absent on purpose: it is the source of E501, and the
+        # repository neither runs it nor treats long lines as defects.
+        assert "pycodestyle" not in named
+
+    def test_an_explicit_profile_is_used_as_given(self, tmp_path):
+        profile = LintProfile(path="/tmp/custom-profile.yaml", source="repository", detail="")
+        command = self._command_for(self._capture(tmp_path, lint_profile=profile), "prospector")
+        assert command[command.index("--profile") + 1] == "/tmp/custom-profile.yaml"
+
+    def test_a_vendored_profile_is_disclosed_as_possibly_stale(self, tmp_path):
+        # The repository's copy is authoritative. Falling back to ours is not a
+        # failure, but it must not pass silently: the two can disagree about what
+        # "clean" means, and the operator should know which one judged the plugin.
+        profile = LintProfile(
+            path="/tmp/vendored.yaml",
+            source=LINT_PROFILE_SOURCE_FALLBACK,
+            detail="no plugins checkout; using the vendored copy",
+        )
+        gate = QualityGate(run_tests=False, lint_profile=profile)
+
+        async def fake_run(command, *, cwd):
+            return (0, '{"messages": []}', "")
+
+        gate._run = fake_run  # noqa: SLF001
+        report = asyncio.run(gate.run(tmp_path))
+        assert any("prospector profile" in note for note in report.skipped)
+
+    def test_an_unresolvable_profile_is_disclosed_too(self, tmp_path):
+        profile = LintProfile(path=None, detail="no lint profile found anywhere")
+        gate = QualityGate(run_tests=False, lint_profile=profile)
+
+        async def fake_run(command, *, cwd):
+            assert "--profile" not in command
+            return (0, '{"messages": []}', "")
+
+        gate._run = fake_run  # noqa: SLF001
+        report = asyncio.run(gate.run(tmp_path))
+        assert any("prospector profile" in note for note in report.skipped)
+
+
+class TestFindingsTheRepositoryWouldNotRaise:
+    """End to end against real black and prospector, on the shapes that misfired."""
+
+    def _plugin(self, tmp_path):
+        package = tmp_path / "icon_x"
+        package.mkdir()
+        # A line between 89 and 120 characters: a defect at black's default width,
+        # fine at the width the plugins repository formats to.
+        long_but_allowed = "MESSAGE = " + '"' + ("a" * 95) + '"' + "\n"
+        assert 88 < len(long_but_allowed.strip()) <= PLUGIN_LINE_LENGTH
+        (package / "api.py").write_text(long_but_allowed, encoding="utf-8")
+        return tmp_path
+
+    def test_a_line_within_the_plugin_width_is_not_a_formatting_defect(self, tmp_path):
+        root = self._plugin(tmp_path)
+        report = asyncio.run(QualityGate(run_tests=False).run(root))
+        assert report.by_source(SOURCE_FORMAT) == (), report.render()
+
+    def test_the_scaffolders_own_template_shapes_are_not_reported(self, tmp_path):
+        # `super(self.__class__, self)` and `params={}` come from the scaffolder's
+        # templates. The repository's profile disables both, and the steering
+        # forbids editing the files they appear in -- so reporting them would ask
+        # for a change that must not be made, round after round.
+        package = tmp_path / "icon_x" / "actions" / "thing"
+        package.mkdir(parents=True)
+        (package / "action.py").write_text(
+            "import insightconnect_plugin_runtime\n\n\n"
+            "class Thing(insightconnect_plugin_runtime.Action):\n"
+            "    def __init__(self):\n"
+            "        super(self.__class__, self).__init__(name='thing')\n\n"
+            "    def run(self, params={}):\n"
+            "        return {}\n",
+            encoding="utf-8",
+        )
+        report = asyncio.run(QualityGate(run_tests=False).run(tmp_path))
+        codes = {finding.code for finding in report.by_source(SOURCE_PROSPECTOR)}
+        assert "bad-super-call" not in codes, report.render()
+        assert "dangerous-default-value" not in codes, report.render()
+        assert "E501" not in codes, report.render()
+
+    def test_a_real_defect_is_still_reported(self, tmp_path):
+        # The alignment must not have turned the linter off. This is the actual
+        # bug in the throwaway abuseipdb plugin: requests used, never imported.
+        package = tmp_path / "icon_x"
+        package.mkdir()
+        (package / "api.py").write_text(
+            "def fetch(url):\n    return requests.get(url)\n",
+            encoding="utf-8",
+        )
+        report = asyncio.run(QualityGate(run_tests=False).run(tmp_path))
+        codes = {finding.code for finding in report.by_source(SOURCE_PROSPECTOR)}
+        assert "undefined-variable" in codes, report.render()
+
+    def test_a_lint_defect_in_a_unit_test_is_not_reported(self, tmp_path):
+        (tmp_path / "icon_x").mkdir()
+        (tmp_path / "icon_x" / "api.py").write_text("x = 1\n", encoding="utf-8")
+        (tmp_path / "unit_test").mkdir()
+        (tmp_path / "unit_test" / "test_api.py").write_text(
+            "def test_thing():\n    return undefined_name_in_a_test\n",
+            encoding="utf-8",
+        )
+        report = asyncio.run(QualityGate(run_tests=False).run(tmp_path))
+        lint_paths = {finding.path for finding in report.by_source(SOURCE_PROSPECTOR)}
+        assert not any(path.startswith("unit_test/") for path in lint_paths), report.render()
+        # ...but the file was still compiled, so a test that cannot parse is caught.
+        assert "unit_test/test_api.py" in report.checked_files

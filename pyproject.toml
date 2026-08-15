@@ -39,6 +39,11 @@ icplugin-builder = "icplugin_builder.api.app:main"
 [tool.setuptools.packages.find]
 include = ["icplugin_builder*"]
 
+[tool.setuptools.package-data]
+# The vendored prospector profile is read at runtime, so it has to ship in the
+# wheel rather than only existing in a source checkout.
+"icplugin_builder.integrations" = ["data/*.yaml"]
+
 [tool.black]
 line-length = 120
 target-version = ["py311"]
