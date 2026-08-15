@@ -40,6 +40,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
+from .plugin_validate import validate_command
+
 __all__ = [
     "StageStatus",
     "StageResult",
@@ -202,6 +204,7 @@ class CodeValidator:
         docker_executable: str = "docker",
         insight_plugin_executable: str = "insight-plugin",
         test_command: Optional[Sequence[str]] = None,
+        validate_python_executable: str = "python3",
         stage_timeout_seconds: float = DEFAULT_STAGE_TIMEOUT_SECONDS,
         docker_probe_timeout_seconds: float = DEFAULT_DOCKER_PROBE_TIMEOUT_SECONDS,
     ) -> None:
@@ -211,8 +214,16 @@ class CodeValidator:
             lint_command: The static-lint command (runs offline, no Docker).
             docker_executable: The ``docker`` binary name/path (build/test/probe).
             insight_plugin_executable: The ``insight-plugin`` binary name/path.
+                Retained for callers that override it; the validate stage drives
+                ``icon_validator`` directly so it can skip the checks a standalone
+                plugin cannot satisfy.
             test_command: Overrides the default in-container unit-test command;
                 ``{image}`` is substituted with the built image tag when present.
+            validate_python_executable: The interpreter that has the plugin
+                toolchain (and therefore ``icon_validator``) installed. Resolve it
+                with
+                :func:`~icplugin_builder.integrations.build_prep.resolve_target_python`;
+                this tool's own interpreter does not have it.
             stage_timeout_seconds: The build/test abort threshold (Req 8.8).
             docker_probe_timeout_seconds: The ``docker version`` probe timeout.
         """
@@ -220,6 +231,7 @@ class CodeValidator:
         self._docker_executable = docker_executable
         self._insight_plugin_executable = insight_plugin_executable
         self._test_command = tuple(test_command) if test_command is not None else None
+        self._validate_python = validate_python_executable
         self._stage_timeout_seconds = stage_timeout_seconds
         self._docker_probe_timeout_seconds = docker_probe_timeout_seconds
 
@@ -247,7 +259,7 @@ class CodeValidator:
         probe = await self.probe_docker()
 
         results = []
-        for spec in self._stage_specs(tag):
+        for spec in self._stage_specs(tag, root):
             if spec.requires_docker and not probe.available:
                 results.append(
                     StageResult(
@@ -302,7 +314,7 @@ class CodeValidator:
             return DockerProbe(available=True, detail=detail)
         return DockerProbe(available=False, message=DOCKER_UNAVAILABLE_MESSAGE, detail=detail)
 
-    def _stage_specs(self, image_tag: str) -> Tuple[_StageSpec, ...]:
+    def _stage_specs(self, image_tag: str, root: Path) -> Tuple[_StageSpec, ...]:
         """Build the ordered stage specs for one run against ``image_tag``."""
         if self._test_command is not None:
             test_command = tuple(part.replace("{image}", image_tag) for part in self._test_command)
@@ -328,9 +340,14 @@ class CodeValidator:
                 requires_docker=True,
                 timeout_seconds=self._stage_timeout_seconds,
             ),
+            # Drives icon_validator directly rather than shelling `insight-plugin
+            # validate`, which always runs every validator and therefore crashes on
+            # the one that needs a plugins-repo git clone -- aborting the run and
+            # suppressing the failures it had already collected. Docker is still
+            # required: DockerValidator builds and runs an image.
             _StageSpec(
                 name=StageName.VALIDATE,
-                command=(self._insight_plugin_executable, "validate"),
+                command=validate_command(root, python_executable=self._validate_python),
                 requires_docker=True,
                 timeout_seconds=None,
             ),

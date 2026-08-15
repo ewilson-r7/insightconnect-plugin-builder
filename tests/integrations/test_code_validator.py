@@ -146,17 +146,20 @@ class TestRunPipelineFailures:
         assert [s.name for s in report.failed_stages] == [StageName.LINT]
 
     def test_missing_stage_executable_is_a_fail(self, tmp_path, monkeypatch):
+        # The validate stage runs icon_validator under the toolchain's
+        # interpreter, so the executable that can go missing is that interpreter.
         def router(command):
-            if command[0] == "insight-plugin":
+            if command[0] == "no-such-interpreter":
                 raise FileNotFoundError(2, "No such file or directory")
             return FakeProcess(returncode=0)
 
         install_router(monkeypatch, router)
-        report = asyncio.run(CodeValidator().run_pipeline(tmp_path))
+        validator = CodeValidator(validate_python_executable="no-such-interpreter")
+        report = asyncio.run(validator.run_pipeline(tmp_path))
 
         validate = report.stage(StageName.VALIDATE)
         assert validate.status is StageStatus.FAILED
-        assert "insight-plugin" in validate.message
+        assert "no-such-interpreter" in validate.message
         assert report.passed is False
 
     def test_build_stage_timeout_aborts_with_timeout_fail(self, tmp_path, monkeypatch):

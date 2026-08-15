@@ -749,6 +749,10 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         lint_command=("flake8", "."),
         docker_executable="docker",
         insight_plugin_executable="insight-plugin",
+        # icon_validator lives with the plugin toolchain, not in this tool's
+        # environment, so the validate stage runs under the same interpreter the
+        # plugin's own tests do.
+        validate_python_executable=target_python,
     )
 
     # One quality gate, shared by the repair loop (implementation path) and the

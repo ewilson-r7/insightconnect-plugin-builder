@@ -152,6 +152,12 @@ class MockedExternalProcesses:
         if argv[0] == "insight-plugin":
             sub = argv[1] if len(argv) > 1 else ""
             return f"insight-plugin:{sub}"
+        # The validate stage drives icon_validator's validator list under the
+        # toolchain's interpreter rather than shelling `insight-plugin validate`,
+        # so the one validator that needs a plugins-repo git clone can be skipped
+        # instead of crashing the run and suppressing every failure with it.
+        if argv[1:2] == ["-c"] and "icon_validator" in argv[2]:
+            return StageName.VALIDATE
         return "unknown"
 
     def install(self, monkeypatch):
@@ -344,11 +350,11 @@ class TestEndToEndCreateGenerateValidateBuildExport:
         assert plan["permitted"] is True  # spec valid AND all four stages passed (Req 7.4, 8.6, 8.7)
         assert "plugin.spec.yaml" in plan["file_list"]
         assert plan["diff"]["first_version"] is True  # no prior export yet (Req 16.4)
-        # The four Docker/insight-plugin validation stages each ran exactly once.
+        # The four validation stages each ran exactly once.
         assert externals.count(StageName.LINT) == 1
         assert externals.count(StageName.BUILD) == 1
         assert externals.count(StageName.TEST) == 1
-        assert externals.count("insight-plugin:validate") == 1
+        assert externals.count(StageName.VALIDATE) == 1
 
         # -- export locally: the real Build_Engine packages a genuine .plg and no
         # tenant upload is required (Req 20.4, 9).

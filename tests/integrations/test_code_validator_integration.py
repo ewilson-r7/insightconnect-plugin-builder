@@ -90,7 +90,11 @@ class MockDockerEngine:
             return StageName.BUILD
         if command[:2] == ["docker", "run"]:
             return StageName.TEST
-        if command[0] == "insight-plugin" and command[1:2] == ["validate"]:
+        # The validate stage runs icon_validator's own validator list under the
+        # toolchain's interpreter rather than shelling `insight-plugin validate`,
+        # so that the one validator needing a plugins-repo git clone can be
+        # skipped instead of crashing the run.
+        if command[1:2] == ["-c"] and "icon_validator" in command[2]:
             return StageName.VALIDATE
         return "unknown"
 
@@ -158,10 +162,14 @@ class TestWiredFourStagePipeline:
         ]
 
     def test_dispatches_expected_docker_and_insight_plugin_commands(self, tmp_path, monkeypatch):
-        """Req 8.2-8.4: build/test go to Docker and validate to insight-plugin, one image tag."""
+        """Req 8.2-8.4: build/test go to Docker and validate to the toolchain, one image tag."""
         engine = MockDockerEngine().install(monkeypatch)
 
-        asyncio.run(CodeValidator().run_pipeline(tmp_path, image_tag="myplugin:1.0"))
+        asyncio.run(
+            CodeValidator(validate_python_executable="toolchain-python").run_pipeline(
+                tmp_path, image_tag="myplugin:1.0"
+            )
+        )
 
         assert engine.argv_for(StageName.LINT) == ["flake8", "."]
         assert engine.argv_for(StageName.BUILD) == ["docker", "build", "-t", "myplugin:1.0", "."]
@@ -176,7 +184,14 @@ class TestWiredFourStagePipeline:
             "pytest",
             "-q",
         ]
-        assert engine.argv_for(StageName.VALIDATE) == ["insight-plugin", "validate"]
+        # Validate runs under the toolchain's interpreter (icon_validator lives
+        # there, not in this tool's environment), against the project directory,
+        # with the repo-dependent validator named for exclusion.
+        validate_argv = engine.argv_for(StageName.VALIDATE)
+        assert validate_argv[0] == "toolchain-python"
+        assert validate_argv[1] == "-c"
+        assert str(tmp_path) in validate_argv
+        assert "Version Increment Validator" in validate_argv[-1]
 
     def test_every_stage_runs_inside_the_project_directory(self, tmp_path, monkeypatch):
         """The four stages run in the plugin working tree; only the probe is cwd-less."""
