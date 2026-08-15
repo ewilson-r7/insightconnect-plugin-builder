@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import List, Optional, Sequence, Tuple, Union
@@ -39,6 +40,9 @@ __all__ = [
     "SOURCE_COMPILE",
     "SOURCE_FORMAT",
     "SOURCE_PROSPECTOR",
+    "SOURCE_TESTS",
+    "SOURCE_COVERAGE",
+    "DEFAULT_COVERAGE_THRESHOLD",
     "CodeFinding",
     "QualityReport",
     "QualityGate",
@@ -67,6 +71,16 @@ GENERATED_DIR_NAMES = frozenset({"bin", ".builder", "build", "dist", "__pycache_
 SOURCE_COMPILE = "compile"
 SOURCE_FORMAT = "format"
 SOURCE_PROSPECTOR = "prospector"
+SOURCE_TESTS = "tests"
+SOURCE_COVERAGE = "coverage"
+
+#: The minimum statement coverage a plugin's unit tests must reach. Stated in the
+#: project's own definition of done; enforced here so it is a gate rather than an
+#: aspiration.
+DEFAULT_COVERAGE_THRESHOLD = 80.0
+
+#: Where a plugin's unit tests live.
+_UNIT_TEST_DIR = "unit_test"
 
 #: How far apart two line numbers must be to count as different findings. A fix
 #: that shifts a line by a little should not read as a brand-new problem.
@@ -145,7 +159,7 @@ class QualityReport:
         if self.clean and not self.skipped:
             return f"No findings across {len(self.checked_files)} hand-written file(s)."
         parts = [f"{len(self.findings)} finding(s)"]
-        for source in (SOURCE_COMPILE, SOURCE_FORMAT, SOURCE_PROSPECTOR):
+        for source in (SOURCE_COMPILE, SOURCE_FORMAT, SOURCE_PROSPECTOR, SOURCE_TESTS, SOURCE_COVERAGE):
             count = len(self.by_source(source))
             if count:
                 parts.append(f"{source}: {count}")
@@ -208,19 +222,33 @@ class QualityGate:
         black_executable: str = "black",
         prospector_executable: str = "prospector",
         timeout_seconds: float = 300.0,
+        run_tests: bool = True,
+        coverage_threshold: float = DEFAULT_COVERAGE_THRESHOLD,
     ) -> None:
         """Configure the gate.
 
         Args:
-            python_executable: interpreter used for the compile check.
+            python_executable: interpreter used for the compile check and for
+                running the plugin's unit tests. It must be the interpreter that
+                has the InsightConnect SDK installed, since a plugin imports the
+                SDK at module scope; resolve it with
+                :func:`~icplugin_builder.integrations.build_prep.resolve_target_python`
+                rather than assuming this process's own interpreter.
             black_executable: the ``black`` binary.
             prospector_executable: the ``prospector`` binary.
             timeout_seconds: per-check ceiling.
+            run_tests: whether to run the plugin's unit tests and measure
+                coverage. Running them executes generated plugin code in a
+                subprocess, so it is switchable for callers that would rather
+                leave that to the containerized test stage.
+            coverage_threshold: minimum statement coverage percentage.
         """
         self._python = python_executable
         self._black = black_executable
         self._prospector = prospector_executable
         self._timeout = timeout_seconds
+        self._run_tests = run_tests
+        self._coverage_threshold = coverage_threshold
 
     async def run(self, project_dir: Union[str, Path]) -> QualityReport:
         """Run every check over ``project_dir`` and collect the findings.
@@ -249,6 +277,11 @@ class QualityGate:
         prospector_findings, prospector_skip = await self._check_prospector(root)
         findings.extend(prospector_findings)
         skipped.extend(prospector_skip)
+
+        if self._run_tests:
+            test_findings, test_skip = await self._check_tests(root)
+            findings.extend(test_findings)
+            skipped.extend(test_skip)
 
         findings.sort(key=lambda f: (f.path, f.line or 0, f.source, f.code))
         return QualityReport(
@@ -360,6 +393,117 @@ class QualityGate:
             )
         return findings, []
 
+    async def _check_tests(self, root: Path) -> Tuple[List[CodeFinding], List[str]]:
+        """Run the plugin's unit tests and measure coverage of its package.
+
+        This is the check that makes a failing test *repairable*. Without it a
+        broken or stubbed test only surfaces in the containerized test stage at
+        export time, by which point the loop that could have fixed it has already
+        finished.
+
+        Both a failure and thin coverage are reported as findings rather than as a
+        pass/fail verdict, because "test_get_thing failed" and "coverage is 41%"
+        are things a fixer can act on.
+        """
+        findings: List[CodeFinding] = []
+        if not (root / _UNIT_TEST_DIR).is_dir():
+            findings.append(
+                CodeFinding(
+                    source=SOURCE_TESTS,
+                    path=_UNIT_TEST_DIR,
+                    code="no-tests",
+                    message="no unit_test/ directory; every action needs unit tests",
+                )
+            )
+            return findings, []
+
+        package = _package_dir(root)
+        skipped: List[str] = []
+        command = [
+            self._python,
+            "-m",
+            "pytest",
+            _UNIT_TEST_DIR,
+            "-q",
+            "--no-header",
+        ]
+        # Coverage is only requested when the plugin's interpreter actually has
+        # pytest-cov. Passing --cov without it makes pytest reject the whole
+        # argument vector, so the tests would not run at all and the failure
+        # would be reported as though the plugin were broken.
+        measure_coverage = bool(package) and await self._has_pytest_cov()
+        if measure_coverage:
+            command.extend([f"--cov={package}", "--cov-report=term-missing"])
+        elif package:
+            skipped.append("coverage (pytest-cov not installed for the plugin interpreter)")
+
+        result = await self._run(command, cwd=root)
+        if result is None:
+            return findings, [f"tests ({self._python} -m pytest not available)"]
+
+        returncode, stdout, stderr = result
+        combined = stdout + stderr
+
+        if _no_tests_collected(combined):
+            findings.append(
+                CodeFinding(
+                    source=SOURCE_TESTS,
+                    path=_UNIT_TEST_DIR,
+                    code="no-tests",
+                    message="unit_test/ contains no runnable tests",
+                )
+            )
+            return findings, skipped
+
+        for path, line, name in _pytest_failures(combined):
+            findings.append(
+                CodeFinding(
+                    source=SOURCE_TESTS,
+                    path=path,
+                    line=line,
+                    # The test name is part of the code so two failures in one
+                    # file stay distinct keys; collapsing them would make fixing
+                    # one of several read as resolving nothing.
+                    code=f"test-failed[{name}]",
+                    message=f"unit test {name} failed",
+                )
+            )
+
+        # A non-zero exit with no parsed failure still means something went wrong
+        # (a collection error, say); report it rather than treating it as a pass.
+        if returncode != 0 and not findings:
+            detail = combined.strip().splitlines()[-1] if combined.strip() else "see output"
+            findings.append(
+                CodeFinding(
+                    source=SOURCE_TESTS,
+                    path=_UNIT_TEST_DIR,
+                    code="test-run-failed",
+                    message=f"the unit test run failed: {detail}",
+                )
+            )
+
+        if measure_coverage and package:
+            percent = _parse_coverage_total(combined)
+            if percent is not None and percent < self._coverage_threshold:
+                findings.append(
+                    CodeFinding(
+                        source=SOURCE_COVERAGE,
+                        path=package,
+                        code="below-threshold",
+                        message=(
+                            f"statement coverage is {percent:.0f}%, below the "
+                            f"{self._coverage_threshold:.0f}% minimum; add tests for the "
+                            "uncovered lines"
+                        ),
+                    )
+                )
+        return findings, skipped
+
+    async def _has_pytest_cov(self) -> bool:
+        """Return ``True`` iff the plugin interpreter can import ``pytest_cov``."""
+        result = await self._run([self._python, "-c", "import pytest_cov"], cwd=Path.cwd())
+        return result is not None and result[0] == 0
+
     async def _run(self, command: Sequence[str], *, cwd: Path) -> Optional[Tuple[int, str, str]]:
         """Run a check command, returning ``None`` when its tool is unavailable."""
         try:
@@ -385,6 +529,66 @@ class QualityGate:
             stdout_bytes.decode("utf-8", errors="replace"),
             stderr_bytes.decode("utf-8", errors="replace"),
         )
+
+
+#: pytest's short summary line, e.g. ``FAILED unit_test/test_api.py::test_bad - ...``.
+#: Preferred over scraping the traceback because it is one line per failure and
+#: carries the test name.
+_PYTEST_FAILED = re.compile(r"^(?:FAILED|ERROR)\s+(\S+?\.py)::(\S+?)(?:\s|$)", re.MULTILINE)
+
+#: The ``TOTAL`` row of a coverage term report, e.g. ``TOTAL   4   1   75%``.
+_COVERAGE_TOTAL = re.compile(r"^TOTAL\s+.*?(\d+(?:\.\d+)?)%", re.MULTILINE)
+
+#: pytest's wording when a run collected nothing.
+_NO_TESTS = ("no tests ran", "no tests collected")
+
+
+def _package_dir(root: Path) -> Optional[str]:
+    """Return the plugin's package directory name, or ``None``.
+
+    Coverage is measured against the plugin package specifically. Measuring the
+    whole tree would fold the tests themselves into the percentage and make the
+    figure meaningless.
+    """
+    for prefix in ("icon_", "komand_"):
+        for candidate in sorted(root.glob(f"{prefix}*")):
+            if candidate.is_dir():
+                return candidate.name
+    return None
+
+
+def _no_tests_collected(output: str) -> bool:
+    """Return ``True`` iff pytest reported collecting no tests."""
+    lowered = output.lower()
+    return any(phrase in lowered for phrase in _NO_TESTS)
+
+
+def _pytest_failures(output: str) -> List[Tuple[str, Optional[int], str]]:
+    """Parse ``(path, line, test_name)`` for each failing test.
+
+    The test name is carried through because it becomes part of the finding's
+    identity. Two failures in the same file must not collapse to one key -- if
+    they did, fixing one of three would look like resolving nothing and the repair
+    loop would call a stall while it was still making progress.
+    """
+    failures: List[Tuple[str, Optional[int], str]] = []
+    for match in _PYTEST_FAILED.finditer(output):
+        path, name = match.group(1), match.group(2)
+        line_match = re.search(rf"^{re.escape(path)}:(\d+):", output, re.MULTILINE)
+        line = int(line_match.group(1)) if line_match else None
+        failures.append((path, line, name))
+    return failures
+
+
+def _parse_coverage_total(output: str) -> Optional[float]:
+    """Return the total coverage percentage from a term report, or ``None``."""
+    matches = _COVERAGE_TOTAL.findall(output)
+    if not matches:
+        return None
+    try:
+        return float(matches[-1])
+    except ValueError:  # pragma: no cover - regex guarantees a numeric match
+        return None
 
 
 def _first_json_object(text: str) -> Optional[dict]:

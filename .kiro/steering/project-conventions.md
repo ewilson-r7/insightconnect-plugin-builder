@@ -24,8 +24,10 @@ done when all of the following hold:
   import `requests` or build URLs.
 - `connection.py` has a real `connect()` (state only) and a real `test()`. A
   `# TODO` or bare `pass` in `test()` means not done.
-- Unit tests exist per action with mocked clients and >=80% coverage. A
-  `self.fail("Unimplemented Test Case")` stub means not done.
+- Unit tests exist per action with mocked clients, they **pass**, and statement
+  coverage of the plugin package is >=80%. A `self.fail("Unimplemented Test Case")`
+  stub means not done. Tests and coverage are checked by the quality gate and are
+  repairable, so a failing test is a finding rather than a late surprise at export.
 - `plugin.spec.yaml` is complete: every field `insight-plugin validate` needs,
   plus `sdk.version` at the current SDK release, `version_history`, and an
   `example` on every output.
@@ -70,6 +72,23 @@ files.
 `kiro-cli` is on PATH via a wrapper at `/opt/homebrew/bin/kiro-cli`. It must be a
 wrapper, not a symlink: the launcher resolves its sibling binaries relative to
 its own path and a symlink outside the `.app` bundle breaks it.
+
+## Vendor API knowledge has to be supplied, not discovered
+
+The delegated agent has no web access. The Kiro CLI's tool set is
+`read`/`write`/`shell`/`grep`/`glob` plus MCP servers, and no fetch server is
+enabled, so the agent cannot look up a vendor's API on its own. It can reach the
+network via `shell`, but nothing here grants or relies on that.
+
+So for any plugin against a real vendor API, attach the API documentation or an
+OpenAPI spec. Attachments are written verbatim into the project's
+`.builder/reference/` and the agent is told to use them for endpoint paths,
+methods, request and response shapes, auth, pagination, and error formats. Without
+them the agent will infer endpoints, and inferred endpoints are wrong.
+
+Do not reintroduce a parser that reads the spec here and passes an extract into a
+prompt. That existed, it was lossy, and it created a second representation that
+drifted. Give the agent the file.
 
 ## Validation must be corrective, not decorative
 

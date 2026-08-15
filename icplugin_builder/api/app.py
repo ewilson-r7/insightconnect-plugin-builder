@@ -569,6 +569,20 @@ def create_app(
                 # via the Kiro CLI, then pass it to the orchestrator.
                 plan = None
                 attachments = frame.get("attachments") or []
+                if attachments:
+                    # Retained on the session so the delegated agent can read the
+                    # real documents from the project tree during implementation,
+                    # not just so the interpreter can derive spec structure now.
+                    state = orchestrator.session(session_id)
+                    for attachment in attachments:
+                        if not isinstance(attachment, dict):
+                            continue
+                        state.attachments.append(
+                            {
+                                "name": str(attachment.get("name") or "reference"),
+                                "content": str(attachment.get("content") or ""),
+                            }
+                        )
                 if interpreter is not None:
                     try:
                         current_spec = orchestrator.session(session_id).spec
@@ -640,6 +654,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     """
     from ..integrations.agent_config import AgentConfigError, missing_resources, write_agent_config
     from ..integrations.build_engine import BuildEngine
+    from ..integrations.build_prep import resolve_target_python
     from ..integrations.code_validator import CodeValidator
     from ..integrations.export_manager import ExportManager
     from ..integrations.insight_plugin_cli import InsightPluginCli
@@ -685,6 +700,16 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         )
     plugin_agent = PluginAgent(cost_controller, executable=config.llm.kiro_cli_path)
 
+    # A generated plugin imports the InsightConnect SDK at module scope, and the
+    # SDK lives in the toolchain's target interpreter rather than in this tool's
+    # environment. Running a plugin's tests with this process's own interpreter
+    # would fail on the import instead of on anything about the plugin, so the
+    # target is resolved (never hardcoded) per the build-prep workflow.
+    resolved_python = resolve_target_python()
+    target_python = resolved_python.executable or "python3"
+    if not resolved_python.is_target_series:
+        logger.warning("plugin unit tests will run under an unverified interpreter: %s", resolved_python.detail)
+
     # insight-plugin CLI: deterministic scaffolding for a net-new plugin, and
     # refresh of derived files after a structural edit. The same wrapper serves
     # both; it is passed as the scaffolder so a net-new tree is produced by
@@ -713,7 +738,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         llm_generator=llm_generator,
         plugin_agent=plugin_agent,
         scaffolder=insight_plugin_cli,
-        repair_loop=RepairLoop(QualityGate()),
+        repair_loop=RepairLoop(QualityGate(python_executable=target_python)),
         refresh_coordinator=refresh_coordinator,
         code_validator=code_validator,
         build_engine=build_engine,

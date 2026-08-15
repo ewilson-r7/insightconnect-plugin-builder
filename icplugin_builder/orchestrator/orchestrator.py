@@ -733,9 +733,10 @@ class Orchestrator:
             for request in requests
             if request.kind is ArtifactKind.ACTION_LOGIC and request.parameters.get("action")
         ]
+        references = _write_reference_files(session)
         return await self._agent.implement(
             session.project_folder.path,
-            _implementation_instruction(session.spec, actions),
+            _implementation_instruction(session.spec, actions, references),
             session_id=session.session_id,
             user_id=session.user_id,
         )
@@ -1259,7 +1260,54 @@ def _repair_instruction(report: QualityReport) -> str:
     )
 
 
-def _implementation_instruction(spec: PluginSpec, actions: Sequence[str]) -> str:
+#: Where user-supplied reference material is staged for the agent. Inside
+#: ``.builder/`` so it is tool-owned metadata and never reaches the ``.plg``.
+_REFERENCE_DIR = "reference"
+
+
+def _write_reference_files(session: SessionState) -> Tuple[str, ...]:
+    """Stage the session's attachments where the delegated agent can read them.
+
+    An attached OpenAPI spec or vendor API document is written verbatim into the
+    project's ``.builder/reference/`` and the agent is pointed at the directory.
+    This replaces parsing the spec here and passing an extract along in a prompt:
+    the agent reads the real document, so nothing is lost to a summariser, and
+    there is no second representation to drift.
+
+    ``.builder/`` is tool-owned and excluded from the packaged artifact, so
+    reference material cannot leak into a published plugin.
+
+    Returns:
+        The staged filenames, relative to the project root, for naming in the
+        instruction. Empty when there is nothing to stage or the write failed --
+        a reference file is an aid, not a precondition, so a failure here degrades
+        rather than aborting the turn.
+    """
+    if not session.attachments or session.project_folder is None:
+        return ()
+
+    directory = session.project_folder.path / ".builder" / _REFERENCE_DIR
+    written: List[str] = []
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        for attachment in session.attachments:
+            name = Path(str(attachment.get("name") or "reference")).name
+            if not name:
+                continue
+            content = str(attachment.get("content") or "")
+            (directory / name).write_text(content, encoding="utf-8")
+            written.append(f".builder/{_REFERENCE_DIR}/{name}")
+    except OSError as error:
+        logger.warning("could not stage reference files for the agent: %s", error)
+        return ()
+    return tuple(written)
+
+
+def _implementation_instruction(
+    spec: PluginSpec,
+    actions: Sequence[str],
+    references: Sequence[str] = (),
+) -> str:
     """Build the task handed to the delegated agent.
 
     Task only. The standing rules and the definition of done live in the agent
@@ -1277,6 +1325,18 @@ def _implementation_instruction(spec: PluginSpec, actions: Sequence[str]) -> str
         "",
         "Read plugin.spec.yaml for what to build.",
     ]
+    if references:
+        listed = "\n".join(f"  {name}" for name in references)
+        lines.extend(
+            [
+                "",
+                "Reference material supplied for this plugin -- read it before",
+                "implementing, and use it for endpoint paths, HTTP methods, request",
+                "and response shapes, authentication, pagination and error formats",
+                "rather than inferring them:",
+                listed,
+            ]
+        )
     if actions:
         listed = ", ".join(sorted(set(actions)))
         lines.extend(

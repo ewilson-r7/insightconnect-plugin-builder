@@ -232,6 +232,11 @@ class SessionState:
         credits_reported: whether any run actually reported a credits figure.
             Distinguishes "nothing spent yet" from "spend unknown", which a bare
             ``0.0`` cannot.
+        attachments: reference files the user supplied (an OpenAPI spec, vendor
+            API documentation), as ``{"name": ..., "content": ...}``. Written into
+            the project's ``.builder/reference/`` before implementation so the
+            delegated agent can read them directly, rather than being parsed here
+            and passed along as a lossy summary.
     """
 
     session_id: str
@@ -251,6 +256,7 @@ class SessionState:
     repair_outcome: Optional[Any] = None
     credits_spent: float = 0.0
     credits_reported: bool = False
+    attachments: List[Dict[str, str]] = field(default_factory=list)
 
     @property
     def plugin_name(self) -> str:

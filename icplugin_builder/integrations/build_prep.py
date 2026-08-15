@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Tuple, Union
@@ -35,10 +36,16 @@ __all__ = [
     "SDK_SOURCE_CHANGELOG",
     "SDK_SOURCE_INSTALLED",
     "SdkVersion",
+    "TargetPython",
     "ToolStatus",
     "BuildPrepReport",
+    "TARGET_PYTHON_SERIES",
+    "PYTHON_SOURCE_PYENV",
+    "PYTHON_SOURCE_FALLBACK",
     "parse_sdk_changelog_version",
+    "parse_pyenv_versions",
     "resolve_sdk_version",
+    "resolve_target_python",
     "check_tooling",
     "prepare_build",
 ]
@@ -53,6 +60,14 @@ SDK_DISTRIBUTION = "insightconnect-plugin-runtime"
 #: How a resolved SDK version was obtained.
 SDK_SOURCE_CHANGELOG = "changelog"
 SDK_SOURCE_INSTALLED = "installed"
+
+#: The Python series the SDK targets. Resolved to a concrete patch version at
+#: runtime rather than hardcoded, per the build-prep workflow.
+TARGET_PYTHON_SERIES = "3.13"
+
+#: How a target interpreter was resolved.
+PYTHON_SOURCE_PYENV = "pyenv"
+PYTHON_SOURCE_FALLBACK = "path"
 
 #: The tools a build needs. ``docker`` is required for `insight-plugin validate`
 #: (its DockerValidator stage) and for the build/test stages, not for editing a
@@ -94,6 +109,33 @@ class SdkVersion:
     def is_latest_known(self) -> bool:
         """Return ``True`` iff the figure came from the SDK changelog."""
         return self.source == SDK_SOURCE_CHANGELOG
+
+
+@dataclass(frozen=True)
+class TargetPython:
+    """The interpreter a generated plugin's tests should run under.
+
+    Attributes:
+        executable: path to the interpreter, or ``None`` when none was found.
+        version: the resolved version when it came from pyenv, else ``None``.
+        source: :data:`PYTHON_SOURCE_PYENV` or :data:`PYTHON_SOURCE_FALLBACK`.
+        detail: how it was resolved, including why a fallback was used.
+    """
+
+    executable: Optional[str]
+    version: Optional[str] = None
+    source: Optional[str] = None
+    detail: str = ""
+
+    @property
+    def resolved(self) -> bool:
+        """Return ``True`` iff an interpreter was found."""
+        return self.executable is not None
+
+    @property
+    def is_target_series(self) -> bool:
+        """Return ``True`` iff this is a pyenv interpreter in the target series."""
+        return self.source == PYTHON_SOURCE_PYENV
 
 
 @dataclass(frozen=True)
@@ -279,6 +321,104 @@ async def _tool_version(executable: str) -> str:
         return ""
     text = (stdout or b"").decode("utf-8", errors="replace") or (stderr or b"").decode("utf-8", errors="replace")
     return text.strip().splitlines()[0] if text.strip() else ""
+
+
+def parse_pyenv_versions(output: str, series: str = TARGET_PYTHON_SERIES) -> Optional[str]:
+    """Return the newest installed ``pyenv`` version in ``series``.
+
+    Args:
+        output: the raw output of ``pyenv versions --bare``.
+        series: the version prefix to match, e.g. ``"3.13"``.
+
+    Returns:
+        The highest matching version string, or ``None`` when none is installed.
+        Comparison is numeric per segment, so ``3.13.10`` sorts above ``3.13.9``.
+    """
+    candidates = []
+    for line in output.splitlines():
+        version = line.strip().lstrip("*").strip()
+        # `pyenv versions --bare` can include virtualenv names such as
+        # "3.13.3/envs/foo"; only plain interpreter versions are usable here.
+        if "/" in version or not version.startswith(f"{series}."):
+            continue
+        parts = version.split(".")
+        if len(parts) != 3 or not all(part.isdigit() for part in parts):
+            continue
+        candidates.append((tuple(int(part) for part in parts), version))
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
+def resolve_target_python(series: str = TARGET_PYTHON_SERIES) -> TargetPython:
+    """Resolve the interpreter a generated plugin's tests should run under.
+
+    The plugin workflow pins tooling to the SDK's target Python series and says
+    to resolve the installed patch version with ``pyenv versions`` rather than
+    hardcoding it. That matters here for a practical reason as well: the SDK
+    runtime a plugin imports is installed in that interpreter, not in this tool's
+    own environment, so running a plugin's tests with ``sys.executable`` would
+    fail on the import rather than on anything about the plugin.
+
+    Args:
+        series: the target version series; defaults to
+            :data:`TARGET_PYTHON_SERIES`.
+
+    Returns:
+        A :class:`TargetPython`. When no pyenv interpreter in the series is
+        available it falls back to ``python3`` on ``PATH`` and says so, so a
+        caller can report that tests ran under an unverified interpreter rather
+        than silently trusting the result.
+    """
+    pyenv = shutil.which("pyenv")
+    if pyenv is not None:
+        result = _capture([pyenv, "versions", "--bare"])
+        if result is not None:
+            version = parse_pyenv_versions(result, series)
+            if version:
+                candidate = Path.home() / ".pyenv" / "versions" / version / "bin" / "python"
+                if candidate.is_file():
+                    return TargetPython(
+                        executable=str(candidate),
+                        version=version,
+                        source=PYTHON_SOURCE_PYENV,
+                        detail=f"resolved {version} via pyenv",
+                    )
+
+    fallback = shutil.which("python3")
+    if fallback:
+        return TargetPython(
+            executable=fallback,
+            version=None,
+            source=PYTHON_SOURCE_FALLBACK,
+            detail=(
+                f"no pyenv {series}.x interpreter found; falling back to {fallback}, "
+                "which may not have the InsightConnect SDK installed"
+            ),
+        )
+    return TargetPython(executable=None, version=None, source=None, detail="no usable Python interpreter found")
+
+
+def _capture(command: Sequence[str]) -> Optional[str]:
+    """Run ``command`` and return its stdout, or ``None`` on any failure.
+
+    Synchronous on purpose. This is called from application startup, which is a
+    sync context; an async variant would force an ``asyncio.run`` there and break
+    if a loop were already running. :func:`resolve_sdk_version` is sync for the
+    same reason.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            list(command),
+            capture_output=True,
+            timeout=15.0,
+            check=False,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # pragma: no cover - platform dependent
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.decode("utf-8", errors="replace")
 
 
 async def prepare_build(sdk_readme: Optional[Union[str, Path]] = None) -> BuildPrepReport:

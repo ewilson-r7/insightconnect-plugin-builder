@@ -479,6 +479,68 @@ class TestRepairAfterImplementation:
         assert orch.session("s1").repair_outcome is None
 
 
+class TestReferenceMaterial:
+    """User-supplied reference files reach the agent through the project tree.
+
+    Deleting the OpenAPI parser in the Phase 1 cleanup left attached specs unable
+    to influence implementation. Staging the file for the agent to read is the
+    replacement, and is better than the parser was: nothing is lost to a
+    summariser and there is no second representation to drift.
+    """
+
+    def _orch(self, tmp_path, agent):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        return Orchestrator(
+            cost_controller=CostController(),
+            plugin_agent=agent,
+            projects_root=tmp_path,
+        )
+
+    def _turn(self):
+        return TurnPlan(reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, parameters={"action": "scan"})])
+
+    def test_an_attachment_is_staged_and_named_in_the_instruction(self, tmp_path):
+        agent = FakeAgent()
+        orch = self._orch(tmp_path, agent)
+        state = orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        state.attachments.append({"name": "vendor-openapi.yaml", "content": "openapi: 3.0.0\n"})
+        asyncio.run(orch.apply_turn("s1", self._turn()))
+
+        staged = state.project_folder.path / ".builder" / "reference" / "vendor-openapi.yaml"
+        assert staged.is_file()
+        assert staged.read_text(encoding="utf-8") == "openapi: 3.0.0\n"  # verbatim, not summarised
+        assert ".builder/reference/vendor-openapi.yaml" in agent.calls[0][1]
+
+    def test_reference_material_stays_out_of_the_packaged_artifact(self, tmp_path):
+        agent = FakeAgent()
+        orch = self._orch(tmp_path, agent)
+        state = orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        state.attachments.append({"name": "secretish-notes.md", "content": "internal\n"})
+        asyncio.run(orch.apply_turn("s1", self._turn()))
+
+        packaged = orch._file_tree(state, state.spec)
+        assert not [path for path in packaged if "reference" in path or ".builder" in path]
+
+    def test_a_path_traversal_in_the_name_is_flattened(self, tmp_path):
+        # The name comes from a client-supplied attachment, so it must not be
+        # able to place a file outside the reference directory.
+        agent = FakeAgent()
+        orch = self._orch(tmp_path, agent)
+        state = orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        state.attachments.append({"name": "../../escaped.yaml", "content": "x\n"})
+        asyncio.run(orch.apply_turn("s1", self._turn()))
+
+        assert (state.project_folder.path / ".builder" / "reference" / "escaped.yaml").is_file()
+        assert not (tmp_path / "escaped.yaml").exists()
+
+    def test_no_attachments_adds_nothing_to_the_instruction(self, tmp_path):
+        agent = FakeAgent()
+        orch = self._orch(tmp_path, agent)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        asyncio.run(orch.apply_turn("s1", self._turn()))
+        assert "Reference material" not in agent.calls[0][1]
+
+
 class TestNetNewScaffolding:
     """A net-new draft's working tree is scaffolded, not just created empty.
 

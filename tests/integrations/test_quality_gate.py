@@ -13,8 +13,10 @@ import asyncio
 
 from icplugin_builder.integrations.quality_gate import (
     SOURCE_COMPILE,
+    SOURCE_COVERAGE,
     SOURCE_FORMAT,
     SOURCE_PROSPECTOR,
+    SOURCE_TESTS,
     CodeFinding,
     QualityGate,
     QualityReport,
@@ -110,6 +112,126 @@ class TestCompileCheck:
         assert report.by_source(SOURCE_COMPILE) == ()
 
 
+class TestTestsAndCoverage:
+    """Unit test failures and thin coverage are findings, not a pass/fail verdict.
+
+    This is what makes them repairable. Previously a stubbed or failing test only
+    surfaced in the containerized test stage at export time, after the loop that
+    could have fixed it had already finished.
+    """
+
+    def _plugin(self, tmp_path, *, test_body, module_body="def add(a, b):\n    return a + b\n"):
+        (tmp_path / "icon_x").mkdir()
+        (tmp_path / "icon_x" / "api.py").write_text(module_body, encoding="utf-8")
+        (tmp_path / "unit_test").mkdir()
+        (tmp_path / "unit_test" / "test_api.py").write_text(test_body, encoding="utf-8")
+        return tmp_path
+
+    def _gate(self, **kwargs):
+        # This interpreter suffices for the failure cases: the fixtures import
+        # nothing from the SDK. It has no pytest-cov, so coverage is skipped --
+        # which the gate must handle without breaking the test run.
+        import sys
+
+        kwargs.setdefault("python_executable", sys.executable)
+        kwargs.setdefault("coverage_threshold", 80.0)
+        return QualityGate(**kwargs)
+
+    def _coverage_gate(self):
+        """A gate on an interpreter that has pytest-cov, or ``None``."""
+        from icplugin_builder.integrations.build_prep import resolve_target_python
+
+        target = resolve_target_python()
+        if not target.resolved:
+            return None
+        return QualityGate(python_executable=target.executable, coverage_threshold=80.0)
+
+    def test_a_missing_unit_test_directory_is_a_finding(self, tmp_path):
+        (tmp_path / "icon_x").mkdir()
+        (tmp_path / "icon_x" / "api.py").write_text("x = 1\n", encoding="utf-8")
+        report = asyncio.run(self._gate().run(tmp_path))
+        assert any(f.code == "no-tests" for f in report.by_source(SOURCE_TESTS))
+
+    def test_a_failing_test_is_reported_with_its_file(self, tmp_path):
+        root = self._plugin(
+            tmp_path,
+            test_body="from icon_x.api import add\n\ndef test_bad():\n    assert add(1, 2) == 4\n",
+        )
+        report = asyncio.run(self._gate().run(root))
+        failures = report.by_source(SOURCE_TESTS)
+        assert len(failures) == 1
+        assert failures[0].path == "unit_test/test_api.py"
+        assert "test_bad" in failures[0].code
+
+    def test_two_failures_in_one_file_stay_distinct_findings(self, tmp_path):
+        # If they collapsed to one key, fixing one of two would look like
+        # resolving nothing and the repair loop would call a premature stall.
+        root = self._plugin(
+            tmp_path,
+            test_body=(
+                "from icon_x.api import add\n\n"
+                "def test_one():\n    assert add(1, 2) == 4\n\n"
+                "def test_two():\n    assert add(2, 2) == 5\n"
+            ),
+        )
+        report = asyncio.run(self._gate().run(root))
+        keys = {f.key for f in report.by_source(SOURCE_TESTS)}
+        assert len(keys) == 2
+
+    def test_passing_tests_with_good_coverage_produce_nothing(self, tmp_path):
+        root = self._plugin(
+            tmp_path,
+            test_body="from icon_x.api import add\n\ndef test_ok():\n    assert add(1, 2) == 3\n",
+        )
+        report = asyncio.run(self._gate().run(root))
+        assert report.by_source(SOURCE_TESTS) == ()
+        assert report.by_source(SOURCE_COVERAGE) == ()
+
+    def test_coverage_below_the_threshold_is_a_finding(self, tmp_path):
+        gate = self._coverage_gate()
+        if gate is None:  # pragma: no cover - depends on the local toolchain
+            return
+        root = self._plugin(
+            tmp_path,
+            module_body=(
+                "def add(a, b):\n    return a + b\n\n"
+                "def untested_one(x):\n    return x * 2\n\n"
+                "def untested_two(x):\n    return x * 3\n\n"
+                "def untested_three(x):\n    return x * 4\n"
+            ),
+            test_body="from icon_x.api import add\n\ndef test_ok():\n    assert add(1, 2) == 3\n",
+        )
+        report = asyncio.run(gate.run(root))
+        coverage = report.by_source(SOURCE_COVERAGE)
+        assert len(coverage) == 1
+        assert coverage[0].code == "below-threshold"
+        assert "80%" in coverage[0].message
+
+    def test_absent_pytest_cov_skips_coverage_without_breaking_the_test_run(self, tmp_path):
+        # Passing --cov to a pytest without pytest-cov makes it reject the whole
+        # argument vector, so the tests would not run and the failure would look
+        # like a broken plugin. Coverage must be dropped and reported as skipped.
+        root = self._plugin(
+            tmp_path,
+            test_body="from icon_x.api import add\n\ndef test_bad():\n    assert add(1, 2) == 4\n",
+        )
+        report = asyncio.run(self._gate().run(root))
+        # The real failure is reported...
+        assert any("test_bad" in f.code for f in report.by_source(SOURCE_TESTS))
+        # ...and nothing is invented about coverage.
+        assert report.by_source(SOURCE_COVERAGE) == ()
+        assert any("coverage" in note for note in report.skipped)
+
+    def test_tests_can_be_switched_off(self, tmp_path):
+        (tmp_path / "icon_x").mkdir()
+        (tmp_path / "icon_x" / "api.py").write_text("x = 1\n", encoding="utf-8")
+        import sys
+
+        gate = QualityGate(python_executable=sys.executable, run_tests=False)
+        report = asyncio.run(gate.run(tmp_path))
+        assert report.by_source(SOURCE_TESTS) == ()
+
+
 class TestFindingKeys:
     def test_line_numbers_are_bucketed(self):
         a = CodeFinding(source="prospector", path="a.py", code="c", message="m", line=10)
@@ -180,13 +302,17 @@ class TestReport:
 
 class TestMissingTools:
     def test_a_missing_tool_is_recorded_as_skipped_not_passed(self, tmp_path):
+        # A check whose tool is absent must be reported as skipped, so a report
+        # with no findings from it cannot be read as that check having passed.
         (tmp_path / "icon_x").mkdir()
         (tmp_path / "icon_x" / "action.py").write_text("x = 1\n", encoding="utf-8")
         gate = QualityGate(
             python_executable="definitely-not-python-xyz",
             black_executable="definitely-not-black-xyz",
             prospector_executable="definitely-not-prospector-xyz",
+            run_tests=False,
         )
         report = asyncio.run(gate.run(tmp_path))
         assert len(report.skipped) == 3
-        assert report.clean  # no findings, but the skips make that unambiguous
+        assert report.clean
+        assert "skipped" in report.summary()
