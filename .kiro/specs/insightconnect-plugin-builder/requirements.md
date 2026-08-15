@@ -151,21 +151,44 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 ### Requirement 8: Generated Code Validation
 **User Story:** As a plugin author, I want generated code validated, linted, built, and tested before export, so that I do not ship a plugin that fails to run.
 
-> **Note.** This requirement governs the pre-export gate: it records a pass or
-> fail per stage and blocks export. It is necessary and was implemented, but it
-> is not sufficient on its own -- recording four failures and stopping is what
-> allowed unusable plugins through. Requirement 26 adds the corrective step that
-> acts on findings while the plugin is still being built.
+> **Revised.** Two things needed saying that this requirement did not say.
+>
+> First, the **four stages are the export gate, and only the export gate**. The
+> checks that actually run against a plugin are a larger set -- parse, formatting,
+> lint, unit tests, coverage, spec completeness -- and the earlier wording read as
+> though the four stages were the whole validation surface. They are not. The rest
+> belongs to the Quality_Gate (Requirement 26) and the Definition_Of_Done
+> (Requirement 27), which are **advisory**: they inform the operator and drive
+> repair, and they do not decide whether an export may proceed. Clearing the four
+> stages, of which the Insight_Plugin_CLI validate operation is one, is what
+> permits export.
+>
+> Second, the validate stage cannot run the validate operation *as the CLI invokes
+> it*. See 8.9 and 8.10: one validator compares the plugin against its previous
+> version in the `insightconnect-plugins` git remote, and raises an unhandled
+> exception for a plugin that is not in a clone of that repository. The exception
+> aborts the run, so the validators after it never execute and the failures already
+> collected are never reported. Measured on a real generated plugin: 33 of 41
+> validators ran, and eleven genuine failures were reported as nothing but a stack
+> trace. Naming that validator as excluded is what makes the stage measurable.
+>
+> This requirement also remains insufficient on its own -- recording four failures
+> and stopping is what allowed unusable plugins through. Requirement 26 adds the
+> corrective step that acts on findings while the plugin is still being built.
 
 #### Acceptance Criteria
 1. WHEN the user requests a build, THE Code_Validator SHALL run static lint checks against the generated plugin code and record a pass or fail result for the lint stage.
 2. WHEN the user requests a build, THE Code_Validator SHALL build the plugin container image defined by the plugin's Dockerfile and record a pass or fail result for the build stage.
 3. WHEN the user requests a build, THE Code_Validator SHALL run the plugin's unit tests and record a pass or fail result for the test stage.
-4. WHEN the user requests a build, THE Code_Validator SHALL run the Insight_Plugin_CLI validate operation against the plugin and record a pass or fail result for the validate stage.
+4. WHEN the user requests a build, THE Code_Validator SHALL run the Insight_Plugin_CLI's validators against the plugin, excluding those named per 8.9, and record a pass or fail result for the validate stage.
 5. IF the lint stage, build stage, test stage, or validate stage records a fail result, THEN THE Code_Validator SHALL report failure details to the user identifying which stage failed and the associated error output.
 6. IF the lint stage, build stage, test stage, or validate stage records a fail result, THEN THE Plugin_Builder SHALL prevent export of the plugin and retain the generated code unchanged.
 7. WHEN the lint stage, build stage, test stage, and validate stage all record a pass result, THE Plugin_Builder SHALL permit export of the plugin.
 8. IF the build stage or test stage runs longer than 600 seconds, THEN THE Code_Validator SHALL abort that stage, record a fail result for it, and report a timeout failure to the user.
+9. THE Plugin_Builder SHALL maintain a named list of excluded validators, SHALL exclude a validator only where it cannot be satisfied by a plugin developed outside the `insightconnect-plugins` repository, and SHALL record for each one the reason it cannot apply.
+10. WHERE a validator is excluded because it performs a check this tool performs itself, THE Plugin_Builder SHALL perform that check.
+11. THE Code_Validator SHALL report how many validators ran, how many were available, and which were excluded, so that a pass is never mistaken for a run in which most validators were skipped.
+12. THE Code_Validator SHALL derive the validate stage's pass or fail result from the Insight_Plugin_CLI's own validators and SHALL NOT reimplement any validator's check.
 ### Requirement 9: Build to PLG Artifact
 **User Story:** As a plugin author, I want to build my plugin into a `.plg` file, so that I can import it into an InsightConnect tenant offline.
 #### Acceptance Criteria
@@ -348,10 +371,21 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 ### Requirement 27: Definition of Done for a Generated Plugin
 **User Story:** As a plugin author, I want the tool to tell me the plugin is finished only when it actually is, so that "done" means I can import and run it.
 
-> **New.** The original specification contained no requirement that a generated
-> plugin run. It required a schema-valid spec and recorded stage results, both of
-> which were delivered while the plugin was unusable. This requirement states the
-> conditions explicitly so they can be checked rather than assumed.
+> **New, then revised.** The original specification contained no requirement that
+> a generated plugin run. It required a schema-valid spec and recorded stage
+> results, both of which were delivered while the plugin was unusable. This
+> requirement states the conditions explicitly so they can be checked rather than
+> assumed.
+>
+> **The Definition_Of_Done is advisory (27.6).** It reports; it does not gate.
+> Export permission is Requirement 8's four-stage conjunction, of which the
+> Insight_Plugin_CLI validate operation is one -- a plugin that clears those stages
+> may be exported even with Definition_Of_Done conditions outstanding. This is a
+> deliberate decision, not an oversight. The two answer different questions: the
+> gate answers "will this import and run", the definition of done answers "is this
+> finished to the standard the project sets". An operator is entitled to ship
+> something that works while knowing its coverage is thin. What they are not
+> entitled to is *not being told* -- hence 27.2 and 27.3, which are unaffected.
 
 #### Acceptance Criteria
 1. THE Plugin_Builder SHALL treat a plugin as complete only when all of the following hold: the Insight_Plugin_CLI validate operation passes; the Agent_Rulebook's linter reports no findings against hand-written code; every hand-written Python file parses; the plugin exposes an API client with centralized request handling and per-action methods; the connection's connect and test operations are implemented rather than stubbed; unit tests covering each action pass; statement coverage of the plugin package meets the configured minimum; and a dependency manifest exists.
@@ -359,6 +393,8 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 3. THE Plugin_Builder SHALL NOT describe a plugin as complete, ready, or successful while any Definition_Of_Done condition is unmet.
 4. THE Plugin_Builder SHALL determine each Definition_Of_Done condition by executing a check, and SHALL NOT infer any of them from a Plugin_Agent's report of its own work.
 5. WHERE a Definition_Of_Done condition cannot be evaluated because a required tool is unavailable, THE Plugin_Builder SHALL report that condition as unverified rather than as met.
+6. THE Definition_Of_Done SHALL be advisory: THE Plugin_Builder SHALL NOT block export solely because a Definition_Of_Done condition is unmet, and SHALL determine export permission per Requirement 8.7.
+7. WHEN export is permitted while any Definition_Of_Done condition is unmet or unverified, THE Plugin_Builder SHALL present the outstanding conditions alongside the export preview, so that proceeding is an informed choice rather than an uninformed one.
 
 ### Requirement 28: Vendor Reference Material
 **User Story:** As a plugin author building against a real vendor API, I want to supply its documentation and have the implementation use it, so that endpoints and payloads are correct rather than guessed.

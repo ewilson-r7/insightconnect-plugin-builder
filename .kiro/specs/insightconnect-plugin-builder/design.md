@@ -865,6 +865,10 @@ The properties below were derived from the prework classification and consolidat
 
 **Validates: Requirements 7.4, 8.6, 8.7, 9.1, 9.4, 22.4**
 
+This property is deliberately unchanged by the `Definition_Of_Done`, and the biconditional is the reason it had to be stated so plainly. The definition of done is advisory (Req 27.6): it is reported beside this decision and is not a term in it. Were it folded in, "permitted" would mean two different things depending on which conditions happened to be evaluable, and the *only if* direction would become unfalsifiable.
+
+Note what the validate stage means here. It is the Insight_Plugin_CLI's own validators minus a named exclusion list (Req 8.9), not the CLI's `validate` entry point invoked plainly -- that entry point raises an unhandled exception on any plugin outside a clone of the plugins repository, which aborts the run and suppresses the failures already collected. Excluding the one repository-dependent validator is what gives this stage a result to report at all; it does not weaken the conjunction.
+
 ### Property 18: Failing stage is identified in the report
 
 *For any* pipeline report in which one or more stages failed, the reported failure identifies each failing stage and its associated error output.
