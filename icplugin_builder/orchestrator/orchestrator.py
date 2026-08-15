@@ -74,6 +74,7 @@ from ..integrations.build_export_failure import (
     retain_failed_export_artifact,
 )
 from ..integrations.code_validator import CodeValidator, PipelineReport
+from ..integrations.definition_of_done import DoneReport, evaluate_done
 from ..integrations.export_gate import decide_export
 from ..integrations.export_manager import ExportManager, TenantCredentials
 from ..integrations.insight_plugin_cli import InsightPluginCli, InsightPluginCliError
@@ -587,6 +588,16 @@ class Orchestrator:
                 session.repair_outcome = repair
                 message = f"{message}\n\n{repair.summary()}".strip() if message else repair.summary()
 
+            # 7. Ask the whole question. "Repaired all findings" is a statement
+            #    about the findings the quality gate can produce, and a plugin can
+            #    satisfy every one of them while still having no API client and a
+            #    stubbed connection test. Only this gate reports the conjunction,
+            #    so its answer goes out with the turn (Req 27.2, 27.3).
+            done = self._evaluate_done(session, repair)
+            if done is not None:
+                session.done_report = done
+                message = f"{message}\n\n{done.summary()}".strip() if message else done.summary()
+
         return TurnResult(
             status=TurnStatus.APPLIED,
             message=message,
@@ -621,6 +632,31 @@ class Orchestrator:
             # stands; report how far the repair got rather than failing the turn.
             logger.warning("repair loop stopped early: %s", error)
             return None
+
+    def _evaluate_done(self, session: SessionState, repair: Optional[RepairOutcome]) -> Optional[DoneReport]:
+        """Evaluate every definition-of-done condition for the session's plugin.
+
+        Reuses the quality report the repair loop already produced rather than
+        re-running the checks, and reads the structural conditions off the tree
+        directly. The containerized ``insight-plugin validate`` stage has not run
+        at this point in a turn, so that condition comes back *unverified* -- which
+        is the honest answer and keeps the turn from claiming the plugin is
+        finished on the strength of checks that have not happened (Req 27.5).
+
+        Returns:
+            The :class:`DoneReport`, or ``None`` when the draft has no working
+            tree to evaluate.
+        """
+        if session.project_folder is None:
+            return None
+
+        quality_report = repair.final_report if repair is not None else None
+        return evaluate_done(
+            session.project_folder.path,
+            spec=session.spec,
+            quality_report=quality_report,
+            pipeline_report=session.pipeline_report,
+        )
 
     def _agent_fixer(self, session: SessionState) -> Fixer:
         """Return a :data:`Fixer` that asks the delegated agent to fix findings."""

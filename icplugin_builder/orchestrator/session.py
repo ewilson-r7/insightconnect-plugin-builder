@@ -225,6 +225,11 @@ class SessionState:
             :class:`~icplugin_builder.orchestrator.repair_loop.RepairOutcome`.
             Typed loosely to keep this module free of an import cycle; the
             orchestrator owns the concrete type.
+        done_report: the most recent
+            :class:`~icplugin_builder.integrations.definition_of_done.DoneReport`,
+            loosely typed for the same reason. This is the one place that answers
+            "is this plugin finished"; ``repair_outcome`` only says how far the
+            repair loop got, which is a different question.
         credits_spent: cumulative credits reported by the delegated agent across
             every run in this session -- implementation and each repair round.
             Credits are the only usage figure the Kiro CLI measures, so this is
@@ -254,6 +259,7 @@ class SessionState:
     private_source_notice: Optional[str] = None
     generated: List[GeneratedArtifact] = field(default_factory=list)
     repair_outcome: Optional[Any] = None
+    done_report: Optional[Any] = None
     credits_spent: float = 0.0
     credits_reported: bool = False
     attachments: List[Dict[str, str]] = field(default_factory=list)

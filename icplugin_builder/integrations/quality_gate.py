@@ -48,6 +48,7 @@ __all__ = [
     "QualityGate",
     "is_generated",
     "hand_written_python",
+    "package_dir",
 ]
 
 #: Files ``insight-plugin`` generates from the spec. The steering forbids editing
@@ -134,12 +135,19 @@ class QualityReport:
         checked_files: the hand-written Python files that were considered.
         skipped: notes about checks that could not run (a missing linter, say),
             so a clean report is never mistaken for a check that never happened.
+        coverage_percent: the statement coverage actually measured, or ``None``
+            when coverage could not be measured at all. Recorded as a figure
+            rather than left implicit, because "no coverage finding" is true both
+            of a plugin that reached the threshold and of one whose coverage was
+            never measured, and a caller deciding whether the plugin is finished
+            has to tell those apart.
     """
 
     project_dir: Path
     findings: Tuple[CodeFinding, ...] = ()
     checked_files: Tuple[str, ...] = ()
     skipped: Tuple[str, ...] = ()
+    coverage_percent: Optional[float] = None
 
     @property
     def clean(self) -> bool:
@@ -278,10 +286,17 @@ class QualityGate:
         findings.extend(prospector_findings)
         skipped.extend(prospector_skip)
 
+        coverage_percent: Optional[float] = None
         if self._run_tests:
-            test_findings, test_skip = await self._check_tests(root)
+            test_findings, test_skip, coverage_percent = await self._check_tests(root)
             findings.extend(test_findings)
             skipped.extend(test_skip)
+        else:
+            # Switched off by the caller rather than unavailable, but the
+            # reporting consequence is the same: nothing was learned about the
+            # tests, so a report with no test findings must not read as the tests
+            # having passed.
+            skipped.append("tests (not run: the caller disabled them)")
 
         findings.sort(key=lambda f: (f.path, f.line or 0, f.source, f.code))
         return QualityReport(
@@ -289,6 +304,7 @@ class QualityGate:
             findings=tuple(findings),
             checked_files=files,
             skipped=tuple(skipped),
+            coverage_percent=coverage_percent,
         )
 
     async def _check_compile(self, root: Path, files: Sequence[str]) -> Tuple[List[CodeFinding], List[str]]:
@@ -393,7 +409,7 @@ class QualityGate:
             )
         return findings, []
 
-    async def _check_tests(self, root: Path) -> Tuple[List[CodeFinding], List[str]]:
+    async def _check_tests(self, root: Path) -> Tuple[List[CodeFinding], List[str], Optional[float]]:
         """Run the plugin's unit tests and measure coverage of its package.
 
         This is the check that makes a failing test *repairable*. Without it a
@@ -404,6 +420,10 @@ class QualityGate:
         Both a failure and thin coverage are reported as findings rather than as a
         pass/fail verdict, because "test_get_thing failed" and "coverage is 41%"
         are things a fixer can act on.
+
+        Returns:
+            The findings, the notes about checks that did not run, and the
+            coverage percentage actually measured (``None`` when it was not).
         """
         findings: List[CodeFinding] = []
         if not (root / _UNIT_TEST_DIR).is_dir():
@@ -415,9 +435,9 @@ class QualityGate:
                     message="no unit_test/ directory; every action needs unit tests",
                 )
             )
-            return findings, []
+            return findings, [], None
 
-        package = _package_dir(root)
+        package = package_dir(root)
         skipped: List[str] = []
         command = [
             self._python,
@@ -439,7 +459,7 @@ class QualityGate:
 
         result = await self._run(command, cwd=root)
         if result is None:
-            return findings, [f"tests ({self._python} -m pytest not available)"]
+            return findings, [f"tests ({self._python} -m pytest not available)"], None
 
         returncode, stdout, stderr = result
         combined = stdout + stderr
@@ -453,7 +473,7 @@ class QualityGate:
                     message="unit_test/ contains no runnable tests",
                 )
             )
-            return findings, skipped
+            return findings, skipped, None
 
         for path, line, name in _pytest_failures(combined):
             findings.append(
@@ -482,9 +502,15 @@ class QualityGate:
                 )
             )
 
+        percent: Optional[float] = None
         if measure_coverage and package:
             percent = _parse_coverage_total(combined)
-            if percent is not None and percent < self._coverage_threshold:
+            if percent is None:
+                # Coverage was asked for and the total did not come back. Saying
+                # nothing would leave the absence of a coverage finding looking
+                # like a plugin that met the threshold.
+                skipped.append("coverage (the coverage total was not reported)")
+            elif percent < self._coverage_threshold:
                 findings.append(
                     CodeFinding(
                         source=SOURCE_COVERAGE,
@@ -497,7 +523,9 @@ class QualityGate:
                         ),
                     )
                 )
-        return findings, skipped
+        elif not package:
+            skipped.append("coverage (no plugin package directory to measure)")
+        return findings, skipped, percent
 
     async def _has_pytest_cov(self) -> bool:
         """Return ``True`` iff the plugin interpreter can import ``pytest_cov``."""
@@ -543,12 +571,15 @@ _COVERAGE_TOTAL = re.compile(r"^TOTAL\s+.*?(\d+(?:\.\d+)?)%", re.MULTILINE)
 _NO_TESTS = ("no tests ran", "no tests collected")
 
 
-def _package_dir(root: Path) -> Optional[str]:
+def package_dir(root: Path) -> Optional[str]:
     """Return the plugin's package directory name, or ``None``.
 
     Coverage is measured against the plugin package specifically. Measuring the
     whole tree would fold the tests themselves into the percentage and make the
     figure meaningless.
+
+    Both eras of prefix are recognised: ``insight-plugin create`` emits
+    ``icon_<name>`` and older plugins carry ``komand_<name>``.
     """
     for prefix in ("icon_", "komand_"):
         for candidate in sorted(root.glob(f"{prefix}*")):

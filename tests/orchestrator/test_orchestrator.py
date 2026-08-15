@@ -727,8 +727,12 @@ class TestReasoningBoundary:
         assert project_dir.endswith("my_plugin")  # runs in the plugin's own tree
         assert "list_things" in instruction  # the requested action is named
         assert (session_id, user_id) == ("s1", "u1")
-        # The turn reports the agent's own account of what it did.
-        assert result.message == agent.summary
+        # The turn carries the agent's own account of what it did...
+        assert agent.summary in result.message
+        # ...but does not stop there. This agent claims validation passed; the
+        # turn appends what was actually checked, so the claim cannot stand as
+        # the last word on whether the plugin is finished (Req 27.3, 27.4).
+        assert "not complete" in result.message
 
     def test_code_reasoning_without_an_agent_is_a_no_op(self, tmp_path):
         # No agent wired (e.g. Kiro CLI unavailable): the structural edit still

@@ -612,20 +612,26 @@ and the new Requirements 26–30.
   - [x] 32.3 Record the revision in this plan
     - _Requirements: all_
 
+- [x] 33. Enforce the definition of done as a single checkable gate
+  - [x] 33.1 Evaluate every Definition_Of_Done condition and report each unmet or unverified one by name
+    - The conditions were checked in pieces across the quality gate, the spec completeness check, and the four-stage validator, and no single component reported the conjunction. `integrations/definition_of_done.py` now does: eleven named conditions, each one either met, unmet, or **unverified**, with `complete` requiring that every condition was evaluated and every one is met.
+    - Four conditions had no check at all behind them and are new here, read off the source with `ast`: the API client exists with a central `_make_request` and an `HTTP_ERROR_MAP` and at least one domain method; component code does not make its own requests or build URLs; `connect()` and `test()` are implemented rather than stubbed; a dependency manifest exists with exact pins. Usage is checked rather than imports, because the defect that shipped was `requests.get(url)` in an action that never imported `requests`.
+    - Wired into the implementation path in `apply_turn`, reusing the quality report the repair loop already produced. "Repaired all findings" is a statement about the findings the quality gate can produce, and a plugin can satisfy every one of them while still having no API client.
+    - _Requirements: 27.1, 27.2, 27.3, 27.5_
+  - [x] 33.2 Property test: an unmet condition is never reported as done
+    - **Property 57** — **Validates: Requirements 27.1, 27.2, 27.3, 27.5**
+  - [x] 33.3 Let the quality gate report coverage as a measured figure
+    - `QualityReport.coverage_percent`, plus a disclosed skip when tests are switched off and when a requested coverage total does not come back. Absence of a coverage finding was equally true of a plugin that cleared the threshold and one whose coverage was never measured, so the gate could not tell met from unverified. Confirmed against the real toolchain: one of the two throwaway plugins reports `None` here and is therefore unverified, where it would previously have read as met.
+    - _Requirements: 26.4, 27.5_
+
 ## Remaining work
 
 Not yet implemented. Listed so the gap between this plan and the code is visible
 rather than discovered.
 
-- [ ] 33. Enforce the definition of done as a single checkable gate
-  - [ ] 33.1 Evaluate every Definition_Of_Done condition and report each unmet or unverified one by name
-    - Currently the conditions are checked in pieces across the quality gate, the spec completeness check, and the four-stage validator, and no single component reports the conjunction. Requirement 27 is therefore only partly enforced.
-    - _Requirements: 27.1, 27.2, 27.3, 27.5_
-  - [ ] 33.2 Property test: an unmet condition is never reported as done
-    - **Property 57** — **Validates: Requirements 27.1, 27.2, 27.3, 27.5**
-
 - [ ] 34. Run the quality gate before export, not only after implementation
   - The repair loop runs on the implementation path. An export of a draft that was never implemented in this session is gated only by the four-stage validator, so a plugin can reach the export preview without its hand-written code having been checked.
+  - Task 33 sharpens this rather than fixing it: the definition-of-done gate is wired into the implementation path only, and `prepare_export` still decides with `decide_export` alone. Running the gate there needs a `QualityGate` run on the export path to feed it — which is this task. Until then an export preview reports the four-stage conjunction, not the definition of done.
   - _Requirements: 26.1, 27.1_
 
 - [ ] 35. Make the repair round limit configurable

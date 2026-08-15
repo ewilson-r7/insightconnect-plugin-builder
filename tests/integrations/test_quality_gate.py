@@ -230,6 +230,11 @@ class TestTestsAndCoverage:
         gate = QualityGate(python_executable=sys.executable, run_tests=False)
         report = asyncio.run(gate.run(tmp_path))
         assert report.by_source(SOURCE_TESTS) == ()
+        # Switched off is still "nothing was learned", so it is disclosed as a
+        # skip. Otherwise a caller deciding whether the plugin is finished would
+        # read the absence of test findings as the tests having passed.
+        assert any(note.startswith("tests (") for note in report.skipped)
+        assert report.coverage_percent is None
 
 
 class TestFindingKeys:
@@ -313,6 +318,8 @@ class TestMissingTools:
             run_tests=False,
         )
         report = asyncio.run(gate.run(tmp_path))
-        assert len(report.skipped) == 3
+        # compile, format, prospector -- their tools are absent -- plus the tests,
+        # which this gate was told not to run.
+        assert len(report.skipped) == 4
         assert report.clean
         assert "skipped" in report.summary()
