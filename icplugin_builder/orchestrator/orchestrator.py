@@ -42,6 +42,7 @@ while the API/UI layers are built on top (tasks 22-24).
 from __future__ import annotations
 
 import copy
+import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,12 +61,14 @@ from ..core.generation import (
     default_template_library,
 )
 from ..core.input_validation import validate_conversation_input
+from ..core.spec_completeness import check_completeness, with_sdk_version
 from ..core.spec_model import PluginSpec, SemVer
 from ..core.spec_validator import SpecValidator, ValidationReport
 from ..core.vendor import apply_custom_vendor_suffix
 from ..core.version_bump import apply_version_bump, bump_for_export
 from ..core.yaml_codec import dump_plugin_spec, load_plugin_spec
 from ..integrations.build_engine import BuildEngine, BuildEngineError
+from ..integrations.build_prep import resolve_sdk_version
 from ..integrations.build_export_failure import (
     classify_export_failure,
     retain_failed_export_artifact,
@@ -73,11 +76,13 @@ from ..integrations.build_export_failure import (
 from ..integrations.code_validator import CodeValidator, PipelineReport
 from ..integrations.export_gate import decide_export
 from ..integrations.export_manager import ExportManager, TenantCredentials
+from ..integrations.insight_plugin_cli import InsightPluginCli, InsightPluginCliError
 from ..integrations.llm_generator import CostLimitError, LLMGenerator, LLMGeneratorError
 from ..integrations.plugin_agent import AgentRunResult, PluginAgent
 from ..integrations.refresh_coordinator import RefreshCoordinator, detect_structural_change
 from ..persistence.audit_log import AuditLog
 from ..persistence.project_folder import (
+    DEFAULT_PACKAGE_PREFIX,
     ENTRY_MODE_CREATE_NEW,
     ENTRY_MODE_ENHANCE_PRODUCTION,
     ENTRY_MODE_ITERATE_CUSTOM,
@@ -105,6 +110,8 @@ __all__ = [
     "TurnPlan",
     "Orchestrator",
 ]
+
+logger = logging.getLogger(__name__)
 
 #: Directory names never included in the export file tree / preview.
 _EXCLUDED_TREE_NAMES = frozenset({".builder", ".git", "__pycache__", ".pytest_cache", ".mypy_cache"})
@@ -187,6 +194,8 @@ class Orchestrator:
         cost_controller: Optional[CostController] = None,
         llm_generator: Optional[LLMGenerator] = None,
         plugin_agent: Optional[PluginAgent] = None,
+        scaffolder: Optional[InsightPluginCli] = None,
+        sdk_readme: Optional[Union[str, Path]] = None,
         template_library: Optional[TemplateLibrary] = None,
         refresh_coordinator: Optional[RefreshCoordinator] = None,
         spec_validator: Optional[SpecValidator] = None,
@@ -210,6 +219,13 @@ class Orchestrator:
                 unit tests). Code implementation is delegated rather than
                 prompted for and spliced, so it requires a project folder on
                 disk to work in.
+            scaffolder: the ``insight-plugin`` CLI wrapper used to scaffold a
+                net-new plugin tree deterministically (Req 3.1). Without it a
+                net-new draft gets a bare project folder populated by ``refresh``,
+                which yields the legacy ``komand_`` package prefix.
+            sdk_readme: path to the InsightConnect SDK repository's ``README.md``,
+                whose changelog is the source of the SDK version stamped into a
+                new plugin's spec. ``None`` uses the conventional clone location.
             template_library: templates consulted before dispatching to the LLM;
                 defaults to :func:`default_template_library` (Req 3.3).
             refresh_coordinator: runs ``insight-plugin refresh`` after structural
@@ -231,6 +247,8 @@ class Orchestrator:
         self._cost_controller = cost_controller
         self._llm = llm_generator
         self._agent = plugin_agent
+        self._scaffolder = scaffolder
+        self._sdk_readme = sdk_readme
         self._template_library = template_library if template_library is not None else default_template_library()
         self._refresh = refresh_coordinator
         self._spec_validator = spec_validator if spec_validator is not None else SpecValidator()
@@ -492,14 +510,19 @@ class Orchestrator:
         change = detect_structural_change(session.baseline_spec, new_draft.spec)
         refreshed = False
 
-        # Lazily create a project folder for net-new sessions on first structural change.
-        if change.is_structural and session.project_folder is None and self._projects_root is not None:
-            from ..persistence.project_folder import ProjectFolder
+        # Stamp the resolved SDK version onto the draft itself before anything is
+        # written, so the persisted spec, the scaffold, and the refreshed derived
+        # files all agree. Stamping only the copy handed to the scaffolder would
+        # be undone by the save below.
+        if change.is_structural:
+            stamped = self._with_resolved_sdk(new_draft.spec)
+            if stamped is not new_draft.spec:
+                new_draft = Draft(spec=stamped, code_files=dict(new_draft.code_files))
 
-            folder = ProjectFolder.create(
-                self._projects_root, new_draft.spec.name or session.session_id, new_draft.spec
-            )
-            session.project_folder = folder
+        # Lazily materialize a project folder for net-new sessions on the first
+        # structural change, scaffolding it deterministically when possible.
+        if change.is_structural and session.project_folder is None and self._projects_root is not None:
+            session.project_folder = await self._materialize_project_folder(session, new_draft.spec)
 
         if change.is_structural and session.project_folder is not None and self._refresh is not None:
             session.project_folder.save(new_draft.spec, generated_files=_as_generated(new_draft.code_files))
@@ -555,6 +578,68 @@ class Orchestrator:
             structural_reasons=tuple(change.reasons),
             token_total=self.token_total(session_id),
         )
+
+    async def _materialize_project_folder(self, session: SessionState, spec: PluginSpec) -> ProjectFolder:
+        """Create the on-disk working tree for a net-new draft.
+
+        Prefers deterministic scaffolding: ``insight-plugin create`` produces the
+        full tree -- package directory, action/connection stubs, ``Dockerfile``,
+        ``setup.py``, ``bin/``, ``unit_test/`` -- using the **current** ``icon_``
+        package prefix. Falling back to creating a bare folder and letting
+        ``refresh`` populate it is not equivalent: from an identical spec,
+        ``refresh`` against a directory holding only a spec emits the legacy
+        ``komand_`` prefix. Every plugin this tool produced before scaffolding was
+        wired carried that legacy prefix as a result.
+
+        The order is forced by the CLI: it will not create over an existing
+        directory, so the scaffold is produced first and the tool's
+        ``.builder/`` metadata is adopted into it afterwards, recording the
+        prefix actually observed on disk.
+
+        When the scaffolder is unavailable or fails, this falls back to a bare
+        project folder so the turn still completes; a subsequent ``refresh`` will
+        populate it. The failure is logged rather than raised because the draft
+        edit itself succeeded.
+        """
+        name = spec.name or session.session_id
+        root = Path(self._projects_root) / name  # type: ignore[arg-type]
+
+        if self._scaffolder is not None and not root.exists():
+            try:
+                tree = await self._scaffolder.create(spec, self._projects_root)
+                prefix = tree.package_prefix() or DEFAULT_PACKAGE_PREFIX
+                return ProjectFolder.adopt(root, name, spec, package_prefix=prefix)
+            except (InsightPluginCliError, ProjectFolderError) as error:
+                logger.warning(
+                    "deterministic scaffolding failed for %r (%s); "
+                    "falling back to a bare project folder populated by refresh",
+                    name,
+                    error,
+                )
+
+        if root.exists():
+            return ProjectFolder.adopt(root, name, spec)
+        return ProjectFolder.create(self._projects_root, name, spec)
+
+    def _with_resolved_sdk(self, spec: PluginSpec) -> PluginSpec:
+        """Stamp the resolved SDK version into ``spec`` when it carries none.
+
+        `insight-plugin validate` requires an ``sdk`` block, and every plugin this
+        tool produced before this step shipped without one. The version is read
+        from the SDK's own changelog rather than hardcoded, and an ``sdk`` block
+        that is already populated is left untouched.
+
+        Resolution failure is not fatal: the spec is returned unchanged and the
+        completeness check will report the missing field, which is a better
+        outcome than blocking the turn over a missing SDK checkout.
+        """
+        if _sdk_block_present(spec):
+            return spec
+        resolved = resolve_sdk_version(self._sdk_readme)
+        if not resolved.resolved or resolved.version is None:
+            logger.warning("could not resolve an SDK version (%s); leaving sdk unset", resolved.detail)
+            return spec
+        return with_sdk_version(spec, resolved.version)
 
     async def _delegate_implementation(
         self,
@@ -693,6 +778,11 @@ class Orchestrator:
         # Req 7, 8: validate the spec and (when possible) the code.
         spec_report: ValidationReport = self._spec_validator.validate(export_spec)
         session.spec_report = spec_report
+
+        # Completeness is reported alongside structural validity: a spec can be
+        # well-formed and still be rejected by `insight-plugin validate` for a
+        # missing sdk block, version_history, or output examples.
+        completeness = check_completeness(export_spec)
         pipeline_report: Optional[PipelineReport] = None
         if self._code_validator is not None and session.project_folder is not None:
             pipeline_report = await self._code_validator.run_pipeline(session.project_folder.path)
@@ -715,6 +805,7 @@ class Orchestrator:
             version_display=version_display,
             spec_report=spec_report,
             pipeline_report=pipeline_report,
+            completeness=completeness,
         )
 
     async def confirm_export(
@@ -1006,6 +1097,16 @@ def _suffix_vendor(draft: Draft) -> Draft:
 def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
     """Coerce a draft's code-file mapping to the ``generated_files`` shape."""
     return {str(path): content for path, content in code_files.items()}
+
+
+def _sdk_block_present(spec: PluginSpec) -> bool:
+    """Return ``True`` iff the spec already carries a populated ``sdk.version``.
+
+    ``sdk`` is not a modeled field, so it is carried verbatim in
+    :attr:`PluginSpec.extra`.
+    """
+    sdk = spec.extra.get("sdk")
+    return isinstance(sdk, Mapping) and bool(sdk.get("version"))
 
 
 def _partition_reasoning(

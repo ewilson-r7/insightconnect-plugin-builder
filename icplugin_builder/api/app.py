@@ -198,6 +198,15 @@ def _serialize_export_plan(plan: ExportPlan) -> Dict[str, Any]:
         "spec_errors": [
             {"path": err.path, "message": err.message} for err in (plan.spec_report.errors if plan.spec_report else ())
         ],
+        "completeness_findings": [
+            {
+                "code": finding.code,
+                "path": finding.path,
+                "message": finding.message,
+                "severity": finding.severity.value,
+            }
+            for finding in (plan.completeness.findings if plan.completeness else ())
+        ],
         "failed_stages": [stage.name for stage in plan.decision.failed_stages],
     }
 
@@ -662,7 +671,11 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         )
     plugin_agent = PluginAgent(cost_controller, executable=config.llm.kiro_cli_path)
 
-    # insight-plugin CLI (scaffolding + refresh after structural edits)
+    # insight-plugin CLI: deterministic scaffolding for a net-new plugin, and
+    # refresh of derived files after a structural edit. The same wrapper serves
+    # both; it is passed as the scaffolder so a net-new tree is produced by
+    # `insight-plugin create` (current icon_ prefix) rather than by refreshing a
+    # bare directory (legacy komand_ prefix).
     insight_plugin_cli = InsightPluginCli(executable="insight-plugin")
     refresh_coordinator = RefreshCoordinator(cli=insight_plugin_cli)
 
@@ -685,6 +698,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         cost_controller=cost_controller,
         llm_generator=llm_generator,
         plugin_agent=plugin_agent,
+        scaffolder=insight_plugin_cli,
         refresh_coordinator=refresh_coordinator,
         code_validator=code_validator,
         build_engine=build_engine,

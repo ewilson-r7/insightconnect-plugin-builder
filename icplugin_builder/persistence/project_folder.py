@@ -314,6 +314,74 @@ class ProjectFolder:
         return folder
 
     @classmethod
+    def adopt(
+        cls,
+        root: Union[str, Path],
+        plugin_name: str,
+        spec: PluginSpec,
+        *,
+        provenance: Optional[ProvenanceRecord] = None,
+        package_prefix: str = DEFAULT_PACKAGE_PREFIX,
+        created_utc: TimestampInput = None,
+    ) -> "ProjectFolder":
+        """Adopt an already-scaffolded plugin directory as a Project_Folder.
+
+        The counterpart to :meth:`create` for the deterministic-scaffolding path.
+        ``insight-plugin create`` refuses to run if the plugin directory already
+        exists, so the tree has to be scaffolded *first* and the tool's own
+        ``.builder/`` metadata written into it afterwards -- which is what this
+        does. :meth:`create` remains the entry point when there is no scaffold to
+        adopt (an in-memory draft being persisted for the first time).
+
+        The plugin's own files are left untouched: only ``.builder/`` metadata is
+        written. The existing ``plugin.spec.yaml`` is rewritten from ``spec`` so
+        the stored source of truth matches the draft the scaffold came from.
+
+        Args:
+            root: the existing plugin directory (``<projects_root>/<plugin_name>``).
+            plugin_name: the plugin's snake_case name.
+            spec: the :class:`PluginSpec` to persist as the source of truth.
+            provenance: how the draft originated; defaults to a net-new record.
+            package_prefix: the prefix the scaffold actually used. Pass the value
+                detected from the tree rather than a default, so the recorded
+                metadata cannot contradict what is on disk.
+            created_utc: creation timestamp; defaults to the current UTC time.
+
+        Returns:
+            The adopted :class:`ProjectFolder`.
+
+        Raises:
+            ProjectFolderError: if ``plugin_name`` is empty, the prefix is
+                invalid, ``root`` is not an existing directory, or a write fails.
+        """
+        if not plugin_name or not plugin_name.strip():
+            raise ProjectFolderError("plugin_name must be a non-empty name")
+        prefix = _validate_prefix(package_prefix)
+
+        path = Path(root)
+        if not path.is_dir():
+            raise ProjectFolderError(f"cannot adopt a directory that does not exist: {path}")
+
+        folder = cls(path)
+        timestamp = _to_iso(created_utc)
+        recorded_provenance = provenance if provenance is not None else ProvenanceRecord.net_new(timestamp)
+        try:
+            folder._builder_dir().mkdir(parents=True, exist_ok=True)
+            metadata = ProjectMetadata(
+                plugin_name=plugin_name,
+                current_version=str(_version_to_str(spec.version)),
+                created_utc=timestamp,
+                last_modified_utc=timestamp,
+                package_prefix=prefix,
+                provenance=recorded_provenance,
+            )
+            folder._write_metadata(metadata)
+            folder._write_spec(spec)
+        except OSError as error:
+            raise ProjectFolderError(f"failed to adopt project folder {path}: {error}") from error
+        return folder
+
+    @classmethod
     def open(cls, projects_root: Union[str, Path], plugin_name: str) -> "ProjectFolder":
         """Open an existing Project_Folder.
 

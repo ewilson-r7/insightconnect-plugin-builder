@@ -13,11 +13,11 @@ required.
 """
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from icplugin_builder.core.spec_model import PluginSpec, SemVer
-from icplugin_builder.core.yaml_codec import load_plugin_spec
 from icplugin_builder.integrations import insight_plugin_cli as ipc
 from icplugin_builder.integrations.insight_plugin_cli import (
     DERIVED_FILE_NAMES,
@@ -71,59 +71,115 @@ def install_fake_exec(monkeypatch, *, returncode=0, stdout=b"", stderr=b"", side
     return calls
 
 
+def scaffold_into(root):
+    """Simulate ``insight-plugin create`` producing a plugin tree at ``root``."""
+
+    def side_effect(command, cwd):
+        (root / "icon_my_plugin").mkdir(parents=True, exist_ok=True)
+        (root / "icon_my_plugin" / "schema.py").write_text("# schema\n", encoding="utf-8")
+        (root / "icon_my_plugin" / "__init__.py").write_text("", encoding="utf-8")
+        (root / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
+        (root / "Makefile").write_text("build:\n", encoding="utf-8")
+        (root / "setup.py").write_text("from setuptools import setup\n", encoding="utf-8")
+        (root / "help.md").write_text("# Help\n", encoding="utf-8")
+        (root / ".CHECKSUM").write_text("{}\n", encoding="utf-8")
+
+    return side_effect
+
+
 class TestCreate:
-    def test_stages_spec_and_invokes_create(self, tmp_path, monkeypatch):
-        target = tmp_path / "work"
-        calls = install_fake_exec(monkeypatch)
+    """``create`` scaffolds ``<projects_root>/<name>``, not ``projects_root`` itself.
 
-        tree = asyncio.run(InsightPluginCli().create(make_spec(), target))
+    ``insight-plugin create`` is invoked from the *parent* of the plugin and
+    always creates a subdirectory named after the plugin (the ``cd plugins/`` then
+    ``insight-plugin create`` step of the documented workflow). The argument is
+    therefore the projects root, and the resulting tree lives one level below it.
+    """
 
-        # The spec was written to the target dir before invoking the CLI.
-        spec_file = target / "plugin.spec.yaml"
-        assert spec_file.exists()
-        assert load_plugin_spec(spec_file.read_text(encoding="utf-8")).name == "my_plugin"
+    def test_stages_spec_out_of_tree_and_invokes_create_from_the_parent(self, tmp_path, monkeypatch):
+        projects_root = tmp_path / "projects"
+        target = projects_root / "my_plugin"
+        calls = install_fake_exec(monkeypatch, side_effect=scaffold_into(target))
 
-        # The CLI was invoked exactly once with the expected argv and cwd.
+        tree = asyncio.run(InsightPluginCli().create(make_spec(), projects_root))
+
         assert len(calls) == 1
         command, cwd = calls[0]
-        assert command == ["insight-plugin", "create", "plugin.spec.yaml"]
-        assert cwd == str(target)
+        # Invoked from the parent so the CLI creates the plugin subdirectory.
+        assert cwd == str(projects_root)
+        assert command[:2] == ["insight-plugin", "create"]
 
+        # The spec is staged outside the tree and passed by absolute path, so the
+        # projects root gains only the plugin directory -- no stray spec file.
+        staged = Path(command[2])
+        assert staged.is_absolute()
+        assert staged.name == "plugin.spec.yaml"
+        assert not (projects_root / "plugin.spec.yaml").exists()
+        # The staging directory is temporary and cleaned up after the run.
+        assert not staged.exists()
+
+        # The returned tree is rooted at the created plugin directory.
         assert isinstance(tree, ProjectTree)
-        assert "plugin.spec.yaml" in tree.files
+        assert tree.root == target
+        assert "icon_my_plugin/schema.py" in tree.files
 
     def test_returns_tree_with_generated_derived_files(self, tmp_path, monkeypatch):
-        target = tmp_path / "work"
+        projects_root = tmp_path / "projects"
+        target = projects_root / "my_plugin"
+        install_fake_exec(monkeypatch, side_effect=scaffold_into(target))
 
-        def scaffold(command, cwd):
-            # Simulate insight-plugin create producing the package tree + derived files.
-            root = target
-            (root / "icon_my_plugin").mkdir(parents=True, exist_ok=True)
-            (root / "icon_my_plugin" / "schema.py").write_text("# schema\n", encoding="utf-8")
-            (root / "icon_my_plugin" / "__init__.py").write_text("", encoding="utf-8")
-            (root / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
-            (root / "Makefile").write_text("build:\n", encoding="utf-8")
-            (root / "setup.py").write_text("from setuptools import setup\n", encoding="utf-8")
-            (root / "help.md").write_text("# Help\n", encoding="utf-8")
-            (root / ".CHECKSUM").write_text("{}\n", encoding="utf-8")
-
-        install_fake_exec(monkeypatch, side_effect=scaffold)
-
-        tree = asyncio.run(InsightPluginCli().create(make_spec(), target))
+        tree = asyncio.run(InsightPluginCli().create(make_spec(), projects_root))
 
         derived_names = {name.rsplit("/", 1)[-1] for name in tree.derived_files()}
         assert derived_names == set(DERIVED_FILE_NAMES)
         assert tree.files["Dockerfile"] == "FROM python:3.11\n"
         assert tree.files["icon_my_plugin/schema.py"] == "# schema\n"
 
+    def test_detects_the_package_prefix_actually_used(self, tmp_path, monkeypatch):
+        projects_root = tmp_path / "projects"
+        target = projects_root / "my_plugin"
+        install_fake_exec(monkeypatch, side_effect=scaffold_into(target))
+        tree = asyncio.run(InsightPluginCli().create(make_spec(), projects_root))
+        assert tree.package_prefix() == "icon"
+
+    def test_refuses_to_scaffold_over_an_existing_directory(self, tmp_path, monkeypatch):
+        # The CLI declines in this case while still exiting 0, so guarding here
+        # is what stops a silent no-op being reported as a successful scaffold.
+        projects_root = tmp_path / "projects"
+        (projects_root / "my_plugin").mkdir(parents=True)
+        calls = install_fake_exec(monkeypatch)
+
+        with pytest.raises(InsightPluginCliError) as excinfo:
+            asyncio.run(InsightPluginCli().create(make_spec(), projects_root))
+
+        assert "existing directory" in str(excinfo.value)
+        assert calls == []  # rejected before launching the CLI
+
+    def test_zero_exit_that_produced_no_tree_is_an_error(self, tmp_path, monkeypatch):
+        # Guards the same silent-no-op path from the other side: exit 0 is not
+        # sufficient evidence that scaffolding happened.
+        projects_root = tmp_path / "projects"
+        install_fake_exec(monkeypatch, stdout=b"WARNING: directory exists")
+
+        with pytest.raises(InsightPluginCliError) as excinfo:
+            asyncio.run(InsightPluginCli().create(make_spec(), projects_root))
+        assert "did not produce" in str(excinfo.value)
+
+    def test_rejects_a_spec_without_a_name(self, tmp_path, monkeypatch):
+        calls = install_fake_exec(monkeypatch)
+        with pytest.raises(InsightPluginCliError) as excinfo:
+            asyncio.run(InsightPluginCli().create(make_spec(name=""), tmp_path / "projects"))
+        assert "no name" in str(excinfo.value)
+        assert calls == []
+
     def test_nonzero_exit_raises_with_output(self, tmp_path, monkeypatch):
         install_fake_exec(monkeypatch, returncode=2, stderr=b"boom")
         with pytest.raises(InsightPluginCliError) as excinfo:
-            asyncio.run(InsightPluginCli().create(make_spec(), tmp_path / "work"))
+            asyncio.run(InsightPluginCli().create(make_spec(), tmp_path / "projects"))
         error = excinfo.value
         assert error.returncode == 2
         assert error.stderr == "boom"
-        assert error.command == ("insight-plugin", "create", "plugin.spec.yaml")
+        assert error.command[:2] == ("insight-plugin", "create")
 
     def test_missing_executable_raises_actionable_error(self, tmp_path, monkeypatch):
         async def fake_exec(*command, cwd=None, stdout=None, stderr=None):

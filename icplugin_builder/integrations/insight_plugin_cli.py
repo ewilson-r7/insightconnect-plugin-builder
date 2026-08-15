@@ -21,6 +21,7 @@ the wrapper only shells out to the deterministic CLI and reads the filesystem.
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Dict, Optional, Sequence, Union
@@ -36,6 +37,7 @@ __all__ = [
     "DERIVED_FILE_NAMES",
     "DEFAULT_EXECUTABLE",
     "DEFAULT_SPEC_FILENAME",
+    "PACKAGE_PREFIXES",
 ]
 
 #: The default ``insight-plugin`` executable name (resolved on ``PATH``).
@@ -60,6 +62,9 @@ DERIVED_FILE_NAMES = frozenset(
 
 #: Directory names skipped when snapshotting a project tree.
 _IGNORED_DIRS = frozenset({".git", "__pycache__", ".pytest_cache", ".mypy_cache"})
+
+#: The package-directory prefixes the SDK has used, current first (Req 25.7).
+PACKAGE_PREFIXES = ("icon", "komand")
 
 #: Accepted path inputs.
 PathInput = Union[str, Path]
@@ -123,6 +128,21 @@ class ProjectTree:
         """Return ``True`` iff a derived file named ``name`` is present anywhere in the tree."""
         return any(PurePosixPath(path).name == name for path in self.files)
 
+    def package_prefix(self) -> Optional[str]:
+        """Return the package prefix the CLI actually used, or ``None``.
+
+        Detected from the scaffolded tree rather than assumed, because the two
+        eras are not interchangeable and guessing produces metadata that
+        contradicts what is on disk. Returns ``"icon"`` or ``"komand"`` according
+        to the package directory present.
+        """
+        for path in self.files:
+            top = PurePosixPath(path).parts[0] if PurePosixPath(path).parts else ""
+            for prefix in PACKAGE_PREFIXES:
+                if top.startswith(f"{prefix}_"):
+                    return prefix
+        return None
+
 
 class InsightPluginCli:
     """Async wrapper over the ``insight-plugin`` CLI create/refresh operations.
@@ -153,36 +173,81 @@ class InsightPluginCli:
         """The configured ``insight-plugin`` executable."""
         return self._executable
 
-    async def create(self, spec: PluginSpec, target_dir: PathInput) -> ProjectTree:
-        """Scaffold a new plugin working tree via ``insight-plugin create`` (Req 3.1).
+    async def create(self, spec: PluginSpec, projects_root: PathInput) -> ProjectTree:
+        """Scaffold a new plugin tree at ``<projects_root>/<spec.name>`` (Req 3.1).
 
-        Writes ``spec`` to ``<target_dir>/<spec_filename>`` and runs
-        ``insight-plugin create <spec_filename>`` with ``target_dir`` as the
-        working directory, producing the directory structure and derived files
-        (``schema.py``, ``__init__.py``, ``Dockerfile``, ``Makefile``,
-        ``setup.py``, ``help.md``, ``.CHECKSUM``) with zero LLM calls.
+        ``insight-plugin create`` always creates a *subdirectory* named after the
+        plugin beneath the directory it runs in -- it is invoked from the parent
+        of the plugin, not from the plugin directory itself (as the
+        ``create-new-plugin`` workflow specifies: ``cd plugins/`` then
+        ``insight-plugin create``). ``projects_root`` is therefore that parent,
+        and the resulting tree root is ``<projects_root>/<spec.name>``.
+
+        The spec is staged in a temporary directory and passed by absolute path,
+        so ``projects_root`` gains only the created plugin directory and no stray
+        spec file.
+
+        Scaffolding must happen **before** the plugin directory exists. The CLI
+        refuses to create over an existing directory, and -- importantly -- it
+        does so while still exiting ``0``, so the refusal is detected here by
+        checking that the tree was actually produced rather than by trusting the
+        exit status.
+
+        Using ``create`` rather than ``refresh`` on a bare directory is not
+        interchangeable: ``create`` produces the current ``icon_`` package
+        prefix, while ``refresh`` against a directory holding only a spec
+        produces the legacy ``komand_`` prefix from the same input.
 
         Args:
-            spec: the :class:`PluginSpec` to scaffold from.
-            target_dir: the directory the plugin tree is created under; it is
-                created if it does not already exist.
+            spec: the :class:`PluginSpec` to scaffold from; its ``name``
+                determines the created directory.
+            projects_root: the **parent** directory to create the plugin under.
 
         Returns:
-            A :class:`ProjectTree` snapshot of ``target_dir`` after creation.
+            A :class:`ProjectTree` snapshot of ``<projects_root>/<spec.name>``.
 
         Raises:
-            InsightPluginCliError: if the spec cannot be written or the CLI exits
-                with a non-zero status or is not found.
+            InsightPluginCliError: if the spec cannot be staged, the CLI is
+                missing or exits non-zero, or the CLI declined to scaffold (for
+                example because the plugin directory already existed).
         """
-        root = Path(target_dir)
-        try:
-            root.mkdir(parents=True, exist_ok=True)
-            (root / self._spec_filename).write_text(dump_plugin_spec(spec), encoding="utf-8")
-        except OSError as error:
-            raise InsightPluginCliError(f"failed to stage spec in {root}: {error}") from error
+        parent = Path(projects_root)
+        name = (spec.name or "").strip()
+        if not name:
+            raise InsightPluginCliError("cannot scaffold a plugin whose spec has no name")
 
-        await self._run(["create", self._spec_filename], cwd=root)
-        return snapshot_tree(root)
+        target = parent / name
+        if target.exists():
+            raise InsightPluginCliError(
+                f"cannot scaffold over an existing directory: {target}; "
+                "insight-plugin create requires the plugin directory not to exist "
+                "(use refresh to regenerate derived files in place)"
+            )
+
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise InsightPluginCliError(f"failed to prepare {parent}: {error}") from error
+
+        with tempfile.TemporaryDirectory(prefix="icplugin-spec-") as staging:
+            spec_path = Path(staging) / self._spec_filename
+            try:
+                spec_path.write_text(dump_plugin_spec(spec), encoding="utf-8")
+            except OSError as error:
+                raise InsightPluginCliError(f"failed to stage spec in {staging}: {error}") from error
+
+            result = await self._run(["create", str(spec_path)], cwd=parent)
+
+        if not target.is_dir():
+            raise InsightPluginCliError(
+                f"insight-plugin create did not produce {target}",
+                command=result.command,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+
+        return snapshot_tree(target)
 
     async def refresh(self, project_dir: PathInput) -> ProjectTree:
         """Regenerate derived files via ``insight-plugin refresh`` (Req 3.1, 22.3).

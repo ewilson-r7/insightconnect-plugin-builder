@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..core.diff import FileTreeDiff
 from ..core.draft import Draft
 from ..core.generation import ArtifactKind
+from ..core.spec_completeness import CompletenessReport
 from ..core.spec_model import PluginSpec
 from ..core.spec_validator import ValidationReport
 from ..core.version_bump import VersionBump
@@ -146,6 +147,10 @@ class ExportPlan:
             version changed; empty when unchanged (Req 12.6).
         spec_report: the spec-validation report backing ``decision``.
         pipeline_report: the code-validation report backing ``decision``.
+        completeness: the spec-completeness report -- the fields and conventions
+            ``insight-plugin validate`` requires, which are checked separately
+            from structural validity because a well-formed spec can still be
+            rejected for a missing ``sdk`` block or output examples.
     """
 
     decision: ExportDecision
@@ -156,6 +161,7 @@ class ExportPlan:
     version_display: str = ""
     spec_report: Optional[ValidationReport] = None
     pipeline_report: Optional[PipelineReport] = None
+    completeness: Optional[CompletenessReport] = None
 
     @property
     def permitted(self) -> bool:

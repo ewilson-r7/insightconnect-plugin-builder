@@ -21,6 +21,7 @@ Covered:
 """
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -29,6 +30,7 @@ from icplugin_builder.core.cost_controller import CostController
 from icplugin_builder.core.draft import ComponentKind
 from icplugin_builder.core.generation import ArtifactKind, GenerationRequest
 from icplugin_builder.core.spec_model import Component, PluginSpec, SemVer
+from icplugin_builder.core.yaml_codec import load_plugin_spec
 from icplugin_builder.integrations.code_validator import (
     PipelineReport,
     StageName,
@@ -36,7 +38,11 @@ from icplugin_builder.integrations.code_validator import (
     StageStatus,
 )
 from icplugin_builder.integrations.export_manager import ExportManager, TenantCredentials, UploadResponse
-from icplugin_builder.integrations.insight_plugin_cli import ProjectTree
+from icplugin_builder.integrations.insight_plugin_cli import (
+    InsightPluginCliError,
+    ProjectTree,
+    snapshot_tree,
+)
 from icplugin_builder.integrations.refresh_coordinator import RefreshCoordinator
 from icplugin_builder.orchestrator import (
     AddComponent,
@@ -323,6 +329,161 @@ class TestApplyTurn:
         assert result.status is TurnStatus.APPLIED
         assert result.refreshed is False
         assert cli.refresh_calls == []
+
+
+class FakeScaffolder:
+    """A stand-in InsightPluginCli.create that produces a plugin tree."""
+
+    def __init__(self, *, prefix="icon", fail=False):
+        self.prefix = prefix
+        self.fail = fail
+        self.calls = []
+
+    async def create(self, spec, projects_root):
+        self.calls.append((spec.name, str(projects_root)))
+        if self.fail:
+            raise InsightPluginCliError("insight-plugin create failed")
+        root = Path(projects_root) / spec.name
+        package = root / f"{self.prefix}_{spec.name}"
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "schema.py").write_text("# generated\n", encoding="utf-8")
+        (root / "Dockerfile").write_text("FROM python:3.13\n", encoding="utf-8")
+        return snapshot_tree(root)
+
+
+class TestNetNewScaffolding:
+    """A net-new draft's working tree is scaffolded, not just created empty.
+
+    `insight-plugin create` and `insight-plugin refresh` are not interchangeable
+    here: from an identical spec, create emits the current `icon_` package prefix
+    while refreshing a directory that holds only a spec emits the legacy
+    `komand_` one. Every plugin this tool produced before scaffolding was wired
+    carried the legacy prefix.
+    """
+
+    def _orch(self, tmp_path, scaffolder):
+        return Orchestrator(
+            cost_controller=CostController(),
+            scaffolder=scaffolder,
+            refresh_coordinator=RefreshCoordinator(cli=FakeCli()),
+            projects_root=tmp_path,
+        )
+
+    def _structural_turn(self):
+        return TurnPlan(operations=[AddComponent(ComponentKind.ACTION, "scan", Component(title="Scan"))])
+
+    def test_scaffolds_the_tree_and_records_the_observed_prefix(self, tmp_path):
+        scaffolder = FakeScaffolder(prefix="icon")
+        orch = self._orch(tmp_path, scaffolder)
+        orch.start_session(
+            ENTRY_MODE_CREATE_NEW,
+            session_id="s1",
+            user_id="u1",
+            initial_spec=make_spec(name="fresh_plugin"),
+        )
+        result = asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+
+        assert result.status is TurnStatus.APPLIED
+        assert scaffolder.calls == [("fresh_plugin", str(tmp_path))]
+        folder = orch.session("s1").project_folder
+        assert folder is not None
+        # The package directory the scaffold actually produced is present...
+        assert (folder.path / "icon_fresh_plugin" / "schema.py").is_file()
+        # ...and the recorded metadata matches it rather than a default.
+        assert folder.metadata().package_prefix == "icon"
+
+    def test_records_a_legacy_prefix_when_that_is_what_was_produced(self, tmp_path):
+        # Metadata must describe what is on disk. Recording an assumed "icon"
+        # while the tree is komand_ is the mismatch this guards against.
+        scaffolder = FakeScaffolder(prefix="komand")
+        orch = self._orch(tmp_path, scaffolder)
+        orch.start_session(
+            ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1", initial_spec=make_spec(name="fresh_plugin")
+        )
+        asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+        assert orch.session("s1").project_folder.metadata().package_prefix == "komand"
+
+    def test_falls_back_to_a_bare_folder_when_scaffolding_fails(self, tmp_path):
+        # The draft edit already succeeded, so a scaffolding failure degrades to
+        # a bare folder that refresh can populate rather than failing the turn.
+        scaffolder = FakeScaffolder(fail=True)
+        orch = self._orch(tmp_path, scaffolder)
+        orch.start_session(
+            ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1", initial_spec=make_spec(name="fresh_plugin")
+        )
+        result = asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+
+        assert result.status is TurnStatus.APPLIED
+        folder = orch.session("s1").project_folder
+        assert folder is not None
+        assert (folder.path / "plugin.spec.yaml").is_file()
+
+    def test_stamps_the_resolved_sdk_version_onto_the_persisted_spec(self, tmp_path):
+        # `insight-plugin validate` requires an sdk block, and every plugin this
+        # tool produced before this step shipped without one. The stamp has to
+        # reach the draft, not just the copy handed to the scaffolder -- stamping
+        # only the latter is undone when the draft is saved.
+        readme = tmp_path / "SDK_README.md"
+        readme.write_text("## Changelog\n\n* 7.1.2 - newest\n* 7.1.1 - older\n", encoding="utf-8")
+        orch = Orchestrator(
+            cost_controller=CostController(),
+            scaffolder=FakeScaffolder(),
+            refresh_coordinator=RefreshCoordinator(cli=FakeCli()),
+            projects_root=tmp_path / "projects",
+            sdk_readme=readme,
+        )
+        orch.start_session(
+            ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1", initial_spec=make_spec(name="fresh_plugin")
+        )
+        asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+
+        # On the in-memory draft...
+        assert orch.session("s1").spec.extra["sdk"]["version"] == "7.1.2"
+        # ...and in the spec actually written to disk.
+        folder = orch.session("s1").project_folder
+        written = load_plugin_spec((folder.path / "plugin.spec.yaml").read_text(encoding="utf-8"))
+        assert written.extra["sdk"]["version"] == "7.1.2"
+
+    def test_does_not_overwrite_an_sdk_version_already_pinned(self, tmp_path):
+        readme = tmp_path / "SDK_README.md"
+        readme.write_text("## Changelog\n\n* 7.1.2 - newest\n", encoding="utf-8")
+        pinned = make_spec(name="fresh_plugin")
+        pinned.extra["sdk"] = {"type": "full", "version": "6.0.0", "user": "root"}
+        orch = Orchestrator(
+            cost_controller=CostController(),
+            scaffolder=FakeScaffolder(),
+            refresh_coordinator=RefreshCoordinator(cli=FakeCli()),
+            projects_root=tmp_path / "projects",
+            sdk_readme=readme,
+        )
+        orch.start_session(ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1", initial_spec=pinned)
+        asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+        assert orch.session("s1").spec.extra["sdk"]["version"] == "6.0.0"
+
+    def test_an_unresolvable_sdk_version_does_not_fail_the_turn(self, tmp_path):
+        # Better to apply the edit and let the completeness check report the
+        # missing field than to block on an absent SDK checkout.
+        orch = Orchestrator(
+            cost_controller=CostController(),
+            scaffolder=FakeScaffolder(),
+            refresh_coordinator=RefreshCoordinator(cli=FakeCli()),
+            projects_root=tmp_path / "projects",
+            sdk_readme=tmp_path / "absent.md",
+        )
+        orch.start_session(
+            ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1", initial_spec=make_spec(name="fresh_plugin")
+        )
+        result = asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+        assert result.status is TurnStatus.APPLIED
+
+    def test_works_without_a_scaffolder_at_all(self, tmp_path):
+        orch = self._orch(tmp_path, None)
+        orch.start_session(
+            ENTRY_MODE_CREATE_NEW, session_id="s1", user_id="u1", initial_spec=make_spec(name="fresh_plugin")
+        )
+        result = asyncio.run(orch.apply_turn("s1", self._structural_turn()))
+        assert result.status is TurnStatus.APPLIED
+        assert orch.session("s1").project_folder is not None
 
 
 class TestReasoningBoundary:

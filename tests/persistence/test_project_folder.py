@@ -43,6 +43,74 @@ def projects_root(tmp_path):
     return tmp_path / "projects"
 
 
+class TestAdopt:
+    """Adopting an already-scaffolded directory.
+
+    ``insight-plugin create`` refuses to run if the plugin directory exists, so a
+    deterministically scaffolded tree has to be produced first and the tool's
+    ``.builder/`` metadata written into it afterwards. :meth:`create` cannot serve
+    that path because it requires the directory *not* to exist.
+    """
+
+    def _scaffolded(self, projects_root, name="my_plugin", prefix="icon"):
+        root = projects_root / name
+        (root / f"{prefix}_{name}" / "actions").mkdir(parents=True)
+        (root / f"{prefix}_{name}" / "schema.py").write_text("# generated\n", encoding="utf-8")
+        (root / "Dockerfile").write_text("FROM python:3.13\n", encoding="utf-8")
+        return root
+
+    def test_writes_metadata_into_an_existing_tree(self, projects_root):
+        root = self._scaffolded(projects_root)
+        folder = ProjectFolder.adopt(root, "my_plugin", make_spec())
+
+        assert folder.path == root
+        assert folder.metadata().plugin_name == "my_plugin"
+        assert load_plugin_spec((root / "plugin.spec.yaml").read_text(encoding="utf-8")).name == "my_plugin"
+
+    def test_leaves_the_scaffolded_plugin_files_untouched(self, projects_root):
+        root = self._scaffolded(projects_root)
+        before = (root / "icon_my_plugin" / "schema.py").read_text(encoding="utf-8")
+        dockerfile_before = (root / "Dockerfile").read_text(encoding="utf-8")
+
+        ProjectFolder.adopt(root, "my_plugin", make_spec())
+
+        assert (root / "icon_my_plugin" / "schema.py").read_text(encoding="utf-8") == before
+        assert (root / "Dockerfile").read_text(encoding="utf-8") == dockerfile_before
+
+    def test_records_the_prefix_it_is_given(self, projects_root):
+        # The caller passes the prefix detected from the tree; recording an
+        # assumed default is what previously made project.json claim "icon"
+        # while the directory on disk was komand_.
+        root = self._scaffolded(projects_root, prefix="komand")
+        folder = ProjectFolder.adopt(root, "my_plugin", make_spec(), package_prefix="komand")
+        assert folder.metadata().package_prefix == "komand"
+
+    def test_defaults_provenance_to_net_new(self, projects_root):
+        root = self._scaffolded(projects_root)
+        folder = ProjectFolder.adopt(root, "my_plugin", make_spec())
+        assert folder.metadata().provenance.entry_mode == ENTRY_MODE_CREATE_NEW
+
+    def test_rejects_a_missing_directory(self, projects_root):
+        with pytest.raises(ProjectFolderError) as excinfo:
+            ProjectFolder.adopt(projects_root / "absent", "my_plugin", make_spec())
+        assert "does not exist" in str(excinfo.value)
+
+    def test_rejects_an_empty_plugin_name(self, projects_root):
+        root = self._scaffolded(projects_root)
+        with pytest.raises(ProjectFolderError):
+            ProjectFolder.adopt(root, "   ", make_spec())
+
+    def test_rejects_an_invalid_prefix(self, projects_root):
+        root = self._scaffolded(projects_root)
+        with pytest.raises(ProjectFolderError):
+            ProjectFolder.adopt(root, "my_plugin", make_spec(), package_prefix="nope")
+
+    def test_adopted_folder_is_listed_like_any_other(self, projects_root):
+        root = self._scaffolded(projects_root)
+        ProjectFolder.adopt(root, "my_plugin", make_spec())
+        assert [listing.plugin_name for listing in list_projects(projects_root)] == ["my_plugin"]
+
+
 class TestCreate:
     def test_creates_folder_spec_and_metadata(self, projects_root):
         # Req 21.1: creating a plugin creates a Project_Folder on the filesystem.
