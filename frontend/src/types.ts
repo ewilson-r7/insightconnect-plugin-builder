@@ -194,10 +194,33 @@ export interface SpecError {
  * The reviewable export preview computed by the backend before an export runs
  * (Req 12, 16). Serialized by `_serialize_export_plan`.
  */
+/** Whether a definition-of-done condition holds, or could not be checked. */
+export type ConditionStatus = "met" | "unmet" | "unverified";
+
+/**
+ * One outstanding definition-of-done condition (Req 27.2). Serialized by
+ * `_serialize_done_conditions`, which sends only the shortfalls.
+ */
+export interface DoneCondition {
+  name: string;
+  status: ConditionStatus;
+  description: string;
+  detail: string;
+}
+
 export interface ExportPlan {
   /** True iff the spec is valid and all four code stages passed (Req 7.4, 8.6). */
   permitted: boolean;
   summary: string;
+  /**
+   * Whether the plugin meets every definition-of-done condition (Req 27.1).
+   * `null` means the definition of done was not evaluated, which is not the same
+   * as `false`. Independent of `permitted`: the export gate weighs four stages,
+   * this weighs whether the plugin is finished.
+   */
+  plugin_is_done: boolean | null;
+  /** The conditions still outstanding, empty when the plugin is done. */
+  done_conditions: DoneCondition[];
   /** The vendor-suffixed, version-bumped spec that would be exported (Req 16.1). */
   spec_preview: Record<string, unknown> | null;
   /** The exact files that would be included in the `.plg` (Req 16.2). */

@@ -14,6 +14,8 @@ function makePlan(overrides: Partial<ExportPlan> = {}): ExportPlan {
     version_display: "1.0.0 -> 1.0.1",
     spec_errors: [],
     failed_stages: [],
+    plugin_is_done: true,
+    done_conditions: [],
     ...overrides,
   };
 }
@@ -109,6 +111,72 @@ describe("ExportPanel preview/diff/confirm (Req 16)", () => {
     expect(screen.queryByTestId("confirm-controls")).not.toBeInTheDocument();
     expect(screen.getByTestId("blocked-spec-errors")).toHaveTextContent("connection.host");
     expect(screen.getByTestId("blocked-failed-stages")).toHaveTextContent("lint");
+  });
+
+  it("names the outstanding conditions even when export is permitted (Req 27.2, 27.3)", async () => {
+    // The dangerous case: the gate permits, so the operator sees the confirm
+    // controls. Without this notice the preview would present an unfinished
+    // plugin as ready to ship.
+    const user = userEvent.setup();
+    const client = makeClient(
+      makePlan({
+        permitted: true,
+        plugin_is_done: false,
+        done_conditions: [
+          {
+            name: "api_client",
+            status: "unmet",
+            description: "an API client centralizes requests",
+            detail: "icon_acme/util/api.py does not exist",
+          },
+          {
+            name: "lint_clean",
+            status: "unverified",
+            description: "the linter reports nothing",
+            detail: "the check did not run: prospector (not available)",
+          },
+        ],
+      }),
+    );
+    render(<ExportPanel sessionId="s1" client={client} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("confirm-controls")).toBeInTheDocument());
+
+    const notice = screen.getByTestId("done-outstanding");
+    expect(notice).toHaveTextContent("not finished");
+    // A checked-and-failed condition is listed apart from one nothing is known
+    // about, so an absent linter does not read as a defect in the plugin.
+    expect(screen.getByTestId("done-unmet")).toHaveTextContent("api_client");
+    expect(screen.getByTestId("done-unmet")).toHaveTextContent("util/api.py does not exist");
+    expect(screen.getByTestId("done-unverified")).toHaveTextContent("lint_clean");
+    expect(screen.queryByTestId("done-met")).not.toBeInTheDocument();
+  });
+
+  it("confirms the definition of done is met when every condition holds", async () => {
+    const user = userEvent.setup();
+    const client = makeClient(makePlan({ plugin_is_done: true, done_conditions: [] }));
+    render(<ExportPanel sessionId="s1" client={client} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("confirm-controls")).toBeInTheDocument());
+
+    expect(screen.getByTestId("done-met")).toBeInTheDocument();
+    expect(screen.queryByTestId("done-outstanding")).not.toBeInTheDocument();
+  });
+
+  it("says nothing about the definition of done when it was not evaluated", async () => {
+    // Not evaluated is not the same as not met; inventing a verdict here would be
+    // the same defect as reporting a skipped check as a pass.
+    const user = userEvent.setup();
+    const client = makeClient(makePlan({ plugin_is_done: null, done_conditions: [] }));
+    render(<ExportPanel sessionId="s1" client={client} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("confirm-controls")).toBeInTheDocument());
+
+    expect(screen.queryByTestId("done-met")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("done-outstanding")).not.toBeInTheDocument();
   });
 
   it("requires tenant credentials to be entered for a tenant export", async () => {

@@ -624,15 +624,18 @@ and the new Requirements 26–30.
     - `QualityReport.coverage_percent`, plus a disclosed skip when tests are switched off and when a requested coverage total does not come back. Absence of a coverage finding was equally true of a plugin that cleared the threshold and one whose coverage was never measured, so the gate could not tell met from unverified. Confirmed against the real toolchain: one of the two throwaway plugins reports `None` here and is therefore unverified, where it would previously have read as met.
     - _Requirements: 26.4, 27.5_
 
+- [x] 34. Run the quality gate before export, not only after implementation
+  - The repair loop was the only thing checking hand-written code, and it runs only after an implementation turn. A draft opened from disk and exported straight away reached the preview having been examined by nothing but the containerized stages -- and a passing pipeline says nothing about whether the plugin has an API client or a real connection test. `prepare_export` now runs the quality gate itself and evaluates the definition of done there, carrying both on the `ExportPlan`.
+  - This turn's repair report is reused when it covers the same tree, so a draft that was just implemented is not checked twice; the gate runs only when nothing has checked the code yet, which is the case this task exists for.
+  - **`decide_export` is deliberately unchanged.** Export permission is the four-stage conjunction by definition (Req 8.7, design "Property 17"), so the definition of done is reported *beside* the gate decision rather than folded into it. `ExportPlan.summary()` states both, and the preview names every outstanding condition on the **permitted** branch as well as the blocked one -- the permitted branch being where an unfinished plugin would otherwise present as ready to ship (Req 27.3).
+  - Whether an unmet condition should *block* export is a real Req 8.7 vs Req 27.1 conflict rather than an oversight, and is left to task 37, which already owns reconciling Requirement 8 with the checks that actually run. Deciding it here would have quietly falsified Property 17.
+  - Verified against a real copy of the throwaway `abuseipdb` plugin with no implementation turn: the preview now reports 49 findings and names 8 unmet conditions plus 1 unverified, where before it said only "code not validated".
+  - _Requirements: 26.1, 27.1, 27.2, 27.3_
+
 ## Remaining work
 
 Not yet implemented. Listed so the gap between this plan and the code is visible
 rather than discovered.
-
-- [ ] 34. Run the quality gate before export, not only after implementation
-  - The repair loop runs on the implementation path. An export of a draft that was never implemented in this session is gated only by the four-stage validator, so a plugin can reach the export preview without its hand-written code having been checked.
-  - Task 33 sharpens this rather than fixing it: the definition-of-done gate is wired into the implementation path only, and `prepare_export` still decides with `decide_export` alone. Running the gate there needs a `QualityGate` run on the export path to feed it — which is this task. Until then an export preview reports the four-stage conjunction, not the definition of done.
-  - _Requirements: 26.1, 27.1_
 
 - [ ] 35. Make the repair round limit configurable
   - Fixed at three. Requirement 26.8 refers to a "configured" maximum; it is currently a constant.
@@ -644,7 +647,8 @@ rather than discovered.
 
 - [ ] 37. Reconcile Requirement 8 with the checks that actually run
   - Requirement 8 names four stages (lint, build, test, validate). The real validation surface is larger: parse, format, lint, unit tests, coverage, spec completeness, plus the containerized stages. The four-stage wording no longer describes it.
-  - _Requirements: 8.1, 8.2, 8.3, 8.4, 26.2_
+  - **Now also carries a decision surfaced by task 34:** should an unmet definition-of-done condition block export? Req 8.7 and Property 17 define export permission as exactly "spec valid AND all four stages passed", while Req 27.1 says a plugin is complete only when the wider set of conditions holds. Today the preview reports both and permits on the narrower one, so an operator can knowingly export an unfinished plugin. Making the definition of done gate export would falsify Property 17 as written, so the requirement and the property have to move together. Needs an operator decision on which way.
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 26.2, 27.1_
 
 ## Notes
 

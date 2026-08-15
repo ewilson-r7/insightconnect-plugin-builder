@@ -80,7 +80,7 @@ from ..integrations.export_manager import ExportManager, TenantCredentials
 from ..integrations.insight_plugin_cli import InsightPluginCli, InsightPluginCliError
 from ..integrations.llm_generator import CostLimitError, LLMGenerator, LLMGeneratorError
 from ..integrations.plugin_agent import AgentRunResult, PluginAgent
-from ..integrations.quality_gate import QualityReport
+from ..integrations.quality_gate import QualityGate, QualityReport
 from ..integrations.refresh_coordinator import RefreshCoordinator, detect_structural_change
 from ..persistence.audit_log import AuditLog
 from ..persistence.project_folder import (
@@ -199,6 +199,7 @@ class Orchestrator:
         plugin_agent: Optional[PluginAgent] = None,
         scaffolder: Optional[InsightPluginCli] = None,
         repair_loop: Optional[RepairLoop] = None,
+        quality_gate: Optional[QualityGate] = None,
         sdk_readme: Optional[Union[str, Path]] = None,
         template_library: Optional[TemplateLibrary] = None,
         refresh_coordinator: Optional[RefreshCoordinator] = None,
@@ -231,6 +232,12 @@ class Orchestrator:
                 progress stops. Without it, findings are neither collected nor
                 acted on -- which is the behavior that let unusable plugins
                 through.
+            quality_gate: checks the hand-written code on the **export** path
+                (Req 26.1). The repair loop covers the implementation path, but a
+                draft loaded from disk and exported without an implementation turn
+                never passes through it, so its hand-written code would otherwise
+                reach the export preview unexamined. Pass the same gate the repair
+                loop uses; it holds no state.
             sdk_readme: path to the InsightConnect SDK repository's ``README.md``,
                 whose changelog is the source of the SDK version stamped into a
                 new plugin's spec. ``None`` uses the conventional clone location.
@@ -257,6 +264,7 @@ class Orchestrator:
         self._agent = plugin_agent
         self._scaffolder = scaffolder
         self._repair_loop = repair_loop
+        self._quality_gate = quality_gate
         self._sdk_readme = sdk_readme
         self._template_library = template_library if template_library is not None else default_template_library()
         self._refresh = refresh_coordinator
@@ -633,6 +641,30 @@ class Orchestrator:
             logger.warning("repair loop stopped early: %s", error)
             return None
 
+    async def _run_quality_gate(self, session: SessionState) -> Optional[QualityReport]:
+        """Check the session's hand-written code, returning ``None`` if it cannot run.
+
+        Prefers the report the repair loop already produced this turn, so a draft
+        that was just implemented is not checked twice for no reason. Falls back to
+        running the gate directly, which is the case this exists for: a draft
+        loaded from disk and exported without an implementation turn.
+
+        Returns:
+            The :class:`QualityReport`, or ``None`` when no gate is configured or
+            the draft has no working tree.
+        """
+        if session.project_folder is None:
+            return None
+
+        repair = session.repair_outcome
+        existing = getattr(repair, "final_report", None) if repair is not None else None
+        if existing is not None and existing.project_dir == session.project_folder.path:
+            return existing
+
+        if self._quality_gate is None:
+            return None
+        return await self._quality_gate.run(session.project_folder.path)
+
     def _evaluate_done(self, session: SessionState, repair: Optional[RepairOutcome]) -> Optional[DoneReport]:
         """Evaluate every definition-of-done condition for the session's plugin.
 
@@ -887,6 +919,28 @@ class Orchestrator:
             pipeline_report = await self._code_validator.run_pipeline(session.project_folder.path)
             session.pipeline_report = pipeline_report
 
+        # Req 26.1: check the hand-written code here too, not only after an
+        # implementation turn. A draft opened from disk and exported straight away
+        # never passes through the repair loop, so without this its code reaches
+        # the preview having been examined by nothing but the containerized stages.
+        quality_report = await self._run_quality_gate(session)
+
+        # Req 27.1: and then ask whether the plugin is actually finished. This is
+        # reported next to the gate decision, not folded into it -- export
+        # permission is the four-stage conjunction by definition (design
+        # "Property 17"), and this is the larger question.
+        done_report = (
+            evaluate_done(
+                session.project_folder.path,
+                spec=export_spec,
+                quality_report=quality_report,
+                pipeline_report=pipeline_report,
+            )
+            if session.project_folder is not None
+            else None
+        )
+        session.done_report = done_report
+
         # Req 7.4, 8.6, 8.7: the gate permits iff spec valid AND all stages passed.
         decision = decide_export(spec_report, pipeline_report)
 
@@ -905,6 +959,8 @@ class Orchestrator:
             spec_report=spec_report,
             pipeline_report=pipeline_report,
             completeness=completeness,
+            quality_report=quality_report,
+            done_report=done_report,
         )
 
     async def confirm_export(

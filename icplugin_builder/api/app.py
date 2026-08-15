@@ -45,13 +45,14 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..core.visualization import render_visualization
+from ..integrations.definition_of_done import DoneReport
 from ..integrations.export_manager import TenantCredentials
 from ..orchestrator.orchestrator import (
     EntryModeError,
@@ -181,11 +182,36 @@ def _serialize_turn_result(result: TurnResult) -> Dict[str, Any]:
     }
 
 
+def _serialize_done_conditions(report: Optional[DoneReport]) -> List[Dict[str, Any]]:
+    """Serialize the definition-of-done conditions still outstanding (Req 27.2).
+
+    Only the shortfalls are sent. A met condition needs no operator attention, and
+    listing all eleven every time would bury the two that matter. Each entry keeps
+    its status so an unverified condition is not presented as a failure.
+    """
+    if report is None:
+        return []
+    return [
+        {
+            "name": condition.name,
+            "status": condition.status.value,
+            "description": condition.description,
+            "detail": condition.detail,
+        }
+        for condition in report.outstanding
+    ]
+
+
 def _serialize_export_plan(plan: ExportPlan) -> Dict[str, Any]:
     """Serialize an :class:`ExportPlan` preview (Req 12, 16, 7, 8)."""
     return {
         "permitted": plan.permitted,
-        "summary": plan.decision.summary(),
+        # The plan's own summary, not the gate's: "export permitted" speaks only
+        # for the four stages, and on its own would let an unfinished plugin read
+        # as ready (Req 27.3).
+        "summary": plan.summary(),
+        "plugin_is_done": plan.plugin_is_done,
+        "done_conditions": _serialize_done_conditions(plan.done_report),
         "spec_preview": _serialize_spec(plan.spec_preview),
         "file_list": list(plan.file_list),
         "diff": {
@@ -725,6 +751,11 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         insight_plugin_executable="insight-plugin",
     )
 
+    # One quality gate, shared by the repair loop (implementation path) and the
+    # orchestrator (export path). It holds no state, and sharing it keeps both
+    # paths judging the code by the same checks and the same interpreter.
+    quality_gate = QualityGate(python_executable=target_python)
+
     # Build + export
     build_engine = BuildEngine()
     export_manager = ExportManager(build_engine=build_engine)
@@ -738,7 +769,8 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         llm_generator=llm_generator,
         plugin_agent=plugin_agent,
         scaffolder=insight_plugin_cli,
-        repair_loop=RepairLoop(QualityGate(python_executable=target_python)),
+        repair_loop=RepairLoop(quality_gate),
+        quality_gate=quality_gate,
         refresh_coordinator=refresh_coordinator,
         code_validator=code_validator,
         build_engine=build_engine,

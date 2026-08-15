@@ -192,6 +192,11 @@ export function ExportPanel({
           <FileList files={plan.file_list} />
           <DiffView diff={plan.diff} />
 
+          {/* Shown on both branches. A permitted export says only that the four
+              gate stages passed, so without this a plugin with no API client or a
+              stubbed connection test would present as ready (Req 27.2, 27.3). */}
+          <DefinitionOfDoneNotice plan={plan} />
+
           {plan.permitted ? (
             <ExportConfirmControls
               confirmed={confirmed}
@@ -353,6 +358,58 @@ function ExportConfirmControls(props: ExportConfirmControlsProps): JSX.Element {
           Cancel
         </button>
       </div>
+    </section>
+  );
+}
+
+function DefinitionOfDoneNotice({ plan }: { plan: ExportPlan }): JSX.Element | null {
+  if (plan.plugin_is_done === null) {
+    return null;
+  }
+  if (plan.plugin_is_done) {
+    return (
+      <section role="status" data-testid="done-met">
+        <h4>Definition of done: met</h4>
+        <p>Every condition was checked and holds.</p>
+      </section>
+    );
+  }
+  const unmet = plan.done_conditions.filter((c) => c.status === "unmet");
+  const unverified = plan.done_conditions.filter((c) => c.status === "unverified");
+  return (
+    <section role="alert" data-testid="done-outstanding">
+      <h4>Definition of done: not met</h4>
+      <p>
+        This plugin is not finished. Exporting it now ships it in this state.
+      </p>
+      {unmet.length > 0 ? (
+        <div data-testid="done-unmet">
+          <h5>Unmet</h5>
+          <ul>
+            {unmet.map((condition) => (
+              <li key={condition.name}>
+                <code>{condition.name}</code>: {condition.description}
+                {condition.detail ? <> &mdash; {condition.detail}</> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {unverified.length > 0 ? (
+        <div data-testid="done-unverified">
+          {/* Not failures. Nothing is known about these, which is why they are
+              listed apart from the ones that were checked and did not hold. */}
+          <h5>Could not be checked</h5>
+          <ul>
+            {unverified.map((condition) => (
+              <li key={condition.name}>
+                <code>{condition.name}</code>: {condition.description}
+                {condition.detail ? <> &mdash; {condition.detail}</> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }

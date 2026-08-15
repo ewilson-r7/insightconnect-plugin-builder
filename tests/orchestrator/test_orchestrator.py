@@ -800,6 +800,108 @@ class TestPrepareExport:
             asyncio.run(orch.prepare_export("s1"))
 
 
+class TestExportPathChecksTheCode:
+    """The export path checks the hand-written code itself (Req 26.1, 27.1).
+
+    The repair loop only runs after an implementation turn. A draft opened from
+    disk and exported straight away never passes through it, so before this the
+    only thing that had looked at its hand-written code was the containerized
+    pipeline -- and a passing pipeline says nothing about whether the plugin has an
+    API client or a real connection test.
+    """
+
+    def _orch(self, tmp_path, *, checker=None, quality_gate=True):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        gate = checker if checker is not None else ScriptedChecker([_report()])
+        return (
+            Orchestrator(
+                projects_root=tmp_path,
+                code_validator=FakeCodeValidator(passing=True),
+                quality_gate=gate if quality_gate else None,
+                registry=PluginRegistry(str(tmp_path / "registry.db")),
+                audit_log=AuditLog(tmp_path / "audit.log"),
+            ),
+            gate,
+        )
+
+    def test_the_quality_gate_runs_on_the_export_path(self, tmp_path):
+        orch, gate = self._orch(tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+
+        # No implementation turn happened, so nothing else would have checked it.
+        assert gate.calls == 1
+        assert plan.quality_report is not None
+
+    def test_the_preview_carries_the_definition_of_done_verdict(self, tmp_path):
+        orch, _ = self._orch(tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+
+        assert plan.done_report is not None
+        # This bare project has no API client and no connection module, so it is
+        # not finished -- even though the fake pipeline passes and export is
+        # permitted. The two answers are independent, and both are reported.
+        assert plan.permitted is True
+        assert plan.plugin_is_done is False
+        assert "not complete" in plan.summary()
+        assert "Export permitted" in plan.summary()
+        assert orch.session("s1").done_report is plan.done_report
+
+    def test_an_unfinished_plugin_is_never_summarised_as_ready(self, tmp_path):
+        orch, _ = self._orch(tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+
+        # Req 27.2: each outstanding condition is named, so "not finished" is
+        # actionable rather than a verdict.
+        for condition in plan.done_report.outstanding:
+            assert condition.name in plan.done_report.summary()
+        assert plan.done_report.outstanding
+
+    def test_a_report_from_this_turns_repair_is_reused_rather_than_rerun(self, tmp_path):
+        # Re-running prospector and the plugin's unit tests seconds after the
+        # repair loop finished would double the wait for the same answer.
+        orch, gate = self._orch(tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        session = orch.session("s1")
+        existing = QualityReport(project_dir=session.project_folder.path, findings=())
+        session.repair_outcome = SimpleNamespace(final_report=existing)
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+
+        assert gate.calls == 0
+        assert plan.quality_report is existing
+
+    def test_a_report_for_a_different_tree_is_not_reused(self, tmp_path):
+        # A stale report from another plugin must not stand in for this one.
+        orch, gate = self._orch(tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        stale = QualityReport(project_dir=Path("/somewhere/else"), findings=())
+        orch.session("s1").repair_outcome = SimpleNamespace(final_report=stale)
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+
+        assert gate.calls == 1
+        assert plan.quality_report is not stale
+
+    def test_without_a_gate_the_conditions_are_unverified_not_met(self, tmp_path):
+        # No gate configured: the code-quality conditions cannot be evaluated, and
+        # must come back unverified rather than quietly passing (Req 27.5).
+        orch, _ = self._orch(tmp_path, quality_gate=False)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+
+        assert plan.quality_report is None
+        assert plan.plugin_is_done is False
+        unverified = {condition.name for condition in plan.done_report.unverified}
+        assert {"code_parses", "lint_clean", "unit_tests_pass"} <= unverified
+
+
 # --- confirm & export (Req 9, 10, 16.5, 16.6, 18, 19.2) --------------------
 
 

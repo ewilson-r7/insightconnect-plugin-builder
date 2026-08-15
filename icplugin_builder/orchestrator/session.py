@@ -30,7 +30,9 @@ from ..core.spec_validator import ValidationReport
 from ..core.version_bump import VersionBump
 from ..integrations.build_engine import PlgArtifact
 from ..integrations.code_validator import PipelineReport
+from ..integrations.definition_of_done import DoneReport
 from ..integrations.export_gate import ExportDecision
+from ..integrations.quality_gate import QualityReport
 from ..persistence.project_folder import ProjectFolder, ProvenanceRecord
 
 __all__ = [
@@ -151,6 +153,14 @@ class ExportPlan:
             ``insight-plugin validate`` requires, which are checked separately
             from structural validity because a well-formed spec can still be
             rejected for a missing ``sdk`` block or output examples.
+        quality_report: the located findings against the hand-written code,
+            checked on the export path so a draft that was never implemented in
+            this session cannot reach the preview unexamined (Req 26.1).
+        done_report: whether the plugin meets every definition-of-done condition
+            (Req 27.1). Reported alongside :attr:`decision` rather than folded
+            into it: the export gate is the four-stage conjunction by definition
+            (Req 8.7, design "Property 17"), while this answers the different and
+            larger question of whether the plugin is finished.
     """
 
     decision: ExportDecision
@@ -162,11 +172,36 @@ class ExportPlan:
     spec_report: Optional[ValidationReport] = None
     pipeline_report: Optional[PipelineReport] = None
     completeness: Optional[CompletenessReport] = None
+    quality_report: Optional[QualityReport] = None
+    done_report: Optional[DoneReport] = None
 
     @property
     def permitted(self) -> bool:
         """Return ``True`` iff export is permitted by the gate."""
         return self.decision.permitted
+
+    @property
+    def plugin_is_done(self) -> Optional[bool]:
+        """Whether the plugin meets every definition-of-done condition.
+
+        ``None`` when the definition of done was not evaluated, which is distinct
+        from ``False``: the first means nothing was checked, the second that
+        something specific is outstanding.
+        """
+        return None if self.done_report is None else self.done_report.complete
+
+    def summary(self) -> str:
+        """Return the preview's headline: can this be exported, and is it finished.
+
+        Two separate answers, and both are said out loud. "Export permitted"
+        speaks only for the four stages the gate weighs, so on its own it would
+        let a plugin with no API client and a stubbed connection test read as
+        ready (Req 27.3).
+        """
+        lines = [self.decision.summary()]
+        if self.done_report is not None and not self.done_report.complete:
+            lines.append(self.done_report.summary())
+        return " ".join(lines)
 
 
 @dataclass(frozen=True)
@@ -226,10 +261,10 @@ class SessionState:
             Typed loosely to keep this module free of an import cycle; the
             orchestrator owns the concrete type.
         done_report: the most recent
-            :class:`~icplugin_builder.integrations.definition_of_done.DoneReport`,
-            loosely typed for the same reason. This is the one place that answers
-            "is this plugin finished"; ``repair_outcome`` only says how far the
-            repair loop got, which is a different question.
+            :class:`~icplugin_builder.integrations.definition_of_done.DoneReport`.
+            This is the one place that answers "is this plugin finished";
+            ``repair_outcome`` only says how far the repair loop got, which is a
+            different question.
         credits_spent: cumulative credits reported by the delegated agent across
             every run in this session -- implementation and each repair round.
             Credits are the only usage figure the Kiro CLI measures, so this is
@@ -259,7 +294,7 @@ class SessionState:
     private_source_notice: Optional[str] = None
     generated: List[GeneratedArtifact] = field(default_factory=list)
     repair_outcome: Optional[Any] = None
-    done_report: Optional[Any] = None
+    done_report: Optional[DoneReport] = None
     credits_spent: float = 0.0
     credits_reported: bool = False
     attachments: List[Dict[str, str]] = field(default_factory=list)

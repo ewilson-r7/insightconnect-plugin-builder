@@ -192,6 +192,24 @@ class TestExportRoutes:
         history = client.get("/api/plugins/my_plugin/history").json()["history"]
         assert history  # at least the creation + export entries
 
+    def test_the_preview_reports_whether_the_plugin_is_finished(self, tmp_path):
+        # A permitted export and a finished plugin are different claims. This
+        # project's tree is bare, so the preview must permit the export and still
+        # say the plugin is not done, naming what is outstanding (Req 27.2, 27.3).
+        client, _ = self._client(tmp_path)
+        plan = client.post("/api/session/s1/export/prepare").json()
+
+        assert plan["permitted"] is True
+        assert plan["plugin_is_done"] is False
+        assert plan["done_conditions"], "outstanding conditions must reach the operator"
+        names = {condition["name"] for condition in plan["done_conditions"]}
+        assert "api_client" in names
+        for condition in plan["done_conditions"]:
+            assert condition["status"] in ("unmet", "unverified")
+            assert condition["detail"]
+        # The headline says both things, so "export permitted" is not the last word.
+        assert "not complete" in plan["summary"]
+
     def test_confirm_without_prepare_is_409(self, tmp_path):
         client, _ = self._client(tmp_path)
         resp = client.post("/api/session/s1/export/confirm", json={"confirmed": True, "target": "local"})
