@@ -373,9 +373,21 @@ def create_app(
 
     @app.get("/api/session/{session_id}/tokens", dependencies=protected)
     async def get_tokens(session_id: str) -> Dict[str, Any]:
-        """Return the cumulative session token total (Req 3.6)."""
-        _lookup_session(orchestrator, session_id)
-        return {"session_id": session_id, "token_total": orchestrator.token_total(session_id)}
+        """Return the session's cumulative usage (Req 3.6).
+
+        Both figures are reported because they mean different things: the token
+        total governs the budget but is an estimate, while credits are what the
+        Kiro CLI actually measured. ``credits_reported`` says whether any figure
+        was seen, so zero spend is distinguishable from unknown spend.
+        """
+        state = _lookup_session(orchestrator, session_id)
+        return {
+            "session_id": session_id,
+            "token_total": orchestrator.token_total(session_id),
+            "token_total_is_estimate": True,
+            "credits_spent": round(state.credits_spent, 4),
+            "credits_reported": state.credits_reported,
+        }
 
     @app.get("/api/session/{session_id}/visualization", dependencies=protected)
     async def get_visualization(session_id: str) -> Dict[str, Any]:

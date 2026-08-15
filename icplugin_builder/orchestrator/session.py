@@ -225,6 +225,13 @@ class SessionState:
             :class:`~icplugin_builder.orchestrator.repair_loop.RepairOutcome`.
             Typed loosely to keep this module free of an import cycle; the
             orchestrator owns the concrete type.
+        credits_spent: cumulative credits reported by the delegated agent across
+            every run in this session -- implementation and each repair round.
+            Credits are the only usage figure the Kiro CLI measures, so this is
+            the session's real cost; the token total is an estimate.
+        credits_reported: whether any run actually reported a credits figure.
+            Distinguishes "nothing spent yet" from "spend unknown", which a bare
+            ``0.0`` cannot.
     """
 
     session_id: str
@@ -242,6 +249,8 @@ class SessionState:
     private_source_notice: Optional[str] = None
     generated: List[GeneratedArtifact] = field(default_factory=list)
     repair_outcome: Optional[Any] = None
+    credits_spent: float = 0.0
+    credits_reported: bool = False
 
     @property
     def plugin_name(self) -> str:

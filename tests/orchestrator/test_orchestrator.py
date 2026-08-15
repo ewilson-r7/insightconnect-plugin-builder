@@ -121,9 +121,10 @@ class FakeLLM:
 class FakeAgent:
     """A stand-in PluginAgent recording the implementation tasks it was given."""
 
-    def __init__(self, summary="Implemented 1 action; insight-plugin validate passed.", tokens=31):
+    def __init__(self, summary="Implemented 1 action; insight-plugin validate passed.", tokens=31, credits=0.2):
         self.summary = summary
         self.tokens = tokens
+        self.credits = credits
         self.calls = []
 
     async def implement(self, project_dir, instruction, *, session_id, user_id):
@@ -133,7 +134,7 @@ class FakeAgent:
             summary=self.summary,
             transcript=self.summary,
             changed_files=("icon_x/util/api.py",),
-            credits=0.2,
+            credits=self.credits,
             tokens=self.tokens,
             session_total=self.tokens,
             returncode=0,
@@ -439,6 +440,31 @@ class TestRepairAfterImplementation:
         assert not outcome.clean
         assert outcome.status is RepairStatus.STALLED
         assert "still open" in result.message
+
+    def test_credits_accumulate_across_implementation_and_repair_runs(self, tmp_path):
+        # Credits are the only figure the CLI measures, so the session total has
+        # to include every delegated run -- the implementation and each repair
+        # round -- not just the first.
+        agent = FakeAgent()
+        orch = self._orch(tmp_path, reports=[_report([_finding()]), _report()], agent=agent)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        asyncio.run(orch.apply_turn("s1", self._code_turn()))
+
+        state = orch.session("s1")
+        assert len(agent.calls) == 2  # implement + one repair
+        assert state.credits_spent == pytest.approx(0.4)  # 0.2 from each run
+        assert state.credits_reported
+
+    def test_a_run_reporting_no_credits_leaves_spend_unknown(self, tmp_path):
+        # 0.0 with credits_reported False means "unknown", not "free".
+        agent = FakeAgent(credits=None)
+        orch = self._orch(tmp_path, reports=[_report()], agent=agent)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        asyncio.run(orch.apply_turn("s1", self._code_turn()))
+
+        state = orch.session("s1")
+        assert state.credits_spent == 0.0
+        assert not state.credits_reported
 
     def test_no_repair_loop_configured_is_a_no_op(self, tmp_path):
         create_project(tmp_path, name="my_plugin", vendor="acme")

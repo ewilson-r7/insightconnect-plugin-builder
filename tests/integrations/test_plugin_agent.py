@@ -90,6 +90,15 @@ def _run(agent, root, instruction="Implement the plugin.", session="s1", user="u
     return asyncio.run(agent.implement(root, instruction, session_id=session, user_id=user))
 
 
+#: The usage footer exactly as the CLI writes it -- on **stderr**, wrapped in
+#: colour and cursor-control escapes. Captured from a real invocation.
+_REAL_STDERR_FOOTER = (
+    "\x1b[38;5;252m\x1b[0m\x1b[?25l\x1b[0m\x1b[0m\n"
+    "\x1b[38;5;8m\n \u25b8 Credits: 0.05 \u2022 Time: 2s\n"
+    "\x1b[0m\x1b[1G\x1b[0m\x1b[0m\x1b[?25h"
+)
+
+
 class TestTranscriptHelpers:
     def test_strips_ansi_and_banner_chrome(self):
         cleaned = strip_transcript_noise("\x1b[31mred\x1b[0m\nAll tools are now trusted (!).\nkept\n")
@@ -97,12 +106,29 @@ class TestTranscriptHelpers:
         assert "All tools are now trusted" not in cleaned
         assert "kept" in cleaned
 
+    def test_strips_cursor_control_not_only_colour_sequences(self):
+        # The footer arrives wrapped in \x1b[?25l / \x1b[1G, which a colour-only
+        # pattern would leave in place.
+        cleaned = strip_transcript_noise("\x1b[?25lhidden\x1b[1G\x1b[?25hshown")
+        assert "\x1b[" not in cleaned
+
     def test_parses_the_credits_footer(self):
         assert parse_credits(_TRANSCRIPT) == 0.31
+
+    def test_finds_the_footer_on_stderr_where_the_cli_actually_writes_it(self):
+        # The regression this guards: reading only stdout finds the footer when
+        # the streams are merged (an interactive terminal, or 2>&1) and silently
+        # finds nothing when they are captured separately -- which is how this
+        # module runs the CLI. That is why real runs reported no credits.
+        assert parse_credits("> ok\n", _REAL_STDERR_FOOTER) == 0.05
+
+    def test_finds_the_footer_regardless_of_stream_order(self):
+        assert parse_credits(_REAL_STDERR_FOOTER, "> ok\n") == 0.05
 
     def test_missing_footer_is_none_rather_than_zero(self):
         # None means "not reported"; 0.0 would wrongly claim a free run.
         assert parse_credits("no footer here") is None
+        assert parse_credits("", "") is None
 
 
 class TestCommand:
@@ -202,6 +228,28 @@ class TestObservedChanges:
         assert isinstance(result, AgentRunResult)
         assert result.summary == "Implemented the client and two actions. validate passes."
         assert result.credits == 0.31
+
+    def test_credits_are_captured_from_a_realistic_stream_split(self, tmp_path, monkeypatch):
+        # stdout carries only the answer; the usage footer is on stderr.
+        def factory(root):
+            return _FakeProcess(
+                returncode=0,
+                stdout=b"> Implemented it.\n",
+                stderr=_REAL_STDERR_FOOTER.encode("utf-8"),
+                root=root,
+            )
+
+        _Spy(factory).install(monkeypatch, tmp_path)
+        result = _run(PluginAgent(CostController(), executable="kiro-cli"), tmp_path)
+        assert result.credits == 0.05
+
+    def test_a_run_reporting_no_credits_leaves_them_unknown(self, tmp_path, monkeypatch):
+        def factory(root):
+            return _FakeProcess(returncode=0, stdout=b"> done\n", stderr=b"", root=root)
+
+        _Spy(factory).install(monkeypatch, tmp_path)
+        result = _run(PluginAgent(CostController(), executable="kiro-cli"), tmp_path)
+        assert result.credits is None
 
 
 class TestFailureHandling:

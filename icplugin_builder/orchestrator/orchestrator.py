@@ -565,6 +565,7 @@ class Orchestrator:
                     token_total=self.token_total(session_id),
                 )
             if run is not None:
+                _record_credits(session, run)
                 generated.append(
                     GeneratedArtifact(
                         kind=ArtifactKind.ACTION_LOGIC,
@@ -629,12 +630,14 @@ class Orchestrator:
 
         async def fix(root: Path, report: QualityReport) -> object:
             assert agent is not None  # guarded by the caller
-            return await agent.implement(
+            run = await agent.implement(
                 root,
                 _repair_instruction(report),
                 session_id=session_id,
                 user_id=user_id,
             )
+            _record_credits(session, run)
+            return run
 
         return fix
 
@@ -1156,6 +1159,21 @@ def _suffix_vendor(draft: Draft) -> Draft:
 def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
     """Coerce a draft's code-file mapping to the ``generated_files`` shape."""
     return {str(path): content for path, content in code_files.items()}
+
+
+def _record_credits(session: SessionState, run: Any) -> None:
+    """Accumulate a delegated run's reported credits onto the session.
+
+    Credits are the only usage figure the Kiro CLI measures, so they are the
+    session's real cost. A run that reported none is skipped rather than counted
+    as zero, and ``credits_reported`` records whether any figure was ever seen so
+    "nothing spent" stays distinguishable from "spend unknown".
+    """
+    credits = getattr(run, "credits", None)
+    if credits is None:
+        return
+    session.credits_spent += float(credits)
+    session.credits_reported = True
 
 
 def _sdk_block_present(spec: PluginSpec) -> bool:

@@ -22,12 +22,20 @@ Every dispatch is gated by the :class:`~icplugin_builder.core.cost_controller.Co
   by recording it as a failure (Req 3.7).
 
 **Token measurement precedence** (design "Token accounting with the Kiro CLI"):
-1. If the Kiro CLI emits a machine-readable usage figure (structured JSON on
+1. If the provider emits a machine-readable usage figure (structured JSON on
    stdout or a ``total_tokens: N`` usage line), that reported value is used.
 2. Otherwise tokens are **estimated** from the prompt plus completion text with a
    ~4-characters-per-token heuristic and flagged as an estimate so the UI can
    mark the session total accordingly.
 The recorded figure is always a non-negative integer (Req 3.6).
+
+In practice the Kiro CLI takes the second path: it reports usage as *credits*, on
+stderr, rather than as a token count on stdout, so the reported-figure branch does
+not fire for it. The branch is retained because the measurement contract is
+provider-independent, but do not read its presence as meaning these totals are
+exact -- for the Kiro CLI they are estimates. The delegated agent path records the
+credits figure directly (see
+:mod:`icplugin_builder.integrations.plugin_agent`).
 """
 
 from __future__ import annotations

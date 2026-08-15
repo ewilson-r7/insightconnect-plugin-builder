@@ -76,7 +76,10 @@ DEFAULT_TIMEOUT_SECONDS = 600.0
 #: The Kiro CLI's trailing usage footer, e.g. " ▸ Credits: 0.14 • Time: 8s".
 _CREDITS_RE = re.compile(r"Credits:\s*([0-9]+(?:\.[0-9]+)?)")
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+#: Any CSI escape sequence, not only the colour (``m``-terminated) ones. The
+#: usage footer arrives on stderr surrounded by cursor-control sequences
+#: (``\x1b[?25l``, ``\x1b[1G``), which a colour-only pattern leaves behind.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 
 #: Lines the CLI emits as chrome rather than content.
 _NOISE_PREFIXES = (
@@ -106,8 +109,12 @@ class AgentRunResult:
         transcript: the full cleaned stdout, retained for display and debugging.
         changed_files: POSIX-relative paths that were added or modified in the
             project tree during the run, observed by snapshot comparison.
-        credits: the CLI's self-reported credit spend, when it emitted one.
-        tokens: the figure recorded against the session budget.
+        credits: the CLI's self-reported credit spend -- the only usage figure it
+            actually measures. ``None`` means it reported none, which is distinct
+            from a spend of zero.
+        tokens: the figure recorded against the session token budget. A lower
+            bound rather than a measurement: it covers the instruction and the
+            transcript, and cannot see the file contents the agent read.
         session_total: the cumulative session token total after recording.
         returncode: the CLI's exit status.
         stderr: captured standard error.
@@ -145,26 +152,35 @@ def strip_transcript_noise(stdout: str) -> str:
     return "\n".join(kept).strip()
 
 
-def parse_credits(stdout: str) -> Optional[float]:
-    """Extract the CLI's self-reported credit spend from its footer.
+def parse_credits(*streams: str) -> Optional[float]:
+    """Extract the CLI's self-reported credit spend from its usage footer.
 
     The Kiro CLI reports cost in *credits* rather than tokens, so this is the only
-    exact usage figure available. It is recorded alongside the token estimate the
-    session budget is denominated in (Req 4).
+    figure it actually measures; everything else this module records about usage
+    is an estimate.
+
+    **The footer is written to stderr, not stdout.** Both streams are accepted
+    because that is easy to get wrong: reading only stdout finds the footer when
+    the two streams have been merged (as they are at an interactive terminal, or
+    under ``2>&1``) and silently finds nothing when they are captured separately,
+    which is how this module runs the CLI.
 
     Args:
-        stdout: raw or cleaned standard output.
+        *streams: any captured output streams, in any order.
 
     Returns:
-        The reported credits, or ``None`` when no footer was emitted.
+        The reported credits, or ``None`` when no footer was present. ``None``
+        means "not reported" and is deliberately distinct from ``0.0``, which
+        would claim a free run.
     """
-    matches = _CREDITS_RE.findall(stdout or "")
-    if not matches:
-        return None
-    try:
-        return float(matches[-1])
-    except ValueError:  # pragma: no cover - regex guarantees a numeric match
-        return None
+    for stream in reversed(streams):
+        matches = _CREDITS_RE.findall(_ANSI_RE.sub("", stream or ""))
+        if matches:
+            try:
+                return float(matches[-1])
+            except ValueError:  # pragma: no cover - regex guarantees a numeric match
+                return None
+    return None
 
 
 def _summary_lines(transcript: str) -> str:
@@ -293,7 +309,7 @@ class PluginAgent:
             ) from error
 
         transcript = strip_transcript_noise(stdout)
-        credits = parse_credits(stdout)
+        credits = parse_credits(stdout, stderr)
         after = snapshot_tree(root)
         changed = _changed_paths(before.files, after.files)
 
@@ -309,6 +325,12 @@ class PluginAgent:
                 stderr=stderr,
             )
 
+        # The session budget is denominated in tokens (Req 4.1) but the CLI
+        # reports credits, and an agentic run's real consumption includes every
+        # file it chose to read -- which never appears in either the instruction
+        # or the transcript. This figure is therefore a *floor*, not a
+        # measurement: it keeps the budget monotonic and bounded, and `credits`
+        # carries the only number the CLI actually measured.
         tokens = estimate_tokens(instruction) + estimate_tokens(transcript)
         session_total = self._cost_controller.record_usage(session_id, tokens, succeeded=True)
 
