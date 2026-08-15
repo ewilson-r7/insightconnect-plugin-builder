@@ -648,8 +648,10 @@ and the new Requirements 26–30.
 Not yet implemented. Listed so the gap between this plan and the code is visible
 rather than discovered.
 
-- [ ] 35. Make the repair round limit configurable
-  - Fixed at three. Requirement 26.8 refers to a "configured" maximum; it is currently a constant.
+- [x] 35. Make the repair round limit configurable
+  - `cost.max_repair_rounds`, validated in `core/limits.py` alongside the token budget and request rate, and threaded into `RepairLoop`. Requirement 26.8 refers to a "configured" maximum; `RepairLoop` already took the argument but nothing supplied it, so three was effectively hardcoded.
+  - Grouped with the cost limits rather than given its own section because each round is a paid agent run: raising it raises what a single turn can spend. Bounded to `1..10` -- one because a loop permitted no fix attempts is just a check, ten because a mistyped large value is a spending mistake, and the loop's stall detector almost always stops it sooner anyway.
+  - The default stays defined once, in `repair_loop.DEFAULT_MAX_ROUNDS`, with the config importing it, so the two cannot drift.
   - _Requirements: 26.8_
 
 - [ ] 36. Decide and implement how vendor documentation is obtained

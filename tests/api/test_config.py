@@ -24,6 +24,7 @@ from icplugin_builder.api.config import (
     probe_docker,
     probe_kiro_cli,
 )
+from icplugin_builder.orchestrator.repair_loop import DEFAULT_MAX_ROUNDS
 
 
 def _minimal_config() -> dict:
@@ -92,6 +93,17 @@ class TestLoadValid:
         data["cost"] = {"token_budget": None}
         assert load_config(data).cost.token_budget == DEFAULT_TOKEN_BUDGET
 
+    def test_repair_rounds_are_configurable(self):
+        # Req 26.8 speaks of a "configured" maximum; it was a constant.
+        data = _minimal_config()
+        data["cost"] = {"max_repair_rounds": 5}
+        assert load_config(data).cost.max_repair_rounds == 5
+
+    def test_repair_rounds_default_to_the_loop_s_own_default(self):
+        # One definition of the default, in the loop that enforces it, so config
+        # and loop cannot drift apart.
+        assert load_config(_minimal_config()).cost.max_repair_rounds == DEFAULT_MAX_ROUNDS
+
     def test_loads_from_yaml_string(self):
         text = (
             "llm:\n" "  provider: kiro_cli\n" "  kiro_cli_path: /usr/local/bin/kiro\n" "cost:\n" "  token_budget: 500\n"
@@ -141,6 +153,22 @@ class TestLoadInvalidNamesSetting:
         with pytest.raises(ConfigError) as exc:
             load_config(data)
         assert exc.value.setting == "cost.rate_limit_per_min"
+
+    def test_out_of_range_repair_rounds_named(self):
+        data = _minimal_config()
+        data["cost"] = {"max_repair_rounds": 50}
+        with pytest.raises(ConfigError) as exc:
+            load_config(data)
+        assert exc.value.setting == "cost.max_repair_rounds"
+
+    def test_zero_repair_rounds_is_rejected(self):
+        # A loop permitted no fix attempts is just a check, and the repair loop
+        # itself refuses to be built that way.
+        data = _minimal_config()
+        data["cost"] = {"max_repair_rounds": 0}
+        with pytest.raises(ConfigError) as exc:
+            load_config(data)
+        assert exc.value.setting == "cost.max_repair_rounds"
 
     def test_invalid_port_named(self):
         data = _minimal_config()

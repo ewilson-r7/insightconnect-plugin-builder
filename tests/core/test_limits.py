@@ -12,11 +12,15 @@ from icplugin_builder.core.limits import (
     LimitOutOfRangeError,
     RATE_LIMIT_MAX,
     RATE_LIMIT_MIN,
+    REPAIR_ROUNDS_MAX,
+    REPAIR_ROUNDS_MIN,
     TOKEN_BUDGET_MAX,
     TOKEN_BUDGET_MIN,
     is_valid_rate_limit,
+    is_valid_repair_rounds,
     is_valid_token_budget,
     validate_rate_limit,
+    validate_repair_rounds,
     validate_token_budget,
 )
 
@@ -76,3 +80,34 @@ class TestRateLimit:
         assert is_valid_rate_limit(value) is False
         with pytest.raises(LimitOutOfRangeError):
             validate_rate_limit(value)
+
+
+class TestRepairRounds:
+    """The repair-round cap is an operator-configured integer count (Req 26.8)."""
+
+    def test_accepts_exactly_the_documented_range(self):
+        for value in range(REPAIR_ROUNDS_MIN, REPAIR_ROUNDS_MAX + 1):
+            assert is_valid_repair_rounds(value), value
+            assert validate_repair_rounds(value) == value
+
+    def test_rejects_zero_because_a_loop_with_no_attempts_is_just_a_check(self):
+        assert not is_valid_repair_rounds(0)
+        with pytest.raises(LimitOutOfRangeError):
+            validate_repair_rounds(0)
+
+    def test_rejects_a_value_above_the_ceiling(self):
+        # Every round is a paid agent run, so an accidental large value is a
+        # spending mistake rather than a harmless one.
+        assert not is_valid_repair_rounds(REPAIR_ROUNDS_MAX + 1)
+        with pytest.raises(LimitOutOfRangeError):
+            validate_repair_rounds(100)
+
+    def test_rejects_non_integers_and_booleans(self):
+        for value in (2.5, "3", None, True, False):
+            assert not is_valid_repair_rounds(value), value
+
+    def test_the_message_names_the_range(self):
+        with pytest.raises(LimitOutOfRangeError) as exc:
+            validate_repair_rounds(0)
+        assert str(REPAIR_ROUNDS_MIN) in str(exc.value)
+        assert str(REPAIR_ROUNDS_MAX) in str(exc.value)

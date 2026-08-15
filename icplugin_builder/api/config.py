@@ -41,8 +41,10 @@ from ruamel.yaml import YAML
 from ..core.limits import (
     LimitOutOfRangeError,
     validate_rate_limit,
+    validate_repair_rounds,
     validate_token_budget,
 )
+from ..orchestrator.repair_loop import DEFAULT_MAX_ROUNDS
 
 __all__ = [
     "ConfigError",
@@ -133,10 +135,15 @@ class CostConfig:
         token_budget: Per-session token budget in ``1..10,000,000`` (Req 4.1),
             defaulting to :data:`DEFAULT_TOKEN_BUDGET` when unset (Req 4.6).
         rate_limit_per_min: Per-user request rate in ``1..1,000`` (Req 4.4).
+        max_repair_rounds: How many fix attempts the ``Repair_Loop`` may make
+            before it stops and reports reaching the limit, in ``1..10``
+            (Req 26.8). Grouped with the cost limits because each round is a paid
+            agent run, so raising it raises what a single turn can spend.
     """
 
     token_budget: int = DEFAULT_TOKEN_BUDGET
     rate_limit_per_min: int = DEFAULT_RATE_LIMIT_PER_MIN
+    max_repair_rounds: int = DEFAULT_MAX_ROUNDS
 
 
 @dataclass(frozen=True)
@@ -360,7 +367,19 @@ def _load_cost(data: Mapping[str, Any]) -> CostConfig:
     except LimitOutOfRangeError as exc:
         raise ConfigError("cost.rate_limit_per_min", str(exc)) from exc
 
-    return CostConfig(token_budget=token_budget, rate_limit_per_min=rate_limit)
+    raw_rounds = section.get("max_repair_rounds", DEFAULT_MAX_ROUNDS)
+    if raw_rounds is None:
+        raw_rounds = DEFAULT_MAX_ROUNDS
+    try:
+        max_repair_rounds = validate_repair_rounds(raw_rounds)
+    except LimitOutOfRangeError as exc:
+        raise ConfigError("cost.max_repair_rounds", str(exc)) from exc
+
+    return CostConfig(
+        token_budget=token_budget,
+        rate_limit_per_min=rate_limit,
+        max_repair_rounds=max_repair_rounds,
+    )
 
 
 def _load_network(data: Mapping[str, Any]) -> NetworkConfig:
