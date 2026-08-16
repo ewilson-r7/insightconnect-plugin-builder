@@ -643,10 +643,18 @@ and the new Requirements 26–30.
   - Measured on the two throwaway plugins: findings fell from 49 to 17 (abuseipdb) and 181 to 48 (rapid7_velociraptor), with every remaining finding genuine -- including nine `undefined-variable` reports for a `requests` that is used and never imported, which is why that plugin fails at runtime.
   - _Requirements: 26.1, 26.2, 26.3, 27.1_
 
-## Remaining work
+## Revision: the checks, the bar, and where vendor knowledge comes from
 
-Not yet implemented. Listed so the gap between this plan and the code is visible
-rather than discovered.
+Tasks 35-39 close the backlog the previous revision left behind. Three of them
+turned out to be corrections rather than additions: the quality gate was judging
+plugin code by rules the plugins repository does not apply, the validate stage was
+crashing on a validator that cannot work outside that repository, and the tool was
+implementing against vendor APIs it had never been given documentation for. In each
+case the checks were running and reporting; what they reported was wrong.
+
+They are numbered in the order they were specified, not the order they were built:
+38 and 35 first, then 36 and 39, then 37 last because it recorded decisions the
+others had made concrete.
 
 - [x] 35. Make the repair round limit configurable
   - `cost.max_repair_rounds`, validated in `core/limits.py` alongside the token budget and request rate, and threaded into `RepairLoop`. Requirement 26.8 refers to a "configured" maximum; `RepairLoop` already took the argument but nothing supplied it, so three was effectively hardcoded.
@@ -677,6 +685,16 @@ rather than discovered.
   - Measured on the throwaway abuseipdb plugin, before: 33 of 41 validators ran, `NameValidator` and every security-oriented validator (credentials, passwords, confidential data, print statements, exception handling) were skipped, and the tool emitted a stack trace and no failures. After: 40 validators run and eleven genuine failures are named. Excluding one validator did not lower the bar; it made the bar measurable.
   - Exactly one exclusion, found by inspecting the installed validator set rather than by suppressing whatever complained: it is the only validator with a hard dependency on the repository. Its own check is not lost -- version arithmetic against export history is done by `core/version_bump.py` (Req 8.10).
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.9, 8.10, 8.11, 8.12, 26.2, 27.1, 27.6, 27.7_
+
+## Remaining work
+
+Nothing outstanding. Every requirement in the specification is implemented, and
+the two decisions that were blocking -- what gates an export, and where vendor
+documentation comes from -- have been taken and recorded against tasks 37 and 36.
+
+Keep this section, and put the next gap in it rather than in a commit message: it
+exists so the distance between this plan and the code is visible rather than
+discovered, and an empty list is a claim worth being able to check.
 
 ## Notes
 
