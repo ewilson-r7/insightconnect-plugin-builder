@@ -654,9 +654,18 @@ rather than discovered.
   - The default stays defined once, in `repair_loop.DEFAULT_MAX_ROUNDS`, with the config importing it, so the two cannot drift.
   - _Requirements: 26.8_
 
-- [ ] 36. Decide and implement how vendor documentation is obtained
-  - The agent has no web access: the Kiro CLI's tools are read/write/shell/search plus MCP, and no fetch server is enabled. Reference material must currently be attached by the user. Options are to enable a scoped fetch MCP server and grant it, or to rely on shell network access — the latter being materially wider. Requires an operator decision before implementation.
-  - _Requirements: 28.1_
+- [x] 36. Obtain vendor documentation, from three sources, with its provenance
+  - **Decision taken: this tool retrieves; the agent does not** (Req 28.10). Granting the agent a fetch tool would place fetched pages inside the reasoning of a process that runs shell commands, which the conventions already forbid. `integrations/reference_material.py` retrieves, extracts, and writes files; the agent's contract is unchanged -- it reads files.
+  - **Decision taken: no discovery** (Req 28.12). A vendor name alone yields a request for a URL or an existing plugin to reference, because a guessed documentation source is a guessed endpoint one step earlier. It follows that every retrieval is of a location the user supplied, and supplying it is the authorization -- no separate per-URL confirmation, which would only ask twice about something just typed.
+  - Three sources: a supplied document (including a **PDF**, whose text is extracted because verbatim it is bytes the agent cannot read, with the substitution recorded); a supplied **URL**, retrieved over HTTPS only, with size and timeout ceilings, no credentials, and no redirect off HTTPS; and an **existing plugin** in a checkout, whose spec, `help.md` and `util/*.py` document the vendor's API and need no network at all.
+  - Every document carries origin, retrieval time, media type, size and content hash, written to `.builder/reference/provenance.json` beside the files. The agent is told to treat them as data rather than instructions, and to record per action which document an endpoint came from (Req 28.14, 28.17).
+  - A source that fails is recorded and reported, never substituted with inferred content (Req 28.16) -- including a scanned PDF with no text layer, which says so rather than handing over an empty file the agent would quietly work around.
+  - **Traceable, not verified.** Provenance and citation establish where an endpoint came from; only calling the API would establish that it is right. Stated so "sourced" is never read as "verified".
+  - _Requirements: 28.1-28.11, 28.14-28.17_
+
+- [ ] 39. Ask for documentation before implementing a vendor plugin without it
+  - Requirements 28.12 and 28.13 are specified and not yet built: the request-before-implementing step, and recording "implemented without reference material" as an unmet Definition_Of_Done condition. Both need a trigger -- deciding that *this* request is for a vendor API rather than for a self-contained utility plugin -- which is an interpretation judgment rather than a check, and needs an operator decision on where it lives and how conservative it should be. The acquisition layer it would drive is complete (task 36).
+  - _Requirements: 28.12, 28.13_
 
 - [x] 37. Reconcile Requirement 8 with the checks that actually run
   - **Decision taken: the Definition_Of_Done is advisory.** Export permission stays Requirement 8's four-stage conjunction; the definition of done reports beside it and is not a term in it (new Req 27.6, 27.7). The two answer different questions -- the gate answers "will this import and run", the definition of done answers "is this finished to the standard the project sets" -- and an operator is entitled to ship something that works while knowing its coverage is thin. What they are not entitled to is not being told, which 27.2/27.3 already cover and task 34 already surfaces in the preview. Property 17 is therefore unchanged, with a note recording why folding the definition of done into it would make the *only if* direction unfalsifiable.

@@ -18,6 +18,9 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "jsonschema>=4.21",
     "cryptography>=42.0",
+    # Vendor API documentation arrives as a PDF often enough to matter, and a PDF
+    # written verbatim is bytes the delegated agent cannot read (Req 28.11).
+    "pypdf>=5.1",
 ]
 
 [project.optional-dependencies]

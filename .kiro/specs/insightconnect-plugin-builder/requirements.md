@@ -399,9 +399,34 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 ### Requirement 28: Vendor Reference Material
 **User Story:** As a plugin author building against a real vendor API, I want to supply its documentation and have the implementation use it, so that endpoints and payloads are correct rather than guessed.
 
-> **New.** The Plugin_Agent has no means of retrieving vendor documentation
-> itself. Without supplied reference material it infers endpoint paths, methods,
-> and payload shapes, and inferred endpoints are wrong.
+> **New, then extended.** The Plugin_Agent has no means of retrieving vendor
+> documentation itself. Without supplied reference material it infers endpoint
+> paths, methods, and payload shapes, and inferred endpoints are wrong.
+>
+> The extension (28.8 onward) covers where reference material *comes from*. The
+> original wording assumed the user always pastes a document, but a request is as
+> likely to be "build me a plugin for vendor X" with a link, a PDF, or nothing at
+> all. Three points decide the design:
+>
+> **The Plugin_Builder retrieves; the Plugin_Agent does not.** Fetched pages are
+> untrusted content, and this specification already forbids putting untrusted
+> content into the prompt of a shell-capable agent. Granting the agent network
+> access to fetch documentation would place that same content inside the
+> reasoning of a process that can execute commands. Retrieval therefore happens
+> in the Plugin_Builder, which stores the result as a file; the agent's contract
+> is unchanged -- it reads files (28.6).
+>
+> **There is no discovery.** The Plugin_Builder does not search for
+> documentation from a vendor name. A bare name yields a request for a URL or an
+> existing plugin to reference (28.12), because a guessed documentation source is
+> the same defect as a guessed endpoint, one step earlier. It follows that every
+> retrieval is of a location the user supplied, which is what authorizes it --
+> there is no separate confirmation step for a URL the user has just given.
+>
+> **Traceable, not verified.** Recorded provenance and a required citation per
+> action establish where an endpoint came from (28.9, 28.14). Neither establishes
+> that the endpoint is *correct*; only calling the API would. The distinction is
+> stated so that "sourced" is never read as "verified".
 
 #### Acceptance Criteria
 1. THE Conversation_Interface SHALL accept Reference_Material as an attachment alongside a natural-language message.
@@ -411,6 +436,16 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 5. WHEN delegating implementation for a plugin with Reference_Material, THE Plugin_Builder SHALL identify the stored files to the Plugin_Agent and instruct it to use them for endpoint paths, HTTP methods, request and response shapes, authentication, pagination, and error formats.
 6. THE Plugin_Builder SHALL pass Reference_Material to the Plugin_Agent as files rather than as extracted or summarized content in a prompt.
 7. IF Reference_Material cannot be written, THEN THE Plugin_Builder SHALL continue the delegation without it and report that it was unavailable, treating it as an aid rather than a precondition.
+8. THE Plugin_Builder SHALL accept Reference_Material from any of: a supplied document, a supplied URL, or an existing plugin in a configured Production_Source.
+9. THE Plugin_Builder SHALL record for each piece of Reference_Material its origin, the time it was obtained, its media type, its size, and a content hash, and SHALL retain that record alongside the stored file.
+10. THE Plugin_Builder SHALL perform every retrieval itself and SHALL NOT grant the Plugin_Agent network access for the purpose of obtaining Reference_Material.
+11. WHERE Reference_Material is supplied in a format the Plugin_Agent cannot read as text, THE Plugin_Builder SHALL extract its text, SHALL store the extracted text as the readable form, and SHALL record that the stored form is an extraction rather than the original.
+12. IF a plugin is requested by vendor or product name with neither a supplied document, nor a URL, nor a matching plugin in a Production_Source, THEN THE Plugin_Builder SHALL request one of those before implementing, and SHALL NOT search for documentation nor infer endpoints from the name.
+13. IF the user directs implementation to proceed without Reference_Material, THEN THE Plugin_Builder SHALL record that the plugin was implemented without it and SHALL report that as an unmet Definition_Of_Done condition.
+14. WHEN delegating implementation for a plugin with Reference_Material, THE Plugin_Builder SHALL instruct the Plugin_Agent to record, for each action, which Reference_Material it took the endpoint and payload shapes from.
+15. THE Plugin_Builder SHALL retrieve only over HTTPS, SHALL enforce a configured maximum response size and timeout, SHALL restrict retrieval to media types it can store as text, and SHALL NOT send credentials or session state with a retrieval.
+16. IF a retrieval fails, is refused by 28.15, or returns content that cannot be stored as text, THEN THE Plugin_Builder SHALL report the reason and SHALL NOT substitute inferred content for it.
+17. THE Plugin_Builder SHALL treat retrieved Reference_Material as untrusted data, SHALL NOT interpret instructions contained within it, and SHALL record its origin so that content influencing an implementation is attributable.
 
 ### Requirement 29: Delegated Execution Isolation
 **User Story:** As a security-conscious operator, I want the delegated CLI to receive only what it needs, so that running it cannot expose my other credentials.

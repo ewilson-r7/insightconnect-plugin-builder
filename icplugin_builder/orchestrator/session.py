@@ -33,6 +33,7 @@ from ..integrations.code_validator import PipelineReport
 from ..integrations.definition_of_done import DoneReport
 from ..integrations.export_gate import ExportDecision
 from ..integrations.quality_gate import QualityReport
+from ..integrations.reference_material import ReferenceSet
 from ..persistence.project_folder import ProjectFolder, ProvenanceRecord
 
 __all__ = [
@@ -272,6 +273,17 @@ class SessionState:
         credits_reported: whether any run actually reported a credits figure.
             Distinguishes "nothing spent yet" from "spend unknown", which a bare
             ``0.0`` cannot.
+        reference_urls: documentation URLs the user supplied. Retrieved by this
+            tool, never by the agent: a fetched page is untrusted content and the
+            agent runs with shell access (Req 28.10).
+        reference_plugin_dirs: existing plugin directories to use as reference.
+            The one source of vendor API knowledge that needs no network -- a
+            plugin already written for that vendor documents its API in the most
+            directly usable form there is (Req 28.8).
+        reference_set: what was and was not obtained, with each document's
+            origin, time, media type, size and content hash (Req 28.9). A source
+            that failed is recorded here rather than silently dropped, because the
+            alternative to real documentation is the agent inventing endpoints.
         attachments: reference files the user supplied (an OpenAPI spec, vendor
             API documentation), as ``{"name": ..., "content": ...}``. Written into
             the project's ``.builder/reference/`` before implementation so the
@@ -298,6 +310,9 @@ class SessionState:
     credits_spent: float = 0.0
     credits_reported: bool = False
     attachments: List[Dict[str, str]] = field(default_factory=list)
+    reference_urls: List[str] = field(default_factory=list)
+    reference_plugin_dirs: List[str] = field(default_factory=list)
+    reference_set: Optional[ReferenceSet] = None
 
     @property
     def plugin_name(self) -> str:

@@ -607,8 +607,22 @@ def create_app(
                             {
                                 "name": str(attachment.get("name") or "reference"),
                                 "content": str(attachment.get("content") or ""),
+                                # Carried through so a PDF or other binary document
+                                # survives the JSON hop and can have its text
+                                # extracted before the agent reads it (Req 28.11).
+                                "encoding": str(attachment.get("encoding") or ""),
+                                "media_type": str(attachment.get("media_type") or ""),
                             }
                         )
+                # Documentation URLs are retrieved by this process, never by the
+                # agent: a fetched page is untrusted content and the agent runs
+                # with shell access (Req 28.10).
+                reference_urls = frame.get("reference_urls") or []
+                if reference_urls:
+                    state = orchestrator.session(session_id)
+                    for url in reference_urls:
+                        if isinstance(url, str) and url.strip():
+                            state.reference_urls.append(url.strip())
                 if interpreter is not None:
                     try:
                         current_spec = orchestrator.session(session_id).spec
