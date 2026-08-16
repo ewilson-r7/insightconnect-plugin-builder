@@ -17,12 +17,15 @@ looking like a clean result (Req 27.5).
 
 from pathlib import Path
 
+import json
+
 from icplugin_builder.integrations.definition_of_done import (
     CONDITION_ACTIONS_USE_CLIENT,
     CONDITION_API_CLIENT,
     CONDITION_CONNECTION,
     CONDITION_DEPENDENCY_MANIFEST,
     CONDITION_ORDER,
+    CONDITION_REFERENCE_MATERIAL,
     ConditionStatus,
     evaluate_done,
 )
@@ -367,3 +370,51 @@ class TestUnscaffoldedTree:
         condition = report.condition(CONDITION_CONNECTION)
         assert condition is not None
         assert condition.status is ConditionStatus.MET
+
+
+class TestReferenceMaterialCondition:
+    """Three outcomes, because absent documentation is not always a defect.
+
+    A plugin that calls somebody's API and has no documentation was built on
+    guesses. A plugin that encodes base64 needs no documentation at all, and
+    reporting it as unmet would be a false alarm -- the kind that teaches an
+    operator to stop reading this condition.
+    """
+
+    def _record(self, root: Path, payload: dict) -> None:
+        directory = root / ".builder" / "reference"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "provenance.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_stored_documentation_meets_the_condition(self, tmp_path):
+        root = _plugin(tmp_path)
+        self._record(root, {"documents": [{"name": "api.md", "origin": "url"}], "failures": []})
+        assert _status(root, CONDITION_REFERENCE_MATERIAL) is ConditionStatus.MET
+
+    def test_proceeding_without_documentation_is_unmet_and_says_why(self, tmp_path):
+        root = _plugin(tmp_path)
+        self._record(
+            root,
+            {
+                "documents": [],
+                "failures": [],
+                "implemented_without_reference": True,
+                "detail": "proceeded at the user's direction with no vendor documentation",
+            },
+        )
+        assert _status(root, CONDITION_REFERENCE_MATERIAL) is ConditionStatus.UNMET
+        assert "user's direction" in _detail(root, CONDITION_REFERENCE_MATERIAL)
+
+    def test_no_record_at_all_is_unverified_not_unmet(self, tmp_path):
+        # Nothing is known, and a plugin with no external API needs nothing. The
+        # honest answer is unverified, which still keeps the plugin from reading as
+        # done while never inventing a defect.
+        root = _plugin(tmp_path)
+        assert _status(root, CONDITION_REFERENCE_MATERIAL) is ConditionStatus.UNVERIFIED
+
+    def test_an_unreadable_record_is_unverified(self, tmp_path):
+        root = _plugin(tmp_path)
+        directory = root / ".builder" / "reference"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "provenance.json").write_text("{not json", encoding="utf-8")
+        assert _status(root, CONDITION_REFERENCE_MATERIAL) is ConditionStatus.UNVERIFIED

@@ -53,6 +53,7 @@ from .quality_gate import (
     is_generated,
     package_dir,
 )
+from .reference_material import read_reference_state
 
 __all__ = [
     "CONDITION_CODE_PARSES",
@@ -65,6 +66,7 @@ __all__ = [
     "CONDITION_CONNECTION",
     "CONDITION_DEPENDENCY_MANIFEST",
     "CONDITION_SPEC_COMPLETE",
+    "CONDITION_REFERENCE_MATERIAL",
     "CONDITION_TOOLCHAIN_VALIDATE",
     "CONDITION_ORDER",
     "CONDITION_DESCRIPTIONS",
@@ -94,6 +96,8 @@ CONDITION_CONNECTION = "connection_implemented"
 CONDITION_DEPENDENCY_MANIFEST = "dependency_manifest"
 #: The spec carries every field the toolchain requires (Req 30).
 CONDITION_SPEC_COMPLETE = "spec_complete"
+#: The plugin was implemented against real vendor documentation (Req 28.13).
+CONDITION_REFERENCE_MATERIAL = "reference_material"
 #: ``insight-plugin validate`` passes (Req 27.1).
 CONDITION_TOOLCHAIN_VALIDATE = "toolchain_validate"
 
@@ -110,6 +114,7 @@ CONDITION_ORDER: Tuple[str, ...] = (
     CONDITION_COVERAGE,
     CONDITION_DEPENDENCY_MANIFEST,
     CONDITION_SPEC_COMPLETE,
+    CONDITION_REFERENCE_MATERIAL,
     CONDITION_TOOLCHAIN_VALIDATE,
 )
 
@@ -125,6 +130,7 @@ CONDITION_DESCRIPTIONS: Dict[str, str] = {
     CONDITION_COVERAGE: "statement coverage meets the configured minimum",
     CONDITION_DEPENDENCY_MANIFEST: "a dependency manifest exists with exact pins",
     CONDITION_SPEC_COMPLETE: "plugin.spec.yaml carries every field the toolchain needs",
+    CONDITION_REFERENCE_MATERIAL: "the implementation was based on real vendor documentation",
     CONDITION_TOOLCHAIN_VALIDATE: "insight-plugin validate passes",
 }
 
@@ -318,6 +324,7 @@ def evaluate_done(
     results.update(_from_quality_report(quality_report, coverage_threshold))
     results.update(_from_structure(root))
     results[CONDITION_SPEC_COMPLETE] = _spec_condition(spec)
+    results[CONDITION_REFERENCE_MATERIAL] = _reference_condition(root)
     results[CONDITION_TOOLCHAIN_VALIDATE] = _validate_condition(pipeline_report)
 
     ordered = tuple(results[name] for name in CONDITION_ORDER if name in results)
@@ -746,6 +753,36 @@ def _spec_condition(spec: Optional[PluginSpec]) -> ConditionResult:
     if report.is_complete:
         return _met(CONDITION_SPEC_COMPLETE)
     return _unmet(CONDITION_SPEC_COMPLETE, _join([f"{f.path}: {f.message}" for f in report.errors]))
+
+
+def _reference_condition(root: Path) -> ConditionResult:
+    """Check whether the implementation had real vendor documentation (Req 28.13).
+
+    Three outcomes rather than two, because the absence of documentation is only a
+    defect for a plugin that calls somebody's API. A plugin that encodes base64
+    needs none, and reporting it as unmet would be a false alarm that teaches the
+    operator to ignore this condition.
+
+    So: met when documentation was stored, unmet only when the tree records that
+    implementation deliberately went ahead without it, and unverified when nothing
+    was recorded either way.
+    """
+    state = read_reference_state(root)
+    if state.has_material:
+        return _met(CONDITION_REFERENCE_MATERIAL)
+    if state.without_reference:
+        return _unmet(
+            CONDITION_REFERENCE_MATERIAL,
+            state.detail
+            or (
+                "implementation proceeded with no vendor documentation, so endpoints and "
+                "payload shapes were inferred rather than sourced"
+            ),
+        )
+    return _unverified(
+        CONDITION_REFERENCE_MATERIAL,
+        "no record of vendor documentation either way; a plugin that calls no external API needs none",
+    )
 
 
 def _validate_condition(pipeline_report: Optional[PipelineReport]) -> ConditionResult:

@@ -933,6 +933,139 @@ class TestReferenceMaterialReachesTheAgent:
         assert not (tmp_path / "my_plugin" / ".builder" / "reference").exists()
 
 
+class TestAskingForVendorDocumentation:
+    """Documentation is requested before implementing against an API (Req 28.12).
+
+    The trigger is a judgment about intent -- does this request mean to call
+    somebody's API -- so it comes from the interpretation layer, which is the only
+    part of the system that reads the user's words. Everything downstream of that
+    judgment is mechanical, and the mechanics are what these tests pin down: the
+    question is asked once, only when it is warranted, and never in place of doing
+    the work when documentation is already available.
+    """
+
+    def _orch(self, tmp_path):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        agent = FakeAgent()
+        orch = Orchestrator(
+            cost_controller=CostController(),
+            llm_generator=FakeLLM(),
+            plugin_agent=agent,
+            projects_root=tmp_path,
+            reference_acquirer=ReferenceAcquirer(fetcher=StubFetcher()),
+        )
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        return orch, agent
+
+    def _plan(self, **kwargs):
+        request = GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, pattern=None, parameters={"action": "check_ip"})
+        return TurnPlan(reasoning=[request], **kwargs)
+
+    def test_a_vendor_plugin_with_no_documentation_asks_for_it(self, tmp_path):
+        orch, agent = self._orch(tmp_path)
+
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB")))
+
+        assert result.status is TurnStatus.CLARIFICATION
+        assert "AbuseIPDB" in result.message
+        # All three routes are offered, not just the one the user did not use.
+        assert "OpenAPI" in result.message
+        assert "attached as a file" in result.message
+        assert "existing" in result.message
+        # Nothing was implemented, and the draft is untouched (Req 1.5).
+        assert agent.calls == []
+
+    def test_it_says_how_to_proceed_anyway(self, tmp_path):
+        # The question must not be a dead end: an operator who has no docs and
+        # wants a skeleton is entitled to one, as long as it is recorded.
+        orch, _ = self._orch(tmp_path)
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB")))
+        assert "proceed anyway" in result.message
+        assert "unfinished" in result.message
+
+    def test_a_local_only_plugin_is_never_asked(self, tmp_path):
+        # No vendor API means no documentation to want. Asking here would be the
+        # false alarm that trains the operator to dismiss the question.
+        orch, agent = self._orch(tmp_path)
+
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api=None)))
+
+        assert result.status is TurnStatus.APPLIED
+        assert len(agent.calls) == 1
+
+    def test_a_structural_only_turn_is_never_asked(self, tmp_path):
+        # Nothing is being implemented yet, so there is nothing to implement
+        # against documentation.
+        orch, _ = self._orch(tmp_path)
+        plan = TurnPlan(
+            operations=[AddComponent(ComponentKind.ACTION, "extra", make_action())],
+            vendor_api="AbuseIPDB",
+        )
+        result = asyncio.run(orch.apply_turn("s1", plan))
+        assert result.status is TurnStatus.APPLIED
+
+    def test_supplied_documentation_means_no_question(self, tmp_path):
+        orch, agent = self._orch(tmp_path)
+        orch.session("s1").attachments.append({"name": "api.md", "content": "GET /v1/check\n"})
+
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB")))
+
+        assert result.status is TurnStatus.APPLIED
+        assert len(agent.calls) == 1
+
+    def test_a_supplied_url_means_no_question(self, tmp_path):
+        orch, _ = self._orch(tmp_path)
+        orch.session("s1").reference_urls.append("https://docs.example.com/api")
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB")))
+        assert result.status is TurnStatus.APPLIED
+
+    def test_documentation_already_in_the_tree_means_no_question(self, tmp_path):
+        # A second turn on a plugin whose docs were staged earlier must not re-ask.
+        orch, _ = self._orch(tmp_path)
+        directory = tmp_path / "my_plugin" / ".builder" / "reference"
+        directory.mkdir(parents=True)
+        (directory / "provenance.json").write_text(
+            json.dumps({"documents": [{"name": "api.md"}], "failures": []}), encoding="utf-8"
+        )
+
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB")))
+
+        assert result.status is TurnStatus.APPLIED
+
+    def test_proceeding_anyway_implements_and_records_the_gap(self, tmp_path):
+        orch, agent = self._orch(tmp_path)
+
+        result = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB", proceed_without_reference=True)))
+
+        assert result.status is TurnStatus.APPLIED
+        assert len(agent.calls) == 1
+        # Req 28.13: recorded in the tree, so it outlives the session.
+        record = json.loads(
+            (tmp_path / "my_plugin" / ".builder" / "reference" / "provenance.json").read_text(encoding="utf-8")
+        )
+        assert record["implemented_without_reference"] is True
+
+    def test_the_recorded_gap_is_reported_as_an_unmet_condition(self, tmp_path):
+        orch, _ = self._orch(tmp_path)
+        asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB", proceed_without_reference=True)))
+
+        done = orch.session("s1").done_report
+        assert done is not None
+        unmet = {condition.name for condition in done.unmet}
+        assert "reference_material" in unmet
+
+    def test_the_question_is_asked_once_per_session(self, tmp_path):
+        # Having said "go ahead", the user should not be asked again on the next
+        # message. The decision belongs to the session, not the turn.
+        orch, agent = self._orch(tmp_path)
+        asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB", proceed_without_reference=True)))
+
+        second = asyncio.run(orch.apply_turn("s1", self._plan(vendor_api="AbuseIPDB")))
+
+        assert second.status is TurnStatus.APPLIED
+        assert len(agent.calls) == 2
+
+
 class TestExportPathChecksTheCode:
     """The export path checks the hand-written code itself (Req 26.1, 27.1).
 

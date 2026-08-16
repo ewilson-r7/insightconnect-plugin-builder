@@ -85,6 +85,8 @@ from ..integrations.reference_material import (
     REFERENCE_DIR,
     ReferenceAcquirer,
     ReferenceSet,
+    read_reference_state,
+    record_no_reference,
     store_reference_set,
 )
 from ..integrations.refresh_coordinator import RefreshCoordinator, detect_structural_change
@@ -168,6 +170,8 @@ class TurnPlan:
         reasoning: Optional[Sequence[GenerationRequest]] = None,
         *,
         clarification: Optional[str] = None,
+        vendor_api: Optional[str] = None,
+        proceed_without_reference: bool = False,
     ) -> None:
         """Build a turn plan.
 
@@ -177,10 +181,21 @@ class TurnPlan:
                 help text) to produce across the deterministic/LLM boundary.
             clarification: when set, the turn is ambiguous; no edit is applied and
                 this text is surfaced to the user (Req 1.5, 22.5).
+            vendor_api: the external vendor or product whose API this plugin calls,
+                when the request named one. Set by the interpretation layer, which
+                is the only part of the system that sees the user's words -- whether
+                a request targets a vendor's API or a self-contained utility is a
+                judgment about intent, not something a check on the tree can
+                answer. Drives the request for documentation (Req 28.12).
+            proceed_without_reference: the user was asked for documentation and
+                chose to go ahead without it. Recorded rather than obeyed silently,
+                so the resulting plugin reports the gap (Req 28.13).
         """
         self.operations: List[DraftOperation] = list(operations or [])
         self.reasoning: List[GenerationRequest] = list(reasoning or [])
         self.clarification = clarification
+        self.vendor_api = vendor_api
+        self.proceed_without_reference = proceed_without_reference
 
     @property
     def is_ambiguous(self) -> bool:
@@ -502,6 +517,20 @@ class Orchestrator:
                 token_total=self.token_total(session_id),
             )
 
+        # Req 28.12: ask for the vendor's documentation before implementing against
+        # it. Checked here, before anything is applied, so the request leaves the
+        # draft untouched like any other clarification (Req 1.5).
+        if plan.proceed_without_reference:
+            session.proceed_without_reference = True
+        missing_reference = self._reference_clarification(session, plan)
+        if missing_reference is not None:
+            return TurnResult(
+                status=TurnStatus.CLARIFICATION,
+                message=missing_reference,
+                spec=session.spec,
+                token_total=self.token_total(session_id),
+            )
+
         # 1. Apply the draft edits atomically (commit-on-success, Req 1.7).
         try:
             new_draft = atomic_apply(session.draft, lambda draft: _apply_operations(draft, plan.operations))
@@ -653,6 +682,46 @@ class Orchestrator:
             # stands; report how far the repair got rather than failing the turn.
             logger.warning("repair loop stopped early: %s", error)
             return None
+
+    def _reference_clarification(self, session: SessionState, plan: TurnPlan) -> Optional[str]:
+        """Return the request for documentation, or ``None`` when none is needed.
+
+        Asked only when all of the following hold: the turn would implement code,
+        the interpretation layer identified an external vendor API, nothing has been
+        supplied or already stored, and the user has not said to go ahead anyway.
+
+        The narrowness is the point. A plugin that calls no external API needs no
+        vendor documentation, and asking for it would be a false alarm that trains
+        the operator to dismiss the question. Equally, this is the one judgment in
+        the definition-of-done surface that is *not* a check on the tree -- whether a
+        request means to call somebody's API is a question about intent, so it is
+        answered where the user's words are read, not here (Req 28.12).
+
+        Returns:
+            The message to surface, or ``None`` to proceed.
+        """
+        if not plan.vendor_api or session.proceed_without_reference:
+            return None
+        _, code_requests = _partition_reasoning(plan.reasoning)
+        if not code_requests:
+            return None
+        if session.attachments or session.reference_urls or session.reference_plugin_dirs:
+            return None
+        if session.project_folder is not None and read_reference_state(session.project_folder.path).has_material:
+            return None
+
+        vendor = plan.vendor_api
+        return (
+            f"I can implement this, but I have no documentation for {vendor}'s API, and I cannot "
+            "look it up -- so the endpoints, payload shapes, authentication and error formats would "
+            "be guesses, and guessed endpoints do not work.\n\n"
+            "Any one of these is enough:\n"
+            f"  - a link to {vendor}'s API documentation or its OpenAPI spec\n"
+            "  - the documentation attached as a file (text, Markdown, YAML, JSON or PDF)\n"
+            f"  - an existing {vendor} plugin to use as a reference\n\n"
+            "If you would rather I proceed anyway, say so and I will -- the plugin will be recorded "
+            "as built without documentation, and will report that as unfinished."
+        )
 
     async def _run_quality_gate(self, session: SessionState) -> Optional[QualityReport]:
         """Check the session's hand-written code, returning ``None`` if it cannot run.
@@ -817,6 +886,13 @@ class Orchestrator:
         references, reference_set = await _acquire_reference_material(session, self._reference_acquirer)
         if reference_set is not None:
             session.reference_set = reference_set
+        if not references and session.proceed_without_reference:
+            # Req 28.13: the user was asked and chose to go ahead. Recorded in the
+            # tree so the plugin still reports the gap after this session ends.
+            record_no_reference(
+                session.project_folder.path,
+                detail="implementation proceeded at the user's direction with no vendor documentation supplied",
+            )
         return await self._agent.implement(
             session.project_folder.path,
             _implementation_instruction(session.spec, actions, references),

@@ -66,12 +66,29 @@ a JSON response describing the operations to perform on the plugin draft.
       "parameters": {{ ... }}
     }}
   ],
-  "clarification": null | "string asking the user for more detail"
+  "clarification": null | "string asking the user for more detail",
+  "vendor_api": null | "vendor or product name",
+  "proceed_without_reference": true | false
 }}
 
 3. If the request is ambiguous or you cannot determine what to do, set
    "operations" to [], "reasoning" to [], and "clarification" to a helpful
    question asking the user what they meant.
+
+3a. Set "vendor_api" to the vendor or product name when this plugin calls an
+   external company's HTTP API -- Okta, CrowdStrike, Jira, VirusTotal, and so on.
+   Set it to null when the plugin does its work locally and calls nobody: string
+   or date manipulation, encoding, hashing, regular expressions, arithmetic,
+   parsing a value it was handed. The distinction matters because the tool cannot
+   look up an API it has not been given documentation for, and would otherwise
+   invent endpoints. A false null produces a plugin built on guesses; a false
+   vendor name produces a pointless question. Judge from what the plugin would
+   have to *do*, not from whether a company is mentioned in passing.
+
+3b. Set "proceed_without_reference" to true only when the user has been asked for
+   API documentation and is explicitly declining to supply it -- "go ahead
+   anyway", "just make your best guess", "I don't have the docs, continue".
+   Default false. Never infer it from silence.
 
 4. Operation schemas:
 
@@ -305,10 +322,20 @@ class Interpreter:
         if not isinstance(data, dict):
             return TurnPlan(clarification="I had trouble understanding that. Could you rephrase your request?")
 
+        # Carried on every plan, including a clarifying one: a user who answers an
+        # ambiguity question in the same breath as declining to supply docs should
+        # not have to say it twice.
+        vendor_api = _parse_vendor_api(data.get("vendor_api"))
+        proceed_without_reference = data.get("proceed_without_reference") is True
+
         # If the LLM asked for clarification, surface that directly.
         clarification = data.get("clarification")
         if clarification:
-            return TurnPlan(clarification=str(clarification))
+            return TurnPlan(
+                clarification=str(clarification),
+                vendor_api=vendor_api,
+                proceed_without_reference=proceed_without_reference,
+            )
 
         operations = self._parse_operations(data.get("operations", []))
         reasoning = self._parse_reasoning(data.get("reasoning", []))
@@ -317,10 +344,17 @@ class Interpreter:
         if not operations and not reasoning:
             return TurnPlan(
                 clarification="I wasn't able to determine a specific change from that. "
-                "Could you describe the action, trigger, or connection you'd like to add or modify?"
+                "Could you describe the action, trigger, or connection you'd like to add or modify?",
+                vendor_api=vendor_api,
+                proceed_without_reference=proceed_without_reference,
             )
 
-        return TurnPlan(operations=operations, reasoning=reasoning)
+        return TurnPlan(
+            operations=operations,
+            reasoning=reasoning,
+            vendor_api=vendor_api,
+            proceed_without_reference=proceed_without_reference,
+        )
 
     def _parse_operations(self, raw_ops: Any) -> List[DraftOperation]:
         """Parse the operations array from the LLM response."""
@@ -496,3 +530,19 @@ def _dump_debug(raw_stdout: str, cleaned_text: str, error: Exception) -> None:
         f.write("\n")
 
     logger.warning("Interpreter: debug dump written to %s", debug_path)
+
+
+def _parse_vendor_api(raw: Any) -> Optional[str]:
+    """Return the vendor name from an interpreted response, or ``None``.
+
+    Defensive about the shapes a model actually returns in this field: the string
+    ``"null"``, ``"none"``, or an empty string all mean "no vendor", and treating
+    any of them as a vendor name would produce a request for documentation about a
+    vendor called "null".
+    """
+    if not isinstance(raw, str):
+        return None
+    name = raw.strip()
+    if not name or name.lower() in ("null", "none", "n/a", "na", "false"):
+        return None
+    return name

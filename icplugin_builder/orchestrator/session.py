@@ -280,6 +280,10 @@ class SessionState:
             The one source of vendor API knowledge that needs no network -- a
             plugin already written for that vendor documents its API in the most
             directly usable form there is (Req 28.8).
+        proceed_without_reference: the user was asked for vendor documentation and
+            chose to go ahead without it. Set for the session rather than the turn
+            so the question is asked once, not on every subsequent message
+            (Req 28.13).
         reference_set: what was and was not obtained, with each document's
             origin, time, media type, size and content hash (Req 28.9). A source
             that failed is recorded here rather than silently dropped, because the
@@ -313,6 +317,7 @@ class SessionState:
     reference_urls: List[str] = field(default_factory=list)
     reference_plugin_dirs: List[str] = field(default_factory=list)
     reference_set: Optional[ReferenceSet] = None
+    proceed_without_reference: bool = False
 
     @property
     def plugin_name(self) -> str:

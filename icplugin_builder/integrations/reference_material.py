@@ -60,9 +60,12 @@ __all__ = [
     "Fetcher",
     "UrllibReferenceFetcher",
     "ReferenceAcquirer",
+    "ReferenceState",
     "safe_reference_name",
     "extract_text",
     "store_reference_set",
+    "record_no_reference",
+    "read_reference_state",
 ]
 
 logger = logging.getLogger(__name__)
@@ -677,6 +680,100 @@ def _name_from_url(url: str) -> str:
     if not tail:
         return f"{host}.txt" if host else "fetched-reference.txt"
     return tail if "." in tail else f"{tail}.txt"
+
+
+@dataclass(frozen=True)
+class ReferenceState:
+    """What a plugin's tree records about the documentation it was built from.
+
+    Read from the stored provenance rather than from session memory, so the answer
+    survives the session and can be checked by anything holding the tree.
+
+    Attributes:
+        recorded: whether a provenance record exists at all. ``False`` means
+            nothing is known -- which is not the same as "no documentation", since a
+            plugin that calls no external API needs none.
+        document_count: how many documents were stored.
+        without_reference: whether implementation deliberately proceeded with no
+            documentation (Req 28.13).
+        detail: the reason recorded when proceeding without documentation.
+    """
+
+    recorded: bool = False
+    document_count: int = 0
+    without_reference: bool = False
+    detail: str = ""
+
+    @property
+    def has_material(self) -> bool:
+        """Return ``True`` iff documentation was stored for this plugin."""
+        return self.document_count > 0
+
+
+def read_reference_state(project_dir: Union[str, Path]) -> ReferenceState:
+    """Read what ``project_dir`` records about its reference material.
+
+    Args:
+        project_dir: the plugin working tree.
+
+    Returns:
+        A :class:`ReferenceState`. ``recorded`` is ``False`` when there is no
+        record, which is deliberately distinct from a record saying there was no
+        documentation.
+    """
+    path = Path(project_dir) / ".builder" / REFERENCE_DIR / PROVENANCE_NAME
+    if not path.is_file():
+        return ReferenceState()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ReferenceState()
+    if not isinstance(payload, dict):
+        return ReferenceState()
+    documents = payload.get("documents")
+    return ReferenceState(
+        recorded=True,
+        document_count=len(documents) if isinstance(documents, list) else 0,
+        without_reference=bool(payload.get("implemented_without_reference")),
+        detail=str(payload.get("detail") or ""),
+    )
+
+
+def record_no_reference(project_dir: Union[str, Path], *, detail: str = "") -> bool:
+    """Record that implementation proceeded with no reference material (Req 28.13).
+
+    Written into the tree rather than held in the session so the gap outlives the
+    conversation: a plugin built on guessed endpoints should still say so when it is
+    reopened tomorrow.
+
+    Args:
+        project_dir: the plugin working tree.
+        detail: why it proceeded without documentation.
+
+    Returns:
+        ``True`` when the record was written.
+    """
+    directory = Path(project_dir) / ".builder" / REFERENCE_DIR
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / PROVENANCE_NAME).write_text(
+            json.dumps(
+                {
+                    "documents": [],
+                    "failures": [],
+                    "implemented_without_reference": True,
+                    "detail": detail,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as error:
+        logger.warning("could not record the absence of reference material: %s", error)
+        return False
+    return True
 
 
 def store_reference_set(
