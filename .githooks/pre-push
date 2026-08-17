@@ -1,0 +1,31 @@
+#!/bin/sh
+# Refuse a push whose destination on the remote is a protected branch.
+#
+# Checks the REMOTE ref rather than the local branch, so `git push origin
+# feature:main` is caught too. Like the pre-commit hook this is a guardrail:
+# `--no-verify` bypasses it.
+
+protected="main master"
+
+# git feeds pre-push one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    case "$remote_ref" in
+        refs/heads/*) branch=${remote_ref#refs/heads/} ;;
+        *) continue ;;
+    esac
+
+    for candidate in $protected; do
+        if [ "$branch" = "$candidate" ]; then
+            echo "pre-push: refusing to push to '$branch' on the remote." >&2
+            echo "" >&2
+            echo "  Push your branch and open a pull request instead:" >&2
+            echo "    git push -u origin \$(git rev-parse --abbrev-ref HEAD)" >&2
+            echo "    gh pr create --base main" >&2
+            echo "" >&2
+            echo "  Genuinely need to push '$branch'?  git push --no-verify" >&2
+            exit 1
+        fi
+    done
+done
+
+exit 0
