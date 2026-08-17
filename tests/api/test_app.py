@@ -59,6 +59,30 @@ class FakeCodeValidator:
         return PipelineReport(project_dir=project, stages=stages, docker_available=True)
 
 
+class FakeBlockingCodeValidator:
+    """A code validator whose ``lint`` and ``test`` stages always fail.
+
+    Mirrors the real blocked-gate case: the pipeline runs to completion but two
+    stages exit non-zero, so the export gate refuses to build.
+    """
+
+    async def run_pipeline(self, project, *, image_tag=None):
+        failed = {StageName.LINT, StageName.TEST}
+        stages = tuple(
+            StageResult(
+                name=name,
+                status=StageStatus.FAILED if name in failed else StageStatus.PASSED,
+                returncode=1 if name in failed else 0,
+                stdout="",
+                stderr="",
+                duration_seconds=0.0,
+                message=f"{name} failed" if name in failed else "",
+            )
+            for name in StageName.ORDER
+        )
+        return PipelineReport(project_dir=project, stages=stages, docker_available=True)
+
+
 def _make_spec(name="my_plugin", vendor="acme"):
     return PluginSpec(
         name=name,
@@ -153,12 +177,12 @@ class TestSessionRoutes:
 
 
 class TestExportRoutes:
-    def _client(self, tmp_path):
+    def _client(self, tmp_path, code_validator=None):
         _create_project(tmp_path, name="my_plugin", vendor="acme")
         registry = PluginRegistry(str(tmp_path / "registry.db"))
         orch = Orchestrator(
             projects_root=tmp_path,
-            code_validator=FakeCodeValidator(),
+            code_validator=code_validator or FakeCodeValidator(),
             registry=registry,
             audit_log=AuditLog(tmp_path / "audit.log"),
         )
@@ -221,6 +245,42 @@ class TestExportRoutes:
         outcome = client.post("/api/session/s1/export/confirm", json={"confirmed": False}).json()
         assert outcome["status"] == "aborted"
         assert registry.exports("my_plugin") == []
+
+    def test_blocked_gate_refuses_to_export(self, tmp_path):
+        # A failing stage must block the export and name the reason, without
+        # producing an artifact (Req 7.4, 8.6).
+        client, registry = self._client(tmp_path, code_validator=FakeBlockingCodeValidator())
+        plan = client.post("/api/session/s1/export/prepare").json()
+        assert plan["permitted"] is False
+        assert set(plan["failed_stages"]) == {"lint", "test"}
+
+        out_dir = tmp_path / "out"
+        confirm = client.post(
+            "/api/session/s1/export/confirm",
+            json={"confirmed": True, "target": "local", "output_dir": str(out_dir)},
+        )
+        assert confirm.status_code == 200
+        outcome = confirm.json()
+        assert outcome["status"] == "blocked"
+        assert outcome["artifact_path"] is None
+        assert registry.exports("my_plugin") == []
+
+    def test_force_overrides_a_blocked_gate(self, tmp_path):
+        # The force flag is the documented override for a blocked gate. It used to
+        # raise FrozenInstanceError and surface as an unhandled 500, so the whole
+        # escape hatch was unreachable; keep it exercised.
+        client, _ = self._client(tmp_path, code_validator=FakeBlockingCodeValidator())
+        assert client.post("/api/session/s1/export/prepare").json()["permitted"] is False
+
+        out_dir = tmp_path / "out"
+        confirm = client.post(
+            "/api/session/s1/export/confirm",
+            json={"confirmed": True, "target": "local", "output_dir": str(out_dir), "force": True},
+        )
+        assert confirm.status_code == 200, confirm.text
+        outcome = confirm.json()
+        assert outcome["status"] == "succeeded", outcome
+        assert outcome["artifact_path"]
 
 
 # --- WebSocket -------------------------------------------------------------

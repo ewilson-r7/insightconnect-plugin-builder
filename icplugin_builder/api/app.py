@@ -453,7 +453,11 @@ def create_app(
             )
         # Allow force-export to bypass the validation gate.
         if body.force:
-            plan._force = True
+            # ExportPlan is a frozen dataclass, so a plain attribute assignment
+            # raises FrozenInstanceError. object.__setattr__ is the supported
+            # way to set the override that confirm_export reads back with
+            # getattr(plan, "_force", False).
+            object.__setattr__(plan, "_force", True)
         credentials = None
         if body.target == "tenant":
             if not body.region_base_url or not body.api_key:
