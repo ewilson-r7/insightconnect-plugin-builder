@@ -877,7 +877,19 @@ def main() -> None:
 
     config = load_config(_default_config_path())
 
-    app = create_app_from_config(config, static_dir=_default_ui_dir())
+    ui_dir = _default_ui_dir()
+    if ui_dir is None:
+        # Without a built UI the API still runs, but "/" returns a bare 404 and
+        # the printed URL looks broken. Say so, and name the fix.
+        print(
+            "icplugin-builder: no built UI found, so the web interface will not be served.\n"
+            "                  The API is still available under /api.\n"
+            "                  Build it with:  cd frontend && npm run build\n"
+            "                  Or point $ICPLUGIN_BUILDER_UI_DIR at an existing bundle.",
+            flush=True,
+        )
+
+    app = create_app_from_config(config, static_dir=ui_dir)
     uvicorn.run(app, host=config.network.bind_address, port=config.network.port)
 
 
