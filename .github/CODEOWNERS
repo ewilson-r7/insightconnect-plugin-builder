@@ -1,0 +1,26 @@
+# Code owners for this repository.
+#
+# Until branch protection or a ruleset is enabled, GitHub uses this file only to
+# auto-request review -- it does not enforce anything. Branch protection and
+# rulesets both require GitHub Pro on a private repository, or a public repo, or
+# an organization. Once one of those is in place, add "Require review from Code
+# Owners" and this file starts gating merges.
+
+# Default owner for everything.
+*                       @ewilson-r7
+
+# The specification and the binding steering rules. Changes here alter what the
+# tool is required to do, or the discipline the code is held to, so they deserve
+# a deliberate second look rather than riding along with an implementation diff.
+/.kiro/specs/           @ewilson-r7
+/.kiro/steering/        @ewilson-r7
+
+# Credential handling and subprocess environment isolation. This tool decrypts
+# tenant API keys in memory and hands a default-deny environment to a
+# shell-capable agent; both are easy to weaken by accident.
+/icplugin_builder/persistence/credential_store.py   @ewilson-r7
+/icplugin_builder/integrations/env_guard.py         @ewilson-r7
+
+# CI, dependency automation and repository governance.
+/.github/               @ewilson-r7
+/.githooks/             @ewilson-r7
