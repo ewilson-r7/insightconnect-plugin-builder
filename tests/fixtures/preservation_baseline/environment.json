@@ -1,0 +1,57 @@
+{
+  "axis": "environment",
+  "description": "Which tools and trees the preservation baselines probe for. The compared payload is the probe's shape; the values, versions and absences live in every fixture's provenance block, because those are properties of the host rather than of the tool.",
+  "measured": {
+    "absent": [],
+    "complete_host": true,
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "observed": {
+    "probed_tools": [
+      "black",
+      "docker",
+      "flake8",
+      "insight-plugin",
+      "prospector"
+    ],
+    "probed_trees": [
+      "abuseipdb",
+      "jumpcloud",
+      "rapid7_velociraptor"
+    ]
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.6"
+  ]
+}

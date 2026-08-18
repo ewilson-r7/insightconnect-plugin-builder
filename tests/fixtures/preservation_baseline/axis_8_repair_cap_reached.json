@@ -1,0 +1,74 @@
+{
+  "axis": "axis_8_repair_cap_reached",
+  "description": "A loop making progress every round against a two-round cap. F stops at the cap, reports CAP_REACHED, names the cap figure in its summary, and clean is false. Hitting the cap is reported as hitting the cap.",
+  "measured": {},
+  "observed": {
+    "clean": false,
+    "fix_rounds": 2,
+    "max_rounds": 2,
+    "remaining_count": 2,
+    "round_count": 3,
+    "rounds": [
+      {
+        "finding_count": 2,
+        "introduced": [
+          "prospector:icon_example/util/api.py:10:finding-0",
+          "prospector:icon_example/util/api.py:20:carried-over"
+        ],
+        "made_progress": false,
+        "number": 1,
+        "resolved": []
+      },
+      {
+        "finding_count": 1,
+        "introduced": [
+          "prospector:icon_example/util/api.py:10:finding-1"
+        ],
+        "made_progress": true,
+        "number": 2,
+        "resolved": [
+          "prospector:icon_example/util/api.py:10:finding-0",
+          "prospector:icon_example/util/api.py:20:carried-over"
+        ]
+      },
+      {
+        "finding_count": 2,
+        "introduced": [
+          "prospector:icon_example/util/api.py:10:finding-2"
+        ],
+        "made_progress": true,
+        "number": 3,
+        "resolved": [
+          "prospector:icon_example/util/api.py:10:finding-1"
+        ]
+      }
+    ],
+    "status": "cap_reached",
+    "status_succeeded": false,
+    "summary_claims_success": false,
+    "summary_names_the_cap": true
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:49:00+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.8"
+  ]
+}

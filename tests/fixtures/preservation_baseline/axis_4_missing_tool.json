@@ -1,0 +1,54 @@
+{
+  "axis": "axis_4_missing_tool",
+  "description": "The sound tree checked with prospector off PATH. F records a skip, produces no prospector findings, renders as the empty string, and reports lint_clean unverified -- never met. A missing linter must not read as a clean lint (Req 26.4, 27.5).",
+  "measured": {
+    "note": "black is deliberately left resolvable on the sanitised PATH so this axis is about the linter alone; if black were absent too the format condition would also read unverified"
+  },
+  "observed": {
+    "clean": true,
+    "conditions": {
+      "actions_use_api_client": "unverified",
+      "api_client": "met",
+      "code_parses": "met",
+      "connection_implemented": "met",
+      "coverage_threshold": "unverified",
+      "dependency_manifest": "met",
+      "formatted": "met",
+      "lint_clean": "unverified",
+      "reference_material": "unverified",
+      "spec_complete": "unverified",
+      "toolchain_validate": "unverified",
+      "unit_tests_pass": "unverified"
+    },
+    "lint_clean_status": "unverified",
+    "prospector_finding_count": 0,
+    "render_is_empty": true,
+    "skipped": [
+      "prospector (prospector not available)",
+      "tests (not run: the caller disabled them)"
+    ]
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.6"
+  ]
+}

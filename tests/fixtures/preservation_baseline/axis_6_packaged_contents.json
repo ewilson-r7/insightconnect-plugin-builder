@@ -1,0 +1,81 @@
+{
+  "axis": "axis_6_packaged_contents",
+  "description": "A copy of the recorded JumpCloud tree, packaged, with the archive's own members read back. The compared payload is the plugin files -- .builder/ and every reference document absent, every file the plugin needs present. The two .coverage byproducts are recorded separately because change 8 removes them by design.",
+  "measured": {
+    "bugfix_md_member_count": 39,
+    "byproducts_packaged_today": [
+      ".coverage",
+      "unit_test/.coverage"
+    ],
+    "listed_by_list_plugin_files": 39,
+    "note": "task 1.9's correction: bugfix.md's 39 already counted the two .coverage files, so 3.2's '39-entry baseline less the byproducts' is 37. Task 1.9 also found the byproduct surface is wider than .coverage -- build/lib/**, *.egg-info/**, the Makefile's tarball output and a bare .pyc all reach the .plg today -- and its BYPRODUCT_CASES table enumerates the full partition",
+    "total_members_today": 39
+  },
+  "observed": {
+    "builder_metadata_members": [],
+    "plugin_file_count": 37,
+    "plugin_files": [
+      ".CHECKSUM",
+      ".dockerignore",
+      "Dockerfile",
+      "Makefile",
+      "bin/icon_jumpcloud",
+      "extension.png",
+      "help.md",
+      "icon.png",
+      "icon_jumpcloud/__init__.py",
+      "icon_jumpcloud/actions/__init__.py",
+      "icon_jumpcloud/actions/add_user_to_group/__init__.py",
+      "icon_jumpcloud/actions/add_user_to_group/action.py",
+      "icon_jumpcloud/actions/add_user_to_group/schema.py",
+      "icon_jumpcloud/actions/create_user/__init__.py",
+      "icon_jumpcloud/actions/create_user/action.py",
+      "icon_jumpcloud/actions/create_user/schema.py",
+      "icon_jumpcloud/actions/suspend_user/__init__.py",
+      "icon_jumpcloud/actions/suspend_user/action.py",
+      "icon_jumpcloud/actions/suspend_user/schema.py",
+      "icon_jumpcloud/connection/__init__.py",
+      "icon_jumpcloud/connection/connection.py",
+      "icon_jumpcloud/connection/schema.py",
+      "icon_jumpcloud/tasks/__init__.py",
+      "icon_jumpcloud/triggers/__init__.py",
+      "icon_jumpcloud/util/__init__.py",
+      "icon_jumpcloud/util/api.py",
+      "icon_jumpcloud/util/constants.py",
+      "plugin.spec.yaml",
+      "requirements.txt",
+      "setup.py",
+      "unit_test/__init__.py",
+      "unit_test/test_add_user_to_group.py",
+      "unit_test/test_api_client.py",
+      "unit_test/test_connection.py",
+      "unit_test/test_create_user.py",
+      "unit_test/test_suspend_user.py",
+      "unit_test/util.py"
+    ]
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.2",
+    "3.10"
+  ]
+}

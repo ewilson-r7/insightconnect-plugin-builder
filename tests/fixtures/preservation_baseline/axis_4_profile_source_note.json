@@ -1,0 +1,38 @@
+{
+  "axis": "axis_4_profile_source_note",
+  "description": "The same clean tree and the same profile content, declared fallback rather than repository. F appends a 'prospector profile (...)' skip note, which _was_skipped matches by prefix, so lint_clean reads unverified even though prospector ran and found nothing. Recorded as an observation of F that bears on 2.8 and 26.4.",
+  "measured": {
+    "note": "the other axes pin the profile as repository-sourced precisely to keep this out of them; axis 4's unverified must mean 'the linter was absent' and nothing else"
+  },
+  "observed": {
+    "lint_clean_status": "unverified",
+    "prospector_finding_count": 0,
+    "skipped": [
+      "prospector profile (pinned by the preservation baseline (spec task 2.1))",
+      "tests (not run: the caller disabled them)"
+    ]
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.6"
+  ]
+}

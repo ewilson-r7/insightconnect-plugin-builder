@@ -1,0 +1,49 @@
+{
+  "axis": "axis_7_forced_export",
+  "description": "A blocked gate with `force` set on the plan, exported locally. F completes the export and writes one successful registry export row. It records a *build* audit event and no *export* one -- see test_no_export_audit_entry_is_written_on_the_local_path, which records that as a gap between bugfix.md 3.11's wording and what F does.",
+  "measured": {
+    "block_reason_count": 1,
+    "note": "the block reason count is recorded, not asserted: change 9 adds failed_stages detail to the blocked payload (2.16), and the gate here is blocked for the weaker reason that no pipeline ran at all"
+  },
+  "observed": {
+    "artifact_produced": true,
+    "audit_events": [
+      "build"
+    ],
+    "audit_has_build": true,
+    "audit_has_export": false,
+    "gate_permitted_before_force": false,
+    "outcome_status": "succeeded",
+    "registry_export_count": 1,
+    "registry_export_results": [
+      "success"
+    ],
+    "registry_export_targets": [
+      "local"
+    ]
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:49:00+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.11",
+    "3.12"
+  ]
+}

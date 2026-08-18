@@ -1,0 +1,59 @@
+{
+  "axis": "axis_9_delegation_isolation",
+  "description": "One PluginAgent.implement run against a stand-in binary that records what it was given. F delivers the prompt on stdin and never on argv, hands the child only variables the env_guard allowlist admits, and names the trusted tools explicitly rather than trusting everything. Unchanged by this bugfix; asserted because change 9 edits the same seam.",
+  "measured": {
+    "child_variable_count": 12,
+    "note": "the number of variables the child saw is a property of the operator's shell, not of the tool, so it is recorded and not asserted; what is asserted is that every one of them is admitted by BASE_NAMES, BASE_PREFIXES or KIRO_ALLOW_PREFIXES, or is one the platform injects into any child regardless of the environment it was handed (measured on this host as the control run with env={})",
+    "platform_injected_names": [
+      "LC_CTYPE",
+      "__CF_USER_TEXT_ENCODING"
+    ]
+  },
+  "observed": {
+    "agent_name": "icplugin-builder",
+    "allowlisted_marker_reached_the_child": true,
+    "argv_tail": [
+      "chat",
+      "--no-interactive",
+      "--agent",
+      "icplugin-builder",
+      "--trust-tools=read,write,shell,grep,glob"
+    ],
+    "every_variable_admitted_by_policy": true,
+    "prompt_in_argv": false,
+    "prompt_on_stdin": true,
+    "secrets_reaching_the_child": [],
+    "trust_all_tools_present": false,
+    "trusted_tools": [
+      "read",
+      "write",
+      "shell",
+      "grep",
+      "glob"
+    ],
+    "unexplained_variables": []
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:49:00+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.9"
+  ]
+}

@@ -1,0 +1,2950 @@
+{
+  "axis": "property_75_axis_table",
+  "description": "Property 75's verdict table. One row per admissible axis point -- tool presence x defect placement x spec completeness x test outcome, 36 in all -- carrying the quality-gate finding identities, the twelve definition-of-done statuses, the completeness findings and the packaged member set F produces for it; plus one row per four-stage verdict tuple carrying the export decision F reaches. Trees satisfying any of the three bug conditions are outside Property 75 and are not in this table: every tree here falsifies isBugCondition_1 by not excluding unit_test/ from its .dockerignore, falsifies isBugCondition_2 by having no finding at all or at least one hand-written finding, and falsifies isBugCondition_3 vacuously by being a tree rather than a delegated session.",
+  "measured": {
+    "bug_condition_evidence": {
+      "prospector_absent|generated_and_hand_written|complete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|generated_and_hand_written|complete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|generated_and_hand_written|complete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|generated_and_hand_written|incomplete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|generated_and_hand_written|incomplete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|generated_and_hand_written|incomplete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|hand_written|complete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|hand_written|complete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|hand_written|complete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|hand_written|incomplete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|hand_written|incomplete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|hand_written|incomplete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|no_defect|complete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|no_defect|complete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|no_defect|complete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": true,
+        "implementation_delegated": false
+      },
+      "prospector_absent|no_defect|incomplete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|no_defect|incomplete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_absent|no_defect|incomplete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": true,
+        "implementation_delegated": false
+      },
+      "prospector_present|generated_and_hand_written|complete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|generated_and_hand_written|complete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|generated_and_hand_written|complete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|generated_and_hand_written|incomplete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|generated_and_hand_written|incomplete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|generated_and_hand_written|incomplete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F401",
+            "path": "icon_example/__init__.py"
+          },
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|hand_written|complete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|hand_written|complete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|hand_written|complete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|hand_written|incomplete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|hand_written|incomplete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|hand_written|incomplete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [
+          {
+            "code": "F821",
+            "path": "icon_example/util/api.py"
+          }
+        ],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|no_defect|complete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|no_defect|complete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|no_defect|complete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": true,
+        "implementation_delegated": false
+      },
+      "prospector_present|no_defect|incomplete|failing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|no_defect|incomplete|no_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": false,
+        "implementation_delegated": false
+      },
+      "prospector_present|no_defect|incomplete|passing_tests": {
+        "dockerignore_excludes_unit_tests": false,
+        "flake8_findings_all_generated": false,
+        "flake8_rows": [],
+        "host_unit_tests_pass": true,
+        "implementation_delegated": false
+      }
+    },
+    "flake8_resolved": "/Users/ewilson/Library/Python/3.9/bin/flake8",
+    "note": "recorded, not asserted. The flake8 codes are the evidence that each tree falsifies isBugCondition_2 under the linter the lint stage runs today; change 5 replaces that linter, so the codes are expected to stop being the tool's business while the falsification stays true of the trees. coverage reads unverified throughout because the resolved interpreter on the recording host has no pytest-cov",
+    "observation_seconds": 23.8
+  },
+  "observed": {
+    "export_decisions": {
+      "lint=0|build=0|test=0|validate=0": {
+        "block_reason_count": 4,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "build",
+          "test",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=0|test=0|validate=1": {
+        "block_reason_count": 3,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "build",
+          "test"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=0|test=1|validate=0": {
+        "block_reason_count": 3,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "build",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=0|test=1|validate=1": {
+        "block_reason_count": 2,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "build"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=1|test=0|validate=0": {
+        "block_reason_count": 3,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "test",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=1|test=0|validate=1": {
+        "block_reason_count": 2,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "test"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=1|test=1|validate=0": {
+        "block_reason_count": 2,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=0|build=1|test=1|validate=1": {
+        "block_reason_count": 1,
+        "code_passed": false,
+        "failed_stage_names": [
+          "lint"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=0|test=0|validate=0": {
+        "block_reason_count": 3,
+        "code_passed": false,
+        "failed_stage_names": [
+          "build",
+          "test",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=0|test=0|validate=1": {
+        "block_reason_count": 2,
+        "code_passed": false,
+        "failed_stage_names": [
+          "build",
+          "test"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=0|test=1|validate=0": {
+        "block_reason_count": 2,
+        "code_passed": false,
+        "failed_stage_names": [
+          "build",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=0|test=1|validate=1": {
+        "block_reason_count": 1,
+        "code_passed": false,
+        "failed_stage_names": [
+          "build"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=1|test=0|validate=0": {
+        "block_reason_count": 2,
+        "code_passed": false,
+        "failed_stage_names": [
+          "test",
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=1|test=0|validate=1": {
+        "block_reason_count": 1,
+        "code_passed": false,
+        "failed_stage_names": [
+          "test"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=1|test=1|validate=0": {
+        "block_reason_count": 1,
+        "code_passed": false,
+        "failed_stage_names": [
+          "validate"
+        ],
+        "permitted": false,
+        "spec_valid": true
+      },
+      "lint=1|build=1|test=1|validate=1": {
+        "block_reason_count": 0,
+        "code_passed": true,
+        "failed_stage_names": [],
+        "permitted": true,
+        "spec_valid": true
+      }
+    },
+    "trees": {
+      "prospector_absent|generated_and_hand_written|complete|failing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|generated_and_hand_written|complete|no_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)"
+        ]
+      },
+      "prospector_absent|generated_and_hand_written|complete|passing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|generated_and_hand_written|incomplete|failing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|generated_and_hand_written|incomplete|no_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)"
+        ]
+      },
+      "prospector_absent|generated_and_hand_written|incomplete|passing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|hand_written|complete|failing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|hand_written|complete|no_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)"
+        ]
+      },
+      "prospector_absent|hand_written|complete|passing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|hand_written|incomplete|failing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|hand_written|incomplete|no_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)"
+        ]
+      },
+      "prospector_absent|hand_written|incomplete|passing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|no_defect|complete|failing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|no_defect|complete|no_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)"
+        ]
+      },
+      "prospector_absent|no_defect|complete|passing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "met"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": true,
+        "quality_finding_rows": [],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|no_defect|incomplete|failing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_absent|no_defect|incomplete|no_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "prospector (prospector not available)"
+        ]
+      },
+      "prospector_absent|no_defect|incomplete|passing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unverified",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "met"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": true,
+        "quality_finding_rows": [],
+        "quality_skipped": [
+          "prospector (prospector not available)",
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|generated_and_hand_written|complete|failing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|generated_and_hand_written|complete|no_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": []
+      },
+      "prospector_present|generated_and_hand_written|complete|passing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|generated_and_hand_written|incomplete|failing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|generated_and_hand_written|incomplete|no_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": []
+      },
+      "prospector_present|generated_and_hand_written|incomplete|passing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|hand_written|complete|failing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|hand_written|complete|no_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": []
+      },
+      "prospector_present|hand_written|complete|passing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|hand_written|incomplete|failing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|hand_written|incomplete|no_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": []
+      },
+      "prospector_present|hand_written|incomplete|passing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "unmet",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "lint_clean",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "undefined-variable",
+            "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+            "path": "icon_example/util/api.py",
+            "source": "prospector"
+          },
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|no_defect|complete|failing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "met",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|no_defect|complete|no_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "met",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "reference_material",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": []
+      },
+      "prospector_present|no_defect|complete|passing_tests": {
+        "completeness_is_complete": true,
+        "completeness_keys": [],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "met",
+          "reference_material": "unverified",
+          "spec_complete": "met",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "met"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "reference_material",
+          "toolchain_validate"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": true,
+        "quality_finding_rows": [],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|no_defect|incomplete|failing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "met",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "test-failed[TestSuspendUser::test_suspend_user]",
+            "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+            "path": "unit_test/test_suspend_user.py",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      },
+      "prospector_present|no_defect|incomplete|no_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "met",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "unmet"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate",
+          "unit_tests_pass"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py"
+        ],
+        "quality_clean": false,
+        "quality_finding_rows": [
+          {
+            "code": "no-tests",
+            "key": "tests:unit_test:-:no-tests",
+            "path": "unit_test",
+            "source": "tests"
+          }
+        ],
+        "quality_skipped": []
+      },
+      "prospector_present|no_defect|incomplete|passing_tests": {
+        "completeness_is_complete": false,
+        "completeness_keys": [
+          "missing_field:cloud_ready",
+          "missing_field:extension",
+          "missing_field:hub_tags",
+          "missing_field:key_features",
+          "missing_field:products",
+          "missing_field:requirements",
+          "missing_field:resources",
+          "missing_field:sdk",
+          "missing_field:status",
+          "missing_field:support",
+          "missing_field:supported_versions",
+          "missing_field:version_history",
+          "output_missing_example:actions.suspend_user.output.suspended"
+        ],
+        "conditions": {
+          "actions_use_api_client": "unverified",
+          "api_client": "met",
+          "code_parses": "met",
+          "connection_implemented": "met",
+          "coverage_threshold": "unverified",
+          "dependency_manifest": "met",
+          "formatted": "met",
+          "lint_clean": "met",
+          "reference_material": "unverified",
+          "spec_complete": "unmet",
+          "toolchain_validate": "unverified",
+          "unit_tests_pass": "met"
+        },
+        "coverage_was_measured": false,
+        "done_complete": false,
+        "outstanding_condition_names": [
+          "actions_use_api_client",
+          "coverage_threshold",
+          "reference_material",
+          "spec_complete",
+          "toolchain_validate"
+        ],
+        "packaged_byproducts": [],
+        "packaged_plugin_files": [
+          ".dockerignore",
+          "icon_example/__init__.py",
+          "icon_example/connection/__init__.py",
+          "icon_example/connection/connection.py",
+          "icon_example/util/__init__.py",
+          "icon_example/util/api.py",
+          "requirements.txt",
+          "unit_test/__init__.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_checked_files": [
+          "icon_example/connection/connection.py",
+          "icon_example/util/api.py",
+          "unit_test/test_suspend_user.py"
+        ],
+        "quality_clean": true,
+        "quality_finding_rows": [],
+        "quality_skipped": [
+          "coverage (pytest-cov not installed for the plugin interpreter)"
+        ]
+      }
+    }
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T14:00:34+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.1",
+    "3.2",
+    "3.3",
+    "3.4",
+    "3.5",
+    "3.6",
+    "3.7",
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "axis": "axis_8_repair_no_fixer",
+  "description": "Findings present and no fixer available. F checks once, reports NO_FIXER, and leaves the tree alone. Not a success, and not silent either.",
+  "measured": {},
+  "observed": {
+    "clean": false,
+    "fix_rounds": 0,
+    "max_rounds": 3,
+    "remaining_count": 1,
+    "round_count": 1,
+    "rounds": [
+      {
+        "finding_count": 1,
+        "introduced": [
+          "prospector:icon_example/util/api.py:10:undefined-variable"
+        ],
+        "made_progress": false,
+        "number": 1,
+        "resolved": []
+      }
+    ],
+    "status": "no_fixer",
+    "status_succeeded": false,
+    "summary_claims_success": false,
+    "summary_names_the_cap": false
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:49:00+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.8"
+  ]
+}

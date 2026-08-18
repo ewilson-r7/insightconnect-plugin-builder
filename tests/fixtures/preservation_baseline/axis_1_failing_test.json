@@ -1,0 +1,67 @@
+{
+  "axis": "axis_1_failing_test",
+  "description": "A tree whose test_suspend_user genuinely fails. F fails the test stage and reports the failure as a Quality_Gate finding whose key names the test; unit_tests_pass is unmet and export is not permitted. Stage messages are excluded from the comparison because the recorded exception is about exactly that text.",
+  "measured": {
+    "docker_available": true,
+    "note": "returncode and message are recorded, not asserted: change 7 replaces the in-image docker run with a host run, so both are expected to change while the verdict does not",
+    "test_stage_message": "test stage failed with exit code 125",
+    "test_stage_returncode": 125
+  },
+  "observed": {
+    "conditions": {
+      "actions_use_api_client": "unverified",
+      "api_client": "met",
+      "code_parses": "met",
+      "connection_implemented": "met",
+      "coverage_threshold": "unverified",
+      "dependency_manifest": "met",
+      "formatted": "met",
+      "lint_clean": "met",
+      "reference_material": "unverified",
+      "spec_complete": "unverified",
+      "toolchain_validate": "unverified",
+      "unit_tests_pass": "unmet"
+    },
+    "export_permitted": false,
+    "quality_finding_rows": [
+      {
+        "code": "test-failed[TestSuspendUser::test_suspend_user]",
+        "key": "tests:unit_test/test_suspend_user.py:10:test-failed[TestSuspendUser::test_suspend_user]",
+        "path": "unit_test/test_suspend_user.py",
+        "source": "tests"
+      }
+    ],
+    "stage_statuses": {
+      "build": "failed",
+      "lint": "passed",
+      "test": "failed",
+      "validate": "failed"
+    },
+    "test_source_finding_count": 1
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.1",
+    "3.5",
+    "3.7"
+  ]
+}

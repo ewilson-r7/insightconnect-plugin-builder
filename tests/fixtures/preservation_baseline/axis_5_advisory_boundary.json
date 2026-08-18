@@ -1,0 +1,67 @@
+{
+  "axis": "axis_5_advisory_boundary",
+  "description": "Four stages cleared and a valid spec, over a tree with outstanding definition-of-done conditions. F permits the export and presents the conditions beside it. The gate consults the four stages and nothing else (Req 27.6, 27.7; design Property 17).",
+  "measured": {
+    "iterate_custom_outstanding_count_from_task_1_6": 2,
+    "iterate_custom_outstanding_names_from_task_1_6": [
+      "api_client",
+      "formatted"
+    ],
+    "note": "task 1.6 measured the JumpCloud iterate_custom control at exactly two outstanding conditions, formatted and api_client. Recorded here from that task rather than re-measured, and recorded as a measurement of F rather than as an invariant: both close when changes 3 and 5 land, so asserting the figure would make tasks 5.5 and 7.5 fail for the right reason at the wrong place"
+  },
+  "observed": {
+    "block_reason_count": 0,
+    "code_passed": true,
+    "conditions": {
+      "actions_use_api_client": "unverified",
+      "api_client": "met",
+      "code_parses": "unverified",
+      "connection_implemented": "met",
+      "coverage_threshold": "unverified",
+      "dependency_manifest": "met",
+      "formatted": "unverified",
+      "lint_clean": "unverified",
+      "reference_material": "unverified",
+      "spec_complete": "unverified",
+      "toolchain_validate": "met",
+      "unit_tests_pass": "unverified"
+    },
+    "done_complete": false,
+    "failed_stage_names": [],
+    "outstanding_condition_names": [
+      "actions_use_api_client",
+      "code_parses",
+      "coverage_threshold",
+      "formatted",
+      "lint_clean",
+      "reference_material",
+      "spec_complete",
+      "unit_tests_pass"
+    ],
+    "permitted": true,
+    "spec_valid": true
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.5"
+  ]
+}

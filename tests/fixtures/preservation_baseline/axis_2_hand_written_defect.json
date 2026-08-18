@@ -1,0 +1,64 @@
+{
+  "axis": "axis_2_hand_written_defect",
+  "description": "A hand-written util/api.py that uses `requests` and never imports it. F reports one prospector undefined-variable finding, located in the hand-written file, and lint_clean is unmet. The exclusion of generated files must not remove this finding.",
+  "measured": {
+    "note": "the profile is pinned to the vendored fallback, so this finding set does not vary with the developer's home directory (task 1.4's correction to bugfix.md 1.6)"
+  },
+  "observed": {
+    "checked_files": [
+      "icon_example/connection/connection.py",
+      "icon_example/util/api.py"
+    ],
+    "conditions": {
+      "actions_use_api_client": "unverified",
+      "api_client": "met",
+      "code_parses": "met",
+      "connection_implemented": "met",
+      "coverage_threshold": "unverified",
+      "dependency_manifest": "met",
+      "formatted": "met",
+      "lint_clean": "unmet",
+      "reference_material": "unverified",
+      "spec_complete": "unverified",
+      "toolchain_validate": "unverified",
+      "unit_tests_pass": "unverified"
+    },
+    "finding_rows": [
+      {
+        "code": "undefined-variable",
+        "key": "prospector:icon_example/util/api.py:15:undefined-variable",
+        "path": "icon_example/util/api.py",
+        "source": "prospector"
+      }
+    ],
+    "lint_clean_status": "unmet",
+    "skipped": [
+      "tests (not run: the caller disabled them)"
+    ]
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.1",
+    "3.3",
+    "3.7"
+  ]
+}

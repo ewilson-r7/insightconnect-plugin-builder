@@ -1,0 +1,115 @@
+{
+  "axis": "axis_3_incomplete_spec",
+  "description": "A spec missing the sdk block and missing an example on its one output. F reports these completeness findings; after change 2 the preview reads the same spec from disk and must report the same set. Messages are excluded; the stable keys are the identity.",
+  "measured": {},
+  "observed": {
+    "error_count": 13,
+    "is_complete": false,
+    "keys": [
+      "missing_field:cloud_ready",
+      "missing_field:extension",
+      "missing_field:hub_tags",
+      "missing_field:key_features",
+      "missing_field:products",
+      "missing_field:requirements",
+      "missing_field:resources",
+      "missing_field:sdk",
+      "missing_field:status",
+      "missing_field:support",
+      "missing_field:supported_versions",
+      "missing_field:version_history",
+      "output_missing_example:actions.suspend_user.output.suspended"
+    ],
+    "rows": [
+      {
+        "code": "output_missing_example",
+        "path": "actions.suspend_user.output.suspended",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "cloud_ready",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "extension",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "hub_tags",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "key_features",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "products",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "requirements",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "resources",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "sdk",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "status",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "support",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "supported_versions",
+        "severity": "error"
+      },
+      {
+        "code": "missing_field",
+        "path": "version_history",
+        "severity": "error"
+      }
+    ],
+    "warning_count": 0
+  },
+  "provenance": {
+    "absent": [],
+    "complete_host": true,
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.3",
+    "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
+    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "tools": {
+      "black": "black, 25.11.0 (compiled: yes)",
+      "docker": "Docker version 29.7.2, build a7dcaa6",
+      "flake8": "7.2.0 (mccabe: 0.7.0, pep8-naming: 0.10.0, pycodestyle: 2.13.0, pyflakes:",
+      "insight-plugin": "1.9.20",
+      "prospector": "prospector 1.14.1"
+    },
+    "trees": {
+      "abuseipdb": true,
+      "jumpcloud": true,
+      "rapid7_velociraptor": true
+    }
+  },
+  "requirements": [
+    "3.1"
+  ]
+}
