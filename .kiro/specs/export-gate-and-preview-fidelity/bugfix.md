@@ -93,6 +93,22 @@ JumpCloud-specific: generated `setup.py` also fails `black` in the pre-existing
 forbids editing `schema.py`, `setup.py`, and `__init__.py`, so the failure is
 real, accurately located, and unfixable by its audience.
 
+> **Correction, established by task 7.2's re-measurement.** The second sentence is
+> wrong, and the instrument is why: the five files were measured with **bare
+> `black` at its own 88-column default**, while the tool formats at 120. At 120 no
+> generated file is unformatted in any of the three trees -- so the five files are a
+> measurement of the bar rather than of the plugins, and task 1.3's own tests record
+> that. What *is* unformatted at 120 in the JumpCloud tree is two **hand-written**
+> files, `icon_jumpcloud/connection/connection.py` and
+> `unit_test/test_api_client.py`, which the report could not name because
+> `_check_format` passed `--quiet` and then parsed the very lines `--quiet`
+> suppresses. Both were confirmed with bare `black --line-length 120` outside the
+> tool.
+>
+> The consequence for 2.7: `lint_clean` is met for that tree after change 5, and
+> `formatted` is **correctly unmet**, now naming two files its author may fix. The
+> defect 1.5 describes was the attribution, not the verdict.
+
 1.6 WHEN the `lint` result is produced, THEN it depends on whether
 `~/Documents/GitHub/insightconnect-plugins/prospector.yaml` exists on the host,
 because `build_prep.resolve_lint_profile` prefers that clone over the vendored

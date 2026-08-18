@@ -299,7 +299,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/core/test_plugin_files.py`
     - _Requirements: 2.6_
 
-- [ ] 7. Change 5 — lint and format judge hand-written code, and state the bar
+- [x] 7. Change 5 — lint and format judge hand-written code, and state the bar
   - **Depends on task 1.2 and 1.3**: those measurements decide how much of this task is required
   - **SCOPE-13**: same collision point and same integrate-before-finalizing condition as task 6
   - **Files**: `integrations/code_validator.py`, `integrations/quality_gate.py`, `integrations/build_prep.py`, `api/app.py`
@@ -336,14 +336,14 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/integrations/test_quality_gate.py`
     - _Requirements: 2.8, 2.9_
 
-  - [ ] 7.5 Verify the Bug 2 exploration tests now pass
+  - [x] 7.5 Verify the Bug 2 exploration tests now pass
     - **Property 1: Expected Behavior** — Generated Files Raise Nothing, And The Bar Is Stated
     - **IMPORTANT**: Re-run the SAME tests from tasks 1.2, 1.3, 1.5 — do NOT write new ones
     - **EXPECTED OUTCOME**: Tests PASS — `lint` stage passed, `formatted` and `lint_clean` met, profile source and line length reported
     - Re-run task 2's preservation tests: the hand-written `undefined-variable` case is still reported with the same key, and prospector-absent still reads unverified rather than clean
     - _Requirements: 2.6, 2.7, 2.8, 2.9_
 
-  - [ ] 7.6 Property test: lint and format judge hand-written code, and state the bar
+  - [x] 7.6 Property test: lint and format judge hand-written code, and state the bar
     - **Property 68** — every lint and format finding refers to a hand-written file; the excluded set is computed by a single definition shared by the `Quality_Gate`, the `lint` stage, and the packaging exclusion; a tree whose only defects lie in generated files reports `lint` passed and `formatted`/`lint_clean` met; a genuine hand-written defect is still reported; every result names the profile applied, its source, and the line length
     - Generate trees mixing generated and hand-written defects
     - `tests/integrations/test_quality_gate_hand_written_property.py`
