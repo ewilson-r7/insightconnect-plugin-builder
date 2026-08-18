@@ -116,6 +116,7 @@ from icplugin_builder.integrations.definition_of_done import (
     evaluate_done,
 )
 from icplugin_builder.core.plugin_files import (
+    package_dir,
     PACKAGING_EXCLUDED_DIR_NAMES,
     GENERATED_FILE_NAMES,
     hand_written_python,
@@ -129,7 +130,6 @@ from icplugin_builder.integrations.quality_gate import (
     CodeFinding,
     QualityGate,
     QualityReport,
-    package_dir,
 )
 from icplugin_builder.orchestrator.session import ExportPlan
 

@@ -212,3 +212,94 @@ class TestResolveLintProfile:
 
     def test_the_plugin_line_length_matches_the_repository(self):
         assert bp.PLUGIN_LINE_LENGTH == 120
+
+
+class TestResolveTestInterpreter:
+    """An interpreter that can run a plugin's tests must import the SDK *and* pytest.
+
+    The conjunction is why this exists rather than ``resolve_target_python`` being
+    enough. On the host that motivated it the two were split -- the SDK in
+    ``/Library/Developer/CommandLineTools/usr/bin/python3`` (3.9) with no pytest,
+    the project virtualenv with pytest and no SDK -- so neither could run a plugin's
+    tests, and a resolver returning the first plausible candidate without probing
+    reports that as the plugin's failure rather than the host's.
+    """
+
+    @staticmethod
+    def _interpreter(directory, name, *, importable):
+        """Write a stand-in interpreter that can import only ``importable``."""
+        script = directory / name
+        script.write_text(
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            + "".join(f"  *import\\ {module}*) exit 0 ;;\n" for module in importable)
+            + "  *import*) exit 1 ;;\n"
+            "esac\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        return str(script)
+
+    def test_a_candidate_with_both_imports_is_accepted(self, tmp_path):
+        both = self._interpreter(tmp_path, "python-both", importable=(bp.SDK_IMPORT_MODULE, bp.TEST_RUNNER_MODULE))
+        resolution = bp.resolve_test_interpreter(candidates=(both,))
+        assert resolution.resolved
+        assert resolution.executable == both
+        assert bp.SDK_IMPORT_MODULE in resolution.detail and bp.TEST_RUNNER_MODULE in resolution.detail
+
+    def test_the_first_qualifying_candidate_wins(self, tmp_path):
+        """Order is deliberate: the plugin's own environment is tried first."""
+        unusable = self._interpreter(tmp_path, "python-neither", importable=())
+        good = self._interpreter(tmp_path, "python-both", importable=(bp.SDK_IMPORT_MODULE, bp.TEST_RUNNER_MODULE))
+        also_good = self._interpreter(tmp_path, "python-also", importable=(bp.SDK_IMPORT_MODULE, bp.TEST_RUNNER_MODULE))
+        resolution = bp.resolve_test_interpreter(candidates=(unusable, good, also_good))
+        assert resolution.executable == good
+        assert [rejection.executable for rejection in resolution.rejections] == [unusable]
+
+    def test_a_candidate_missing_pytest_is_rejected_and_says_which(self, tmp_path):
+        sdk_only = self._interpreter(tmp_path, "python-sdk", importable=(bp.SDK_IMPORT_MODULE,))
+        resolution = bp.resolve_test_interpreter(candidates=(sdk_only,))
+        assert not resolution.resolved
+        assert resolution.rejections[0].missing == (bp.TEST_RUNNER_MODULE,)
+        assert bp.TEST_RUNNER_MODULE in resolution.detail
+
+    def test_a_candidate_missing_the_sdk_is_rejected_and_says_which(self, tmp_path):
+        pytest_only = self._interpreter(tmp_path, "python-pytest", importable=(bp.TEST_RUNNER_MODULE,))
+        resolution = bp.resolve_test_interpreter(candidates=(pytest_only,))
+        assert not resolution.resolved
+        assert resolution.rejections[0].missing == (bp.SDK_IMPORT_MODULE,)
+        assert bp.SDK_IMPORT_MODULE in resolution.detail
+
+    def test_the_split_host_is_reported_candidate_by_candidate(self, tmp_path):
+        """The case clause 2.3 exists for: each rejection names its own missing import."""
+        sdk_only = self._interpreter(tmp_path, "python-sdk", importable=(bp.SDK_IMPORT_MODULE,))
+        pytest_only = self._interpreter(tmp_path, "python-pytest", importable=(bp.TEST_RUNNER_MODULE,))
+        resolution = bp.resolve_test_interpreter(candidates=(sdk_only, pytest_only))
+
+        assert not resolution.resolved
+        missing = {rejection.executable: rejection.missing for rejection in resolution.rejections}
+        assert missing == {sdk_only: (bp.TEST_RUNNER_MODULE,), pytest_only: (bp.SDK_IMPORT_MODULE,)}
+        assert sdk_only in resolution.detail and pytest_only in resolution.detail
+
+    def test_a_candidate_missing_both_reports_both(self, tmp_path):
+        neither = self._interpreter(tmp_path, "python-neither", importable=())
+        resolution = bp.resolve_test_interpreter(candidates=(neither,))
+        assert resolution.rejections[0].missing == (bp.SDK_IMPORT_MODULE, bp.TEST_RUNNER_MODULE)
+
+    def test_no_candidates_at_all_is_reported_rather_than_crashing(self):
+        resolution = bp.resolve_test_interpreter(candidates=())
+        assert not resolution.resolved
+        assert "no Python interpreter" in resolution.detail
+
+    def test_pytest_is_never_installed_to_make_a_candidate_qualify(self, tmp_path):
+        """SCOPE-12, asserted rather than trusted: the probe only ever imports."""
+        recorder = tmp_path / "python-recorder"
+        log = tmp_path / "argv.log"
+        recorder.write_text(f'#!/bin/sh\necho "$@" >> {log}\nexit 1\n', encoding="utf-8")
+        recorder.chmod(0o755)
+        bp.resolve_test_interpreter(candidates=(str(recorder),))
+
+        recorded = log.read_text(encoding="utf-8")
+        assert "install" not in recorded, f"the resolver tried to install something: {recorded!r}"
+        assert "pip" not in recorded, f"the resolver invoked pip: {recorded!r}"

@@ -25,9 +25,10 @@ import asyncio
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 __all__ = [
     "DEFAULT_SDK_README",
@@ -49,6 +50,11 @@ __all__ = [
     "LINT_TOOLS",
     "PLUGIN_LINE_LENGTH",
     "LintProfile",
+    "SDK_IMPORT_MODULE",
+    "TEST_RUNNER_MODULE",
+    "InterpreterRejection",
+    "TestInterpreter",
+    "resolve_test_interpreter",
     "parse_sdk_changelog_version",
     "parse_pyenv_versions",
     "resolve_sdk_version",
@@ -76,6 +82,13 @@ TARGET_PYTHON_SERIES = "3.13"
 #: How a target interpreter was resolved.
 PYTHON_SOURCE_PYENV = "pyenv"
 PYTHON_SOURCE_FALLBACK = "path"
+
+#: The two modules a plugin's unit tests need importable in one interpreter. A
+#: plugin imports the SDK at module scope, so an interpreter carrying only
+#: ``pytest`` cannot even collect its tests; and one carrying only the SDK cannot
+#: run them. Neither alone is usable, which is why this is a conjunction.
+SDK_IMPORT_MODULE = "insightconnect_plugin_runtime"
+TEST_RUNNER_MODULE = "pytest"
 
 #: Where the plugins repository is conventionally cloned. Its ``prospector.yaml``
 #: is the authoritative lint profile: it is what the repository's own CI runs a
@@ -171,6 +184,146 @@ class TargetPython:
     def is_target_series(self) -> bool:
         """Return ``True`` iff this is a pyenv interpreter in the target series."""
         return self.source == PYTHON_SOURCE_PYENV
+
+
+@dataclass(frozen=True)
+class InterpreterRejection:
+    """One candidate interpreter that cannot run a plugin's tests, and why.
+
+    Attributes:
+        executable: the candidate that was probed.
+        missing: the modules it could not import, from
+            :data:`SDK_IMPORT_MODULE` and :data:`TEST_RUNNER_MODULE`. Naming
+            *which* is the point: "no interpreter can run the tests" sends an
+            operator looking in the wrong place, while "this one has the SDK and no
+            pytest, that one the reverse" names the fix.
+    """
+
+    executable: str
+    missing: Tuple[str, ...]
+
+    def __str__(self) -> str:
+        return f"{self.executable} (cannot import {', '.join(self.missing)})"
+
+
+@dataclass(frozen=True)
+class TestInterpreter:
+    """The interpreter a plugin's unit tests can actually be run under.
+
+    Attributes:
+        executable: the interpreter that can import both modules, or ``None`` when
+            no candidate could.
+        source: where it came from -- :data:`PYTHON_SOURCE_PYENV`,
+            :data:`PYTHON_SOURCE_FALLBACK`, or ``"explicit"`` for a caller-supplied
+            candidate list.
+        detail: how it was resolved, and for a failure, every candidate tried with
+            the imports it lacked.
+        rejections: the candidates that were probed and refused, in order.
+    """
+
+    executable: Optional[str]
+    source: Optional[str] = None
+    detail: str = ""
+    rejections: Tuple[InterpreterRejection, ...] = ()
+
+    @property
+    def resolved(self) -> bool:
+        """Return ``True`` iff an interpreter that can run the tests was found."""
+        return self.executable is not None
+
+
+def _missing_imports(
+    interpreter: str, modules: Sequence[str] = (SDK_IMPORT_MODULE, TEST_RUNNER_MODULE)
+) -> Tuple[str, ...]:
+    """Return the modules ``interpreter`` cannot import, in the order probed.
+
+    Every module is probed even after the first failure, because the report is
+    supposed to say which of the two is missing rather than only that something is.
+    """
+    missing = []
+    for module in modules:
+        if _capture([interpreter, "-c", f"import {module}"]) is None:
+            missing.append(module)
+    return tuple(missing)
+
+
+def resolve_test_interpreter(
+    candidates: Optional[Sequence[str]] = None,
+    series: str = TARGET_PYTHON_SERIES,
+) -> TestInterpreter:
+    """Resolve an interpreter that can run a generated plugin's unit tests.
+
+    Requires a single interpreter that can import **both** the InsightConnect SDK
+    and ``pytest``. That conjunction is the whole reason this exists rather than
+    :func:`resolve_target_python` being enough: on the host that motivated it the
+    two were split -- the SDK lived in
+    ``/Library/Developer/CommandLineTools/usr/bin/python3`` (3.9) with no pytest,
+    and the project's own virtualenv had pytest and no SDK. Neither can run a
+    plugin's tests, and a resolver that returns the first plausible interpreter
+    without probing reports that as the plugin's failure instead of the host's.
+
+    Candidates are tried in order of how likely they are to be the plugin's own
+    environment: the pyenv interpreter in the target series first, then this
+    process's own, then ``python3`` on ``PATH``.
+
+    Args:
+        candidates: an explicit candidate list, which overrides the default order.
+            Used by callers that already know where to look, and by tests.
+        series: the target version series for the pyenv candidate.
+
+    Returns:
+        A :class:`TestInterpreter`. When nothing qualifies, ``resolved`` is
+        ``False`` and ``detail`` names every candidate with the imports it lacked,
+        so the report can say why the tests could not run rather than that they
+        failed. **``pytest`` is never installed to make a candidate qualify**
+        (SCOPE-12): its absence is reported, not remedied.
+    """
+    if candidates is not None:
+        ordered = [str(candidate) for candidate in candidates]
+        source = "explicit"
+    else:
+        target = resolve_target_python(series)
+        ordered = [
+            candidate
+            for candidate in (
+                target.executable if target.is_target_series else None,
+                sys.executable,
+                shutil.which("python3"),
+            )
+            if candidate
+        ]
+        # Preserve order while dropping the duplicates the three sources produce
+        # when they happen to agree.
+        ordered = list(dict.fromkeys(ordered))
+        source = PYTHON_SOURCE_PYENV if target.is_target_series else PYTHON_SOURCE_FALLBACK
+
+    if not ordered:
+        return TestInterpreter(executable=None, detail="no Python interpreter could be found to run the tests with")
+
+    rejections: List[InterpreterRejection] = []
+    for candidate in ordered:
+        missing = _missing_imports(candidate)
+        if not missing:
+            return TestInterpreter(
+                executable=candidate,
+                source=source,
+                detail=f"{candidate} can import both {SDK_IMPORT_MODULE} and {TEST_RUNNER_MODULE}",
+                # Carried on success too: knowing which earlier candidates lost, and
+                # to which missing import, is what tells an operator whether the
+                # interpreter they expected to be used was passed over and why.
+                rejections=tuple(rejections),
+            )
+        rejections.append(InterpreterRejection(executable=candidate, missing=missing))
+
+    return TestInterpreter(
+        executable=None,
+        source=source,
+        detail=(
+            f"no interpreter can import both {SDK_IMPORT_MODULE} and {TEST_RUNNER_MODULE}; "
+            f"rejected: {'; '.join(str(rejection) for rejection in rejections)}"
+        ),
+        rejections=tuple(rejections),
+    )
 
 
 @dataclass(frozen=True)

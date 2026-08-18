@@ -355,7 +355,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Revision notes in the parent `requirements.md`, per that document's convention. Lands with the code that makes them true, per task 6 and this task
     - _Requirements: 2.10_
 
-- [ ] 8. Change 6 — one definition of the unit test run (refactor)
+- [x] 8. Change 6 — one definition of the unit test run (refactor)
   - **SCOPE-4: a move with no behavior change, landing before change 7 which needs it.** Its own commit
   - **SCOPE-12: `pytest` is NOT added to this tool's dependencies.** It has to be present in the plugin's interpreter, and its absence is reported with remediation, **never installed silently**
   - **New file**: `integrations/plugin_tests.py`, moved out of `QualityGate._check_tests`
@@ -365,20 +365,20 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - **SCOPE-9 callers, already named in the design**: `run_unit_tests` has two (`quality_gate._check_tests`, the `test` stage in change 7); `resolve_test_interpreter` joins two existing resolvers in the module that already owns resolution
   - _Requirements: 2.4_
 
-  - [ ] 8.1 `resolve_test_interpreter` in `build_prep.py`
+  - [x] 8.1 `resolve_test_interpreter` in `build_prep.py`
     - Joins `resolve_sdk_version`, `resolve_target_python`, and `resolve_lint_profile`, which is where this tool already resolves what it depends on
     - Requires a candidate that can import **both** the SDK and `pytest`; tries the pyenv target-series interpreter, then `sys.executable`, then `python3` on `PATH`
     - Reports the candidate chosen and, for each rejection, **which of the two imports failed**
     - **This exists because on the tester's host neither single candidate satisfies both** — the SDK interpreter (`/Library/Developer/CommandLineTools/usr/bin/python3`, 3.9) has no `pytest`, the project venv has `pytest` and no SDK — and a resolver that cannot say so produces exactly Bug 1's silence
     - _Requirements: 2.3, 2.4_
 
-  - [ ] 8.2 Unit tests for the resolver and the runner
+  - [x] 8.2 Unit tests for the resolver and the runner
     - `resolve_test_interpreter`: each candidate accepted, each rejected with its reason, none available
     - `run_unit_tests`: pass, fail with parsed failures, no `unit_test/`, no tests collected, collection error, coverage measured, `pytest-cov` absent
     - `tests/integrations/test_plugin_tests.py`, `tests/integrations/test_build_prep.py`
     - _Requirements: 2.3, 2.4_
 
-  - [ ] 8.3 Assert the adapter is finding-for-finding identical
+  - [x] 8.3 Assert the adapter is finding-for-finding identical
     - Compare `QualityGate` output before and after the move against task 2's captured baseline: same finding keys, same shapes, same skip notes
     - A difference here means this is not a refactor and the change has to be re-scoped
     - _Requirements: 2.4_

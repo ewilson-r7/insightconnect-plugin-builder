@@ -35,7 +35,7 @@ which is why this lives in ``core/`` beside the other pure predicates.
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 __all__ = [
     "GENERATED_FILE_NAMES",
@@ -46,6 +46,7 @@ __all__ = [
     "is_lint_excluded",
     "is_packaging_excluded",
     "hand_written_python",
+    "package_dir",
 ]
 
 #: Files ``insight-plugin`` generates from the spec. The steering forbids editing
@@ -132,3 +133,23 @@ def hand_written_python(project_dir: Union[str, Path]) -> Tuple[str, ...]:
             continue
         found.append(relative)
     return tuple(sorted(found))
+
+
+def package_dir(root: Union[str, Path]) -> Optional[str]:
+    """Return the plugin's package directory name, or ``None``.
+
+    Lives here with the other tree predicates because two subsystems need the same
+    answer: the ``Quality_Gate`` measures coverage against the plugin package
+    specifically, and the ``Definition_Of_Done`` reads the structural conditions off
+    it. Measuring the whole tree instead would fold the tests themselves into the
+    coverage percentage and make the figure meaningless.
+
+    Both eras of prefix are recognised: ``insight-plugin create`` emits
+    ``icon_<name>`` and older plugins carry ``komand_<name>``.
+    """
+    base = Path(root)
+    for prefix in ("icon_", "komand_"):
+        for candidate in sorted(base.glob(f"{prefix}*")):
+            if candidate.is_dir():
+                return candidate.name
+    return None
