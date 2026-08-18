@@ -1,0 +1,590 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 `isBugCondition_1` — the `test` stage can never pass": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371001
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985383031
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786986422467
+      }
+    ],
+    "1.2 `isBugCondition_2` — re-measure the `lint` stage as the tool actually runs it": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371064
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985386121
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786989507263
+      }
+    ],
+    "1.3 Re-measure the format check **through `QualityGate.run()`**": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371130
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985388847
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786992676055
+      }
+    ],
+    "1.4 Confirm the corrected diagnosis of the pre-existing test failure": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371179
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985391697
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786993422252
+      }
+    ],
+    "1.5 Profile provenance is unreported": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371230
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985394380
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786994929458
+      }
+    ],
+    "1.6 `isBugCondition_3` — the preview judges a stale draft": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371286
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786986428318
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786989510243
+      }
+    ],
+    "1.7 The write-back — Bug 3 reaches the artifact, not only the report": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371346
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786989513348
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786992679264
+      }
+    ],
+    "1.8 The `api_client` detector rejects the prescribed pattern": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371400
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786994932647
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786995401835
+      }
+    ],
+    "1.9 Byproducts reach the `.plg`": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371463
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786995406739
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786996322249
+      }
+    ],
+    "1.10 Reporting and accounting counterexamples": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371519
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786996328298
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787022390842
+      }
+    ],
+    "2.1 Observe and pin the nine preservation axes on unfixed code": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371597
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787022397011
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787059148554
+      }
+    ],
+    "2.2 Property test: nothing else changes": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371649
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787059154002
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787061814700
+      }
+    ],
+    "3.1 Unit tests for `_draft_from_folder`": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371696
+      },
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787061821887
+      },
+      {
+        "executionId": "b180f76d-149f-4424-98e1-ce0048341c73",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787061847783
+      }
+    ],
+    "4.1 Sync the draft from the tree after the agent has run": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371749
+      }
+    ],
+    "4.2 Fail safe, never clobber": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371797
+      }
+    ],
+    "4.3 Write on every spec change, not only structural ones": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371863
+      }
+    ],
+    "4.4 `prepare_export` derives from the tree": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371919
+      }
+    ],
+    "4.5 Stop the export-time write-back from being a write-back": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985371966
+      }
+    ],
+    "4.6 Amend parent Requirement 16.1": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372016
+      }
+    ],
+    "4.7 Unit tests for preview fidelity": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372080
+      }
+    ],
+    "4.8 Property test: the preview describes what would be packaged": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372131
+      }
+    ],
+    "4.9 Property test: the draft and the tree do not diverge": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372184
+      }
+    ],
+    "5.1 Unit tests for `_api_client_condition`": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372253
+      }
+    ],
+    "5.2 Property test: the error map may be defined or imported": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372334
+      }
+    ],
+    "5.3 Amend parent Requirement 27.1 — API client clause": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372393
+      }
+    ],
+    "5.4 Verify the Bug 3 exploration tests now pass": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372433
+      }
+    ],
+    "5.5 Verify preservation tests still pass": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372496
+      }
+    ],
+    "6.1 Unit tests for the three predicates": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372547
+      }
+    ],
+    "7.1 The `lint` stage is judged by the same linter and profile as the `Quality_Gate`": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372595
+      }
+    ],
+    "7.2 Format check — re-measure first, edit only if the measurement says so": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372669
+      }
+    ],
+    "7.3 Report the bar": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372715
+      }
+    ],
+    "7.4 Pin the profile in content-dependent tests, and skip when the tool is absent": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372762
+      }
+    ],
+    "7.5 Verify the Bug 2 exploration tests now pass": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372812
+      }
+    ],
+    "7.6 Property test: lint and format judge hand-written code, and state the bar": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372870
+      }
+    ],
+    "7.7 Amend parent Requirements 26.3 and 27.1": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985372938
+      }
+    ],
+    "8.1 `resolve_test_interpreter` in `build_prep.py`": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373011
+      }
+    ],
+    "8.2 Unit tests for the resolver and the runner": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373061
+      }
+    ],
+    "8.3 Assert the adapter is finding-for-finding identical": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373112
+      }
+    ],
+    "9.1 The stage calls `run_unit_tests` instead of `docker run`": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373184
+      }
+    ],
+    "9.2 Unrunnable fails closed and says why": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373256
+      }
+    ],
+    "9.3 One execution per export": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373306
+      }
+    ],
+    "9.4 Unit tests for the `test` stage": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373351
+      }
+    ],
+    "9.5 Amend parent Requirement 8.3 and design Property 17": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373400
+      }
+    ],
+    "9.6 Verify the Bug 1 exploration tests now pass": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373446
+      }
+    ],
+    "9.7 Property test: one definition of the unit test run, in both directions": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373503
+      }
+    ],
+    "9.8 Property test: an unrunnable test run fails closed and says why": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373552
+      }
+    ],
+    "10.1 Verify against the exploration test": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373600
+      }
+    ],
+    "10.2 Property test: packaging excludes byproducts and nothing else new": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373648
+      }
+    ],
+    "11.1 Blocked-export detail": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373693
+      }
+    ],
+    "11.2 Progress reports work actually performed, and keeps reporting": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373738
+      }
+    ],
+    "11.3 Interpreter usage is counted": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373788
+      }
+    ],
+    "11.4 Truncation is disclosed": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373851
+      }
+    ],
+    "11.5 `version_display` — diagnose before editing": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373898
+      }
+    ],
+    "11.6 Credential types come from the toolchain's own schema": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373944
+      }
+    ],
+    "11.7 Property test: every paid invocation is counted": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985373988
+      }
+    ],
+    "11.8 Example-based coverage for Properties 70, 71, 73, 74": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374034
+      }
+    ],
+    "12.1 Whole preview, real toolchain, mocked Docker": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374078
+      }
+    ],
+    "12.2 Blocked preview": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374127
+      }
+    ],
+    "12.3 Split-interpreter host": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374182
+      }
+    ],
+    "12.4 Progress and cancellation": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374227
+      }
+    ],
+    "13. Record this bugfix in the parent plan": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374278
+      }
+    ],
+    "14. Accessibility review of the new preview surface": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374333
+      }
+    ],
+    "15. Checkpoint — ensure all tests pass": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1786985374409
+      }
+    ],
+    "1. Write bug condition exploration test": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787022390905
+      }
+    ],
+    "2. Write preservation property tests (BEFORE implementing any fix)": [
+      {
+        "executionId": "0682beeb-2e5f-4594-9ca3-b16e39f9e800",
+        "chatSessionId": "sess_6fbb85a7-7418-4219-b749-72da49878962",
+        "timestamp": 1787061814808
+      }
+    ]
+  }
+}
