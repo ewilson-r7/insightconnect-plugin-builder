@@ -31,14 +31,18 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Union
 
+from ..core.plugin_files import (
+    UNIT_TEST_DIR,
+    hand_written_python,
+    is_generated,
+    is_lint_excluded,
+)
 from .build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile, resolve_lint_profile
 
 __all__ = [
-    "GENERATED_FILE_NAMES",
-    "GENERATED_DIR_NAMES",
     "SOURCE_COMPILE",
     "SOURCE_FORMAT",
     "SOURCE_PROSPECTOR",
@@ -48,28 +52,8 @@ __all__ = [
     "CodeFinding",
     "QualityReport",
     "QualityGate",
-    "is_generated",
-    "is_lint_excluded",
-    "hand_written_python",
     "package_dir",
 ]
-
-#: Files ``insight-plugin`` generates from the spec. The steering forbids editing
-#: them, so findings against them are not actionable and are dropped.
-GENERATED_FILE_NAMES = frozenset(
-    {
-        "schema.py",
-        "__init__.py",
-        "setup.py",
-        "Dockerfile",
-        "Makefile",
-        "help.md",
-        ".CHECKSUM",
-    }
-)
-
-#: Directories whose entire contents are generated or vendored.
-GENERATED_DIR_NAMES = frozenset({"bin", ".builder", "build", "dist", "__pycache__", ".git"})
 
 #: Finding sources, used as the first segment of a finding's stable key.
 SOURCE_COMPILE = "compile"
@@ -82,9 +66,6 @@ SOURCE_COVERAGE = "coverage"
 #: project's own definition of done; enforced here so it is a gate rather than an
 #: aspiration.
 DEFAULT_COVERAGE_THRESHOLD = 80.0
-
-#: Where a plugin's unit tests live.
-_UNIT_TEST_DIR = "unit_test"
 
 #: How far apart two line numbers must be to count as different findings. A fix
 #: that shifts a line by a little should not read as a brand-new problem.
@@ -189,55 +170,6 @@ class QualityReport:
         if len(self.findings) > limit:
             lines.append(f"... and {len(self.findings) - limit} more")
         return "\n".join(lines)
-
-
-def is_generated(relative_path: Union[str, PurePosixPath]) -> bool:
-    """Return ``True`` iff ``relative_path`` is a generated or vendored file.
-
-    Findings against these are not actionable: the plugin steering forbids
-    hand-editing them, and ``insight-plugin refresh`` would overwrite any edit.
-    """
-    parts = PurePosixPath(str(relative_path)).parts
-    if any(part in GENERATED_DIR_NAMES for part in parts):
-        return True
-    return bool(parts) and parts[-1] in GENERATED_FILE_NAMES
-
-
-def is_lint_excluded(relative_path: Union[str, PurePosixPath]) -> bool:
-    """Return ``True`` iff ``relative_path`` is outside the linter's remit.
-
-    Everything :func:`is_generated` covers, plus the unit tests. The plugins
-    repository's own static-analysis job filters ``unit_test/`` out before running
-    prospector, so a test that trips ``protected-access`` for mocking a private
-    method is not a defect the plugin has to answer for.
-
-    Deliberately *not* the same predicate as :func:`is_generated`: the unit tests
-    are still compiled, still formatted, and still run. Only the linter skips them.
-    """
-    if is_generated(relative_path):
-        return True
-    parts = PurePosixPath(str(relative_path)).parts
-    return _UNIT_TEST_DIR in parts
-
-
-def hand_written_python(project_dir: Union[str, Path]) -> Tuple[str, ...]:
-    """Return the hand-written ``.py`` files under ``project_dir``, sorted.
-
-    Paths are relative and POSIX-separated. Generated files are excluded per
-    :func:`is_generated`.
-    """
-    root = Path(project_dir)
-    if not root.is_dir():
-        return ()
-    found: List[str] = []
-    for path in root.rglob("*.py"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root).as_posix()
-        if is_generated(relative):
-            continue
-        found.append(relative)
-    return tuple(sorted(found))
 
 
 class QualityGate:
@@ -485,11 +417,11 @@ class QualityGate:
             coverage percentage actually measured (``None`` when it was not).
         """
         findings: List[CodeFinding] = []
-        if not (root / _UNIT_TEST_DIR).is_dir():
+        if not (root / UNIT_TEST_DIR).is_dir():
             findings.append(
                 CodeFinding(
                     source=SOURCE_TESTS,
-                    path=_UNIT_TEST_DIR,
+                    path=UNIT_TEST_DIR,
                     code="no-tests",
                     message="no unit_test/ directory; every action needs unit tests",
                 )
@@ -502,7 +434,7 @@ class QualityGate:
             self._python,
             "-m",
             "pytest",
-            _UNIT_TEST_DIR,
+            UNIT_TEST_DIR,
             "-q",
             "--no-header",
         ]
@@ -527,7 +459,7 @@ class QualityGate:
             findings.append(
                 CodeFinding(
                     source=SOURCE_TESTS,
-                    path=_UNIT_TEST_DIR,
+                    path=UNIT_TEST_DIR,
                     code="no-tests",
                     message="unit_test/ contains no runnable tests",
                 )
@@ -555,7 +487,7 @@ class QualityGate:
             findings.append(
                 CodeFinding(
                     source=SOURCE_TESTS,
-                    path=_UNIT_TEST_DIR,
+                    path=UNIT_TEST_DIR,
                     code="test-run-failed",
                     message=f"the unit test run failed: {detail}",
                 )

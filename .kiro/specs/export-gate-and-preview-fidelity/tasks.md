@@ -280,7 +280,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - In particular: a genuinely incomplete **on-disk** spec produces the same completeness findings as before, now read from disk
     - **EXPECTED OUTCOME**: Tests PASS (no regressions)
 
-- [ ] 6. Change 4 — path predicates move to one module (refactor)
+- [x] 6. Change 4 — path predicates move to one module (refactor)
   - **SCOPE-4: a move with no behavior change, landing before change 5 which needs it.** Its own commit
   - **SCOPE-13, integrate before finalizing.** The lint path is the named collision point with the pending PR: `quality_gate.py`, `build_prep.py` (`resolve_lint_profile`, `LINT_TOOLS`, `PLUGIN_LINE_LENGTH`), `tests/integrations/test_quality_gate.py`, and the `lint_command` wiring in `app.py`. Integrate current `origin/main` and re-run the affected gates before finalizing this task and task 7. **If the pending PR has already moved the predicates or the profile plumbing, this task shrinks to updating imports rather than moving definitions** — check first, then size the change. GitHub is under an outage as of writing: do not perform git operations and do not assume `origin/main` is reachable; integrate when it is, and treat that integration as part of finalizing rather than as optional
   - **New file**: `core/plugin_files.py`. Pure path logic, no I/O, so it belongs in `core/` beside the other pure predicates
@@ -294,7 +294,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - **Decision as recorded (2.6)**: files are excluded **because the CLI generates them and the rulebook forbids editing them**, not because they produced findings — the standard task 37 applied to the excluded validator. The tradeoff stands: a genuine defect inside a generated file will not be reported by these checks, and could not be fixed in the plugin if it were
   - _Requirements: 2.6_
 
-  - [ ] 6.1 Unit tests for the three predicates
+  - [x] 6.1 Unit tests for the three predicates
     - Table-driven over each named file and directory, plus `.coverage` at depth, plus a `unit_test/` path that is lint-excluded and **not** generated
     - `tests/core/test_plugin_files.py`
     - _Requirements: 2.6_

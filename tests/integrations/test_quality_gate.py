@@ -17,6 +17,11 @@ from icplugin_builder.integrations.build_prep import (
     PLUGIN_LINE_LENGTH,
     LintProfile,
 )
+from icplugin_builder.core.plugin_files import (
+    hand_written_python,
+    is_generated,
+    is_lint_excluded,
+)
 from icplugin_builder.integrations.quality_gate import (
     SOURCE_COMPILE,
     SOURCE_COVERAGE,
@@ -26,9 +31,6 @@ from icplugin_builder.integrations.quality_gate import (
     CodeFinding,
     QualityGate,
     QualityReport,
-    hand_written_python,
-    is_generated,
-    is_lint_excluded,
 )
 
 

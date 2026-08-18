@@ -81,7 +81,6 @@ from icplugin_builder.core.version_bump import bump_version
 from icplugin_builder.integrations.build_engine import (
     BUILDER_METADATA_DIR,
     BuildEngine,
-    _EXCLUDED_DIRS,
     list_plugin_files,
     preview_export_files,
 )
@@ -116,17 +115,20 @@ from icplugin_builder.integrations.definition_of_done import (
     _defined_names,
     evaluate_done,
 )
-from icplugin_builder.integrations.quality_gate import (
+from icplugin_builder.core.plugin_files import (
+    PACKAGING_EXCLUDED_DIR_NAMES,
     GENERATED_FILE_NAMES,
+    hand_written_python,
+    is_generated,
+    is_lint_excluded,
+)
+from icplugin_builder.integrations.quality_gate import (
     SOURCE_FORMAT,
     SOURCE_PROSPECTOR,
     SOURCE_TESTS,
     CodeFinding,
     QualityGate,
     QualityReport,
-    hand_written_python,
-    is_generated,
-    is_lint_excluded,
     package_dir,
 )
 from icplugin_builder.orchestrator.session import ExportPlan
@@ -3556,10 +3558,10 @@ def test_the_api_client_detectors_inputs_are_recorded():
 # including ``.coverage`` at any depth".
 #
 # **The mechanism, read before it was measured.**
-# :data:`~icplugin_builder.integrations.build_engine._EXCLUDED_DIRS` is a set of
+# :data:`~icplugin_builder.core.plugin_files.PACKAGING_EXCLUDED_DIR_NAMES` is a set of
 # *directory names* and :func:`list_plugin_files` consumes it as::
 #
-#     if any(part in _EXCLUDED_DIRS for part in relative.parts):
+#     if any(part in PACKAGING_EXCLUDED_DIR_NAMES for part in relative.parts):
 #         continue
 #
 # ``relative.parts`` includes the file name, so the filter is capable of matching
@@ -3628,7 +3630,7 @@ class ByproductCase(NamedTuple):
         label: short name for the parametrised test id.
         relative: the POSIX path planted in the copied tree.
         kind: one of the ``KIND_`` constants, for the partition report.
-        excluded_today: whether ``_EXCLUDED_DIRS`` already catches it. Recorded so
+        excluded_today: whether ``PACKAGING_EXCLUDED_DIR_NAMES`` already catches it. Recorded so
             the partition is legible in one place; the assertion itself does not
             branch on it, because the requirement is the same for every row.
         reason: why this file is a byproduct, or why it must stay excluded.
@@ -3678,7 +3680,7 @@ BYPRODUCT_CASES: Tuple[ByproductCase, ...] = (
         relative="__pycache__/setup.cpython-313.pyc",
         kind=KIND_CACHE,
         excluded_today=True,
-        reason="`__pycache__` is in `_EXCLUDED_DIRS`, so everything under it is already dropped",
+        reason="`__pycache__` is in `PACKAGING_EXCLUDED_DIR_NAMES`, so everything under it is already dropped",
     ),
     ByproductCase(
         label="pycache-pyc-at-depth",
@@ -3693,7 +3695,7 @@ BYPRODUCT_CASES: Tuple[ByproductCase, ...] = (
         kind=KIND_CACHE,
         excluded_today=True,
         reason=(
-            "`.pytest_cache` **is** in `_EXCLUDED_DIRS`, unlike `GENERATED_DIR_NAMES` where task 1.3 "
+            "`.pytest_cache` **is** in `PACKAGING_EXCLUDED_DIR_NAMES`, unlike `GENERATED_DIR_NAMES` where task 1.3 "
             "found it absent -- the two lists differ and packaging consumes this one"
         ),
     ),
@@ -3702,7 +3704,7 @@ BYPRODUCT_CASES: Tuple[ByproductCase, ...] = (
         relative=".mypy_cache/missing_stubs.txt",
         kind=KIND_CACHE,
         excluded_today=True,
-        reason="`.mypy_cache` is in `_EXCLUDED_DIRS`; no tree here produces one, so it is planted",
+        reason="`.mypy_cache` is in `PACKAGING_EXCLUDED_DIR_NAMES`; no tree here produces one, so it is planted",
     ),
     ByproductCase(
         label="bare-pyc",
@@ -3747,7 +3749,7 @@ BYPRODUCT_CASES: Tuple[ByproductCase, ...] = (
         relative=".git/config",
         kind=KIND_VCS,
         excluded_today=True,
-        reason="`.git` is in `_EXCLUDED_DIRS`; change 8's predicate must keep covering VCS directories",
+        reason="`.git` is in `PACKAGING_EXCLUDED_DIR_NAMES`; change 8's predicate must keep covering VCS directories",
     ),
 )
 
@@ -3762,7 +3764,7 @@ def _is_byproduct(relative: str) -> bool:
     same predicate has to keep.
     """
     parts = PurePosixPath(relative).parts
-    if any(part in _EXCLUDED_DIRS for part in parts):
+    if any(part in PACKAGING_EXCLUDED_DIR_NAMES for part in parts):
         return True
     if any(part == "build" or part.endswith(".egg-info") for part in parts[:-1]):
         return True
@@ -4023,8 +4025,8 @@ class TestByproductsReachThePlg:
         """**Validates: Requirements 1.10, 2.15**"""
         run = packaged_after_a_test_run
         assert relative not in run.members, (
-            f"{relative} is a member of the produced .plg. `_EXCLUDED_DIRS` is a set of directory names "
-            f"({sorted(_EXCLUDED_DIRS)}) and `list_plugin_files` drops a path only when one of its parts "
+            f"{relative} is a member of the produced .plg. `PACKAGING_EXCLUDED_DIR_NAMES` is a set of directory names "
+            f"({sorted(PACKAGING_EXCLUDED_DIR_NAMES)}) and `list_plugin_files` drops a path only when one of its parts "
             f"is in that set, so no byproduct *file* has anything excluding it:\n{run.summary}"
         )
 
@@ -4084,7 +4086,7 @@ class TestThePartitionTaskTensPredicateHasToEncode:
     """Every byproduct, one row each -- **the passes and failures *are* the partition.**
 
     One assertion, applied uniformly: after task 10 no row is a member. Which rows
-    fail today is exactly which rows ``_EXCLUDED_DIRS`` cannot reach, so this class
+    fail today is exactly which rows ``PACKAGING_EXCLUDED_DIR_NAMES`` cannot reach, so this class
     reports the partition change 8's ``is_packaging_excluded`` has to encode without
     a second test that asserts today's behavior and would have to be deleted when
     the fix lands.
@@ -4100,8 +4102,8 @@ class TestThePartitionTaskTensPredicateHasToEncode:
         run = packaged_with_every_byproduct
         assert case.relative not in run.members, (
             f"{case.relative} ({case.kind}) is a member of the produced .plg. {case.reason}. "
-            f"`_EXCLUDED_DIRS` {'does' if case.excluded_today else 'does not'} already reach it, and the "
-            f"set is {sorted(_EXCLUDED_DIRS)}:\n{run.summary}"
+            f"`PACKAGING_EXCLUDED_DIR_NAMES` {'does' if case.excluded_today else 'does not'} already reach it, and the "
+            f"set is {sorted(PACKAGING_EXCLUDED_DIR_NAMES)}:\n{run.summary}"
         )
 
     def test_planting_the_table_added_nothing_but_byproducts(self, packaged_with_every_byproduct):
@@ -4171,7 +4173,7 @@ class TestPreservationTheArtifactStillCarriesThePlugin:
 #: already-excluded directory would be excluded for the wrong reason, and its
 #: innocent sibling would be excluded with it -- so an example built from one of
 #: these names would prove nothing either way.
-_RESERVED_DIR_NAMES = frozenset(_EXCLUDED_DIRS) | {"build"}
+_RESERVED_DIR_NAMES = frozenset(PACKAGING_EXCLUDED_DIR_NAMES) | {"build"}
 
 
 class TestNoCoverageFileIsPackagedWhereverItSits:
@@ -4228,7 +4230,8 @@ class TestNoCoverageFileIsPackagedWhereverItSits:
             packaged = list_plugin_files(root)
             assert relative not in packaged, (
                 f"{relative} is packaged; `list_plugin_files` drops a path only when one of its parts is in "
-                f"_EXCLUDED_DIRS {sorted(_EXCLUDED_DIRS)}, and no byproduct file name is in that set"
+                f"PACKAGING_EXCLUDED_DIR_NAMES {sorted(PACKAGING_EXCLUDED_DIR_NAMES)}, and no byproduct "
+                "file name is in that set"
             )
             assert (
                 PurePosixPath(*directories, sibling).as_posix() in packaged
@@ -4246,16 +4249,19 @@ def test_the_byproduct_measurements_inputs_are_recorded():
     "either 1.10's 39 with the byproducts or 3.2's 37 without them", so the figure
     is pinned in both directions rather than only before.
     """
-    assert _EXCLUDED_DIRS == frozenset({BUILDER_METADATA_DIR, ".git", "__pycache__", ".pytest_cache", ".mypy_cache"}), (
-        "`_EXCLUDED_DIRS` is no longer the five directory names task 1.9 measured, so the mechanism this "
-        f"task describes must be re-read before change 8 replaces it: {sorted(_EXCLUDED_DIRS)}"
+    assert PACKAGING_EXCLUDED_DIR_NAMES == frozenset(
+        {BUILDER_METADATA_DIR, ".git", "__pycache__", ".pytest_cache", ".mypy_cache"}
+    ), (
+        "`PACKAGING_EXCLUDED_DIR_NAMES` is no longer the five directory names task 1.9 measured, so the mechanism this "
+        f"task describes must be re-read before change 8 replaces it: {sorted(PACKAGING_EXCLUDED_DIR_NAMES)}"
     )
-    assert not [name for name in _EXCLUDED_DIRS if PurePosixPath(name).suffix and name != ".coverage"], (
-        "a file-shaped name has appeared in `_EXCLUDED_DIRS`; the claim that it 'covers directories only' "
-        f"needs re-measuring: {sorted(_EXCLUDED_DIRS)}"
+    assert not [name for name in PACKAGING_EXCLUDED_DIR_NAMES if PurePosixPath(name).suffix and name != ".coverage"], (
+        "a file-shaped name has appeared in `PACKAGING_EXCLUDED_DIR_NAMES`; the claim that it covers "
+        "directories only "
+        f"needs re-measuring: {sorted(PACKAGING_EXCLUDED_DIR_NAMES)}"
     )
-    assert COVERAGE_FILE not in _EXCLUDED_DIRS, (
-        "`.coverage` is in `_EXCLUDED_DIRS`, so 1.10's root cause has already changed and task 10 should "
+    assert COVERAGE_FILE not in PACKAGING_EXCLUDED_DIR_NAMES, (
+        "`.coverage` is in `PACKAGING_EXCLUDED_DIR_NAMES`, so 1.10's root cause has already changed and task 10 should "
         "be re-scoped rather than implemented as designed"
     )
 
@@ -4263,8 +4269,8 @@ def test_the_byproduct_measurements_inputs_are_recorded():
     # recorded `.pytest_cache` as absent from `GENERATED_DIR_NAMES`; that is true
     # and it is *not* true of the packaging set, which is the distinction change 8
     # has to preserve when the two are drawn together into `core/plugin_files`.
-    assert ".pytest_cache" in _EXCLUDED_DIRS, "packaging no longer excludes `.pytest_cache`"
-    assert "__pycache__" in _EXCLUDED_DIRS, "packaging no longer excludes `__pycache__`"
+    assert ".pytest_cache" in PACKAGING_EXCLUDED_DIR_NAMES, "packaging no longer excludes `.pytest_cache`"
+    assert "__pycache__" in PACKAGING_EXCLUDED_DIR_NAMES, "packaging no longer excludes `__pycache__`"
 
     _require_tree()
     packaged = tuple(list_plugin_files(JUMPCLOUD_TREE))

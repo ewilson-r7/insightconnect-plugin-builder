@@ -41,6 +41,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
+from ..core.plugin_files import is_packaging_excluded
+
 __all__ = [
     "BuildEngineError",
     "ValidationNotPassedError",
@@ -69,10 +71,6 @@ DEFAULT_ARTIFACT_SUBDIR = Path(BUILDER_METADATA_DIR) / "artifacts"
 #: The error surfaced when packaging is requested before validation passed
 #: (Req 9.4).
 VALIDATION_NOT_PASSED_MESSAGE = "validation has not passed; the plugin cannot be packaged until validation succeeds"
-
-#: Directory names skipped when collecting plugin files, mirroring the CLI
-#: wrapper's snapshot behavior plus the ``.builder/`` metadata subtree.
-_EXCLUDED_DIRS = frozenset({BUILDER_METADATA_DIR, ".git", "__pycache__", ".pytest_cache", ".mypy_cache"})
 
 #: Accepted path inputs.
 PathInput = Union[str, Path]
@@ -158,7 +156,7 @@ def list_plugin_files(project: object) -> List[str]:
         if not path.is_file():
             continue
         relative = path.relative_to(root)
-        if any(part in _EXCLUDED_DIRS for part in relative.parts):
+        if is_packaging_excluded(relative.as_posix()):
             continue
         files.append(relative.as_posix())
     return sorted(files)

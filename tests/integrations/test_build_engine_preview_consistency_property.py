@@ -46,7 +46,7 @@ from icplugin_builder.integrations.build_engine import (
 )
 
 # Directory-name segments the packager (and preview) must exclude from artifacts.
-# Mirrors ``build_engine._EXCLUDED_DIRS``.
+# Mirrors ``core.plugin_files.PACKAGING_EXCLUDED_DIR_NAMES``.
 _EXCLUDED_SEGMENTS: Tuple[str, ...] = (
     ".builder",
     ".git",

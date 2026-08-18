@@ -42,6 +42,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 from ..core.spec_completeness import check_completeness
 from ..core.spec_model import PluginSpec
 from .code_validator import PipelineReport, StageName
+from ..core.plugin_files import is_generated
 from .quality_gate import (
     DEFAULT_COVERAGE_THRESHOLD,
     SOURCE_COMPILE,
@@ -50,7 +51,6 @@ from .quality_gate import (
     SOURCE_PROSPECTOR,
     SOURCE_TESTS,
     QualityReport,
-    is_generated,
     package_dir,
 )
 from .reference_material import read_reference_state

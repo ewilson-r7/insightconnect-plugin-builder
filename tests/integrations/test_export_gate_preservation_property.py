@@ -138,7 +138,8 @@ from icplugin_builder.integrations.code_validator import (
 )
 from icplugin_builder.integrations.definition_of_done import evaluate_done
 from icplugin_builder.integrations.export_gate import decide_export
-from icplugin_builder.integrations.quality_gate import SOURCE_TESTS, QualityReport, is_generated
+from icplugin_builder.core.plugin_files import is_generated
+from icplugin_builder.integrations.quality_gate import SOURCE_TESTS, QualityReport
 
 from tests.core.test_spec_completeness import complete_mapping
 from tests.integrations.test_export_gate_preservation import (
