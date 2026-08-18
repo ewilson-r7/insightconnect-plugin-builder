@@ -32,6 +32,7 @@ from ruamel.yaml import YAMLError
 from icplugin_builder.core.cost_controller import CostController
 from icplugin_builder.core.draft import ComponentKind, Draft
 from icplugin_builder.core.generation import ArtifactKind, GenerationRequest
+from icplugin_builder.core.spec_completeness import check_completeness
 from icplugin_builder.core.spec_model import Component, PluginSpec, SemVer
 from icplugin_builder.core.yaml_codec import dump_plugin_spec, load_plugin_spec
 from icplugin_builder.integrations.code_validator import (
@@ -857,6 +858,85 @@ class TestPrepareExport:
             asyncio.run(orch.prepare_export("s1"))
 
 
+class TestPreviewFidelity:
+    """The preview describes the spec that would be packaged (clauses 2.11, 2.12).
+
+    The defect these cover: the preview evaluated the in-session draft, so once
+    implementation was delegated to an agent that writes ``plugin.spec.yaml`` to
+    the tree, the preview reported completeness findings about a spec that no
+    longer existed -- and a forced export shipped that stale spec over the
+    agent's. Disk wins here because disk is what gets packaged.
+    """
+
+    def _orch(self, tmp_path):
+        create_project(tmp_path, name="my_plugin", vendor="acme")
+        orch = Orchestrator(
+            projects_root=tmp_path,
+            registry=PluginRegistry(str(tmp_path / "registry.db")),
+            audit_log=AuditLog(tmp_path / "audit.log"),
+        )
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="my_plugin")
+        return orch, ProjectFolder.open(tmp_path, "my_plugin")
+
+    def test_the_preview_is_the_spec_on_disk_not_the_draft(self, tmp_path):
+        orch, folder = self._orch(tmp_path)
+        # Stand in for the delegated agent: rewrite the spec on the tree only.
+        on_disk = make_spec(name="my_plugin", vendor="acme", description="written to the tree by the agent")
+        folder.spec_path.write_text(dump_plugin_spec(on_disk), encoding="utf-8")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+        assert plan.spec_preview.description == "written to the tree by the agent"
+
+    def test_the_completeness_findings_are_the_disk_specs(self, tmp_path):
+        orch, folder = self._orch(tmp_path)
+        complete = load_plugin_spec(
+            dump_plugin_spec(make_spec(name="my_plugin", vendor="acme"))
+            + "sdk:\n  type: full\n  version: 6.6.0\n  user: nobody\n"
+        )
+        folder.spec_path.write_text(dump_plugin_spec(complete), encoding="utf-8")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+        expected = check_completeness(plan.spec_preview)
+        assert tuple(finding.key for finding in plan.completeness.findings) == tuple(
+            finding.key for finding in expected.findings
+        )
+
+    def test_an_unparseable_spec_on_disk_leaves_the_draft_alone(self, tmp_path):
+        orch, folder = self._orch(tmp_path)
+        folder.spec_path.write_text("name: [unclosed\n", encoding="utf-8")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+        # Clause 2.11's fail-safe: the session keeps the draft it has rather than
+        # being discarded, and the preview reports on it.
+        assert plan.spec_preview.name == "my_plugin"
+        assert orch.session("s1").spec.name == "my_plugin"
+
+    def test_a_non_structural_in_session_edit_reaches_the_tree(self, tmp_path):
+        """Property 64's hole: a metadata-only edit used to reach no file at all.
+
+        Nothing wrote it, because the save was gated on structural change, so a
+        later re-read of the tree would have silently discarded it. Clause 2.11
+        persists the spec on any change, which is what makes "disk wins" safe.
+        """
+        orch, folder = self._orch(tmp_path)
+        from icplugin_builder.orchestrator import UpdateMetadata
+
+        asyncio.run(orch.apply_turn("s1", TurnPlan(operations=[UpdateMetadata(title="Renamed In Session")])))
+
+        assert load_plugin_spec(folder.spec_path.read_text(encoding="utf-8")).title == "Renamed In Session"
+        plan = asyncio.run(orch.prepare_export("s1"))
+        assert plan.spec_preview.title == "Renamed In Session"
+
+    def test_the_export_does_not_write_the_drafts_code_files_over_the_tree(self, tmp_path):
+        """Clause 2.11: with the draft a view of the tree, writing it back can only lose work."""
+        orch, folder = self._orch(tmp_path)
+        (folder.path / "README.md").write_text("changed on the tree after the draft was read\n", encoding="utf-8")
+
+        plan = asyncio.run(orch.prepare_export("s1"))
+        asyncio.run(orch.confirm_export("s1", plan, confirmed=False))
+        assert (folder.path / "README.md").read_text(encoding="utf-8").startswith("changed on the tree")
+
+
 class TestReferenceMaterialReachesTheAgent:
     """Vendor documentation is obtained here and read by the agent as files (Req 28).
 
@@ -1246,7 +1326,11 @@ class TestConfirmExport:
         plan = asyncio.run(orch.prepare_export("s1"))
         outcome = asyncio.run(orch.confirm_export("s1", plan, confirmed=False))
         assert outcome.status is ExportStatus.ABORTED
-        assert orch.session("s1").spec is before  # unchanged (Req 16.6)
+        # Req 16.6: the preview leaves the draft's spec unchanged. Compared by
+        # value rather than by identity because clause 2.11 has the preview
+        # re-read the draft from the tree, so the object is a fresh view of the
+        # same spec -- what must not change is the value.
+        assert orch.session("s1").spec == before
         assert registry.exports("my_plugin") == []
 
     def test_blocked_gate_refuses_build(self, tmp_path):

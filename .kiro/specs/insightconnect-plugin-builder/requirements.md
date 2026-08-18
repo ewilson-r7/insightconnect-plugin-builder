@@ -16,6 +16,19 @@
 > for a generated plugin (Requirement 27). Requirements covering versioning,
 > credentials, audit, export, project folders, and entry modes were accurate and
 > are unchanged.
+>
+> **Revision note, Requirement 16.1 (export gate and preview fidelity bugfix,
+> clause 2.11/2.12).** 16.1 previously required only that a preview of the spec be
+> displayed, without saying *which* spec. That was satisfiable by previewing the
+> in-session draft, and once implementation was delegated to an agent that writes
+> the spec to the project tree, the draft and the tree diverged: an end-to-end run
+> reported 16 completeness errors against a plugin whose `plugin.spec.yaml` on disk
+> had none, and a forced export shipped the draft the preview had complained about.
+> 16.1 now names the on-disk spec as the one previewed, because the on-disk spec is
+> what gets packaged. The consequence, accepted deliberately: after an
+> implementation turn the draft is a **view of the tree** rather than the authored
+> source, so an in-session spec edit is persisted to the tree on every change and
+> not only on a structural one.
 
 ## Introduction
 The InsightConnect Plugin Builder is a locally-run, self-hosted single-user tool that lets a user create new Rapid7 InsightConnect plugins, or extend existing ones, by describing what they want in natural language. The user downloads the tool and runs it on their own machine or self-managed infrastructure; there is no hosted backend service and no multi-user account model.
@@ -251,7 +264,7 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 ### Requirement 16: Preview and Diff Before Export
 **User Story:** As a plugin author, I want to review a preview and a diff of changes before export, so that I can confirm the plugin is correct before it leaves the tool.
 #### Acceptance Criteria
-1. WHEN the user requests an export, THE Plugin_Builder SHALL display a preview of the Plugin_Spec before performing the export.
+1. WHEN the user requests an export, THE Plugin_Builder SHALL display a preview of the Plugin_Spec that would be packaged before performing the export; WHERE a Project_Folder exists, that spec is the one stored in the Project_Folder rather than the in-session draft, and the completeness findings reported alongside the preview SHALL be those of that spec.
 2. WHEN the user requests an export, THE Plugin_Builder SHALL display the list of files that will be included in the PLG_Artifact before performing the export.
 3. WHERE a prior version of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL display a diff between the prior version and the current draft that identifies added, removed, and modified files.
 4. WHERE no prior version of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL indicate that the current draft is the first version and SHALL present all files as additions.

@@ -451,6 +451,30 @@ def _orchestrator(
     )
 
 
+async def _pre_implementation_draft_spec(disk_spec: PluginSpec) -> PluginSpec:
+    """Return ``draftSpec(X)`` as the turn committed it, *before* implementation.
+
+    Read off a bare orchestrator -- no agent, no ``projects_root`` -- applying the
+    same turn plan. With no project folder there is nothing to delegate to and
+    nothing to sync from, so the draft stays as the planner authored it, with the
+    SDK stamp ``_with_resolved_sdk`` applies on a structural change.
+
+    Captured this way rather than from the diverged session's draft after the turn
+    because clause 2.11 has that turn re-read the draft from the tree: the
+    post-turn draft is a *view of disk* once the fix lands, which is the very
+    thing the bug condition's second conjunct is contrasted against. The witness
+    has to be phrased over the pre-implementation draft or it stops being a
+    witness the moment the fix works.
+    """
+    bare = Orchestrator()
+    bare.start_session(ENTRY_MODE_CREATE_NEW, session_id="pre", user_id="tester")
+    result = await bare.apply_turn("pre", _pre_implementation_turn(disk_spec))
+    assert (
+        result.status is TurnStatus.APPLIED
+    ), f"the pre-implementation turn did not apply: {result.status} {result.message}"
+    return copy.deepcopy(bare.session("pre").draft.spec)
+
+
 async def _reconstruct(tree: Path, *, graded: bool) -> Divergence:
     """Reconstruct the diverged session and its control over ``tree``."""
     disk_text = (JUMPCLOUD_TREE / "plugin.spec.yaml").read_text(encoding="utf-8")
@@ -464,7 +488,7 @@ async def _reconstruct(tree: Path, *, graded: bool) -> Divergence:
     assert (
         result.status is TurnStatus.APPLIED
     ), f"the reconstruction's turn did not apply: {result.status} {result.message}"
-    stale_draft_spec = copy.deepcopy(orchestrator.session("diverged").draft.spec)
+    stale_draft_spec = await _pre_implementation_draft_spec(disk_spec)
     stale_plan = await orchestrator.prepare_export("diverged")
 
     # The control: the same tree, reopened in the mode that loads from disk.
@@ -1300,7 +1324,7 @@ class RevertedExport:
     file the tree gained after the draft was read is overwritten from memory.
 
     The map is empty for a ``create_new`` session -- nothing populates it, which
-    :meth:`TestTheDraftsCodeFileMapIsWrittenOverTheTree.test_the_diverged_sessions_draft_carries_no_code_files`
+    :meth:`TestTheDraftsCodeFileMapIsWrittenOverTheTree.test_the_diverged_sessions_draft_carries_the_tree_at_export_time`
     measures -- so this half needs the entry modes that do populate it.
     ``_start_iterate`` and ``_start_enhance`` both set
     ``code_files=_read_dir_tree(folder.path)``: a snapshot taken at open time and
@@ -1432,20 +1456,24 @@ class TestTheDraftsCodeFileMapIsWrittenOverTheTree:
     verify against.
     """
 
-    def test_the_diverged_sessions_draft_carries_no_code_files(self, forced_export: ForcedExport):
-        """Why the diverged session's artifact is wrong only in its spec.
+    def test_the_diverged_sessions_draft_carries_the_tree_at_export_time(self, forced_export: ForcedExport):
+        """Why the diverged session's artifact is no longer wrong at all.
 
-        A ``create_new`` draft's code-file map starts empty and nothing populates
-        it: no :class:`DraftOperation` writes code, ``_dispatch_reasoning``'s
-        artifacts go to ``session.generated``, and the delegated agent writes to
-        the tree rather than back into the draft. An empty mapping is falsy, so
-        ``ProjectFolder.save`` skips ``_write_generated`` entirely. Measured rather
-        than argued, and expected to pass before and after the fix.
+        Before the fix a ``create_new`` draft's code-file map stayed empty --
+        nothing populated it, so ``ProjectFolder.save`` skipped
+        ``_write_generated`` and the artifact was wrong only in its spec. Clause
+        2.11 changes that premise rather than preserving it: the turn reads the
+        draft back from the tree, so the map now holds the agent's files, and the
+        export-time write-back is removed (task 4.5) so nothing writes them over
+        the tree they came from.
+
+        Measured rather than argued, and restated rather than deleted so the
+        record shows the premise moved. What it protected -- that the map cannot
+        corrupt the artifact -- is asserted directly by the three siblings above.
         """
-        assert forced_export.draft_code_files == 0, (
-            f"the diverged session's draft carried {forced_export.draft_code_files} code file(s) at export "
-            "time; the source-file half of the write-back was in play for the artifact above too, and its "
-            "assertions are about more than the spec"
+        assert forced_export.draft_code_files > 0, (
+            "the diverged session's draft carried no code files at export time; clause 2.11 makes the draft "
+            "a view of the tree, so an empty map means the post-turn sync did not happen"
         )
 
     def test_a_reopened_sessions_draft_carries_the_whole_tree(self, reverted_export: RevertedExport):

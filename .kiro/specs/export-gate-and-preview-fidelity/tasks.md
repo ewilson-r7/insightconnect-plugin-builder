@@ -181,12 +181,12 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/orchestrator/test_orchestrator.py`
     - _Requirements: 2.11_
 
-- [ ] 4. Change 2 — disk is authoritative; the preview describes the tree
+- [x] 4. Change 2 — disk is authoritative; the preview describes the tree
   - **Decision as recorded (2.11): disk wins**, because disk is what gets packaged and shipped. The tradeoff, which is why this is a decision rather than a patch: after an implementation turn the draft stops being the authored source and becomes a view of the tree, so an in-session edit made after that turn must reach the tree to survive
   - **File**: `orchestrator/orchestrator.py`
   - _Requirements: 2.11, 2.12_
 
-  - [ ] 4.1 Sync the draft from the tree after the agent has run
+  - [x] 4.1 Sync the draft from the tree after the agent has run
     - In `submit_message`, after the repair loop and **before** `_evaluate_done`, when a project folder exists and code was delegated: `session.draft = _draft_from_folder(folder)`
     - Set `session.baseline_spec = deepcopy(draft.spec)` so the next turn's structural-change detection compares against what is on disk
     - The sync follows the repair loop rather than the implementation run, because repairs can touch the spec too
@@ -194,25 +194,25 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - _Bug_Condition: isBugCondition_3(X) — implementationDelegated(X) AND diskSpec(projectFolder(X)) <> draftSpec(X)_
     - _Requirements: 2.11_
 
-  - [ ] 4.2 Fail safe, never clobber
+  - [x] 4.2 Fail safe, never clobber
     - If the on-disk spec cannot be read or parsed, leave the draft as it is and report the parse failure in the turn message
     - A syntactically broken spec is a finding, not grounds for discarding the session
     - _Requirements: 2.11_
 
-  - [ ] 4.3 Write on every spec change, not only structural ones
+  - [x] 4.3 Write on every spec change, not only structural ones
     - **This is what makes "disk wins" safe, and it closes a concrete hole**: a non-structural edit (a description, say) triggers no refresh today, so nothing writes it and a later re-read would silently discard it
     - When a turn changes the spec and a project folder exists, persist it via `ProjectFolder.save` whether or not the change was structural
     - The refresh of derived files stays gated on structural change, exactly as now
     - With this, Property 64 holds at every turn boundary and the re-reads in 4.1 and 4.4 are no-ops when nothing else wrote
     - _Requirements: 2.11_
 
-  - [ ] 4.4 `prepare_export` derives from the tree
+  - [x] 4.4 `prepare_export` derives from the tree
     - Re-read the draft from the folder at the top of `prepare_export`, before `_suffix_vendor`, so `spec_preview`, `check_completeness`, and the `Definition_Of_Done`'s `spec=` all describe the spec that would be packaged
     - The preview stays non-mutating with respect to the draft (parent Req 16.6): the suffixed, bumped spec still rides on the returned `ExportPlan` only
     - _Expected_Behavior: plan.spec_preview = versionedVendorSuffixed(diskSpec(projectFolder(X)))_
     - _Requirements: 2.12_
 
-  - [ ] 4.5 Stop the export-time write-back from being a write-back
+  - [x] 4.5 Stop the export-time write-back from being a write-back
     - `_build_dir` currently saves the draft spec **and** the draft's code-file map over the tree
     - With the draft a view of the tree, the spec write is the version bump and vendor suffix only — correct and required, so keep it
     - The code-file map write is not: when a project folder exists the tree is already the source of those files, so pass no `generated_files` in that branch
@@ -220,23 +220,23 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Verify against task 1.7: the spec read back out of the `.plg` is now the agent's
     - _Requirements: 2.11, 2.12_
 
-  - [ ] 4.6 Amend parent Requirement 16.1
+  - [x] 4.6 Amend parent Requirement 16.1
     - **Lands in this task, not ahead of it**: the previewed spec is the spec that would be packaged
     - Carry a revision note in `.kiro/specs/insightconnect-plugin-builder/requirements.md` matching that document's existing revision-note convention, saying what changed and why
     - _Requirements: 2.14_
 
-  - [ ] 4.7 Unit tests for preview fidelity
+  - [x] 4.7 Unit tests for preview fidelity
     - `prepare_export`: the preview equals the disk spec; a **non-structural** in-session edit made after an implementation turn survives (Property 64's hole, closed by 4.3)
     - `tests/orchestrator/test_orchestrator.py`
     - _Requirements: 2.11, 2.12_
 
-  - [ ] 4.8 Property test: the preview describes what would be packaged
+  - [x] 4.8 Property test: the preview describes what would be packaged
     - **Property 63** — the previewed spec equals the vendor-suffixed, version-bumped on-disk spec; the preview's completeness findings equal `check_completeness` of that spec; a spec complete on disk yields zero completeness findings
     - Generate specs, mutate them on disk, assert the preview tracks the tree
     - `tests/orchestrator/test_preview_fidelity_property.py`
     - **Validates: Requirements 2.11, 2.12**
 
-  - [ ] 4.9 Property test: the draft and the tree do not diverge
+  - [x] 4.9 Property test: the draft and the tree do not diverge
     - **Property 64** — after any turn that changes the draft's spec in a session with a project folder, the draft's spec equals the spec on disk; after any implementation turn the draft is a view of the tree, so no later read can disagree and no export-time write can overwrite the agent's work with an older value
     - Generate specs, mutate them in session and on disk, assert both directions
     - `tests/orchestrator/test_draft_disk_parity_property.py`

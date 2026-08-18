@@ -48,6 +48,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
+from ruamel.yaml import YAMLError
+
 from ..core.atomic import atomic_apply
 from ..core.cost_controller import CostController
 from ..core.diff import diff_file_trees
@@ -581,8 +583,16 @@ class Orchestrator:
         if change.is_structural and session.project_folder is None and self._projects_root is not None:
             session.project_folder = await self._materialize_project_folder(session, new_draft.spec)
 
-        if change.is_structural and session.project_folder is not None and self._refresh is not None:
+        # Clause 2.11: persist the spec on *any* change, not only a structural
+        # one. This is what makes "disk is authoritative" safe -- a
+        # description-only edit used to reach no file at all, so the re-read in
+        # step 6 below would have silently discarded it. The refresh of derived
+        # files stays gated on structural change exactly as before.
+        spec_changed = new_draft.spec != session.baseline_spec
+        if spec_changed and session.project_folder is not None:
             session.project_folder.save(new_draft.spec, generated_files=_as_generated(new_draft.code_files))
+
+        if change.is_structural and session.project_folder is not None and self._refresh is not None:
             await self._refresh.refresh_if_structural(
                 session.baseline_spec, new_draft.spec, session.project_folder.path
             )
@@ -635,6 +645,26 @@ class Orchestrator:
             if repair is not None:
                 session.repair_outcome = repair
                 message = f"{message}\n\n{repair.summary()}".strip() if message else repair.summary()
+
+            # 6b. Clause 2.11: the tree is authoritative once the agent has
+            #     written to it, so read the draft back from disk. Without this
+            #     the session keeps judging the spec it authored *before*
+            #     delegating, and `_evaluate_done`, the turn's reported spec, and
+            #     the next turn's structural comparison all describe a plugin
+            #     that no longer exists. Repairs can touch the spec too, which is
+            #     why this follows the loop rather than the implementation run.
+            if session.project_folder is not None:
+                try:
+                    new_draft = _draft_from_folder(session.project_folder)
+                except (OSError, ValueError, YAMLError) as error:
+                    # A spec on disk that cannot be read or parsed is a finding,
+                    # not grounds for discarding the session. Keep the draft the
+                    # session has and say what went wrong.
+                    notice = f"the plugin spec on disk could not be read back: {error}"
+                    message = f"{message}\n\n{notice}".strip() if message else notice
+                else:
+                    session.draft = new_draft
+                    session.baseline_spec = copy.deepcopy(new_draft.spec)
 
             # 7. Ask the whole question. "Repaired all findings" is a statement
             #    about the findings the quality gate can produce, and a plugin can
@@ -974,6 +1004,18 @@ class Orchestrator:
         """
         session = self.session(session_id)
 
+        # Clause 2.12: the preview has to describe the spec that would actually be
+        # packaged, and what gets packaged is the tree. Re-reading here is what
+        # stops the preview reporting completeness findings against a draft the
+        # agent superseded. An unreadable or unparseable spec leaves the draft
+        # alone (clause 2.11's fail-safe) and is reported by the spec validator
+        # below rather than aborting the preview.
+        if session.project_folder is not None:
+            try:
+                session.draft = _draft_from_folder(session.project_folder)
+            except (OSError, ValueError, YAMLError):
+                pass
+
         # Req 12.8: read prior versions first; abort (version unchanged) on failure.
         try:
             prior_versions = self._prior_versions(session.plugin_name)
@@ -1275,7 +1317,12 @@ class Orchestrator:
         ``None`` for the temporary directory.
         """
         if session.project_folder is not None:
-            session.project_folder.save(export_spec, generated_files=_as_generated(session.draft.code_files))
+            # Clause 2.11: the spec write is the version bump and vendor suffix,
+            # which is correct and required. The draft's code-file map is *not*
+            # written: with the draft a view of the tree, the tree is already the
+            # source of those files, and writing them back could only overwrite
+            # the agent's work with an older copy of it.
+            session.project_folder.save(export_spec)
             return session.project_folder.path, session.project_folder
 
         if self._projects_root is not None and export_spec.name:
@@ -1339,8 +1386,14 @@ def _suffix_vendor(draft: Draft) -> Draft:
 
 
 def _as_generated(code_files: Mapping[str, Any]) -> Dict[str, Any]:
-    """Coerce a draft's code-file mapping to the ``generated_files`` shape."""
-    return {str(path): content for path, content in code_files.items()}
+    """Coerce a draft's code-file mapping to the ``generated_files`` shape.
+
+    ``plugin.spec.yaml`` is dropped: :meth:`ProjectFolder.save` writes the spec
+    from the typed :class:`PluginSpec` it is given and *then* writes the generated
+    files over the tree, so a second, textual copy of the spec carried in a draft
+    read from disk would silently overwrite the spec being saved.
+    """
+    return {str(path): content for path, content in code_files.items() if str(path) != _SPEC_FILENAME}
 
 
 def _record_credits(session: SessionState, run: Any) -> None:
