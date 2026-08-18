@@ -231,6 +231,114 @@ class TestApiClient:
         assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.UNVERIFIED
 
 
+class TestTheErrorMapMayBeDefinedOrImported:
+    """The map counts when ``api.py`` defines it *or* imports it in-package (2.13).
+
+    The defect: requiring a literal definition in ``api.py`` contradicted the
+    rulebook. ``implementation.md`` puts ``HTTP_ERROR_MAP`` in
+    ``util/constants.py`` under "Constants Pattern" and has ``api.py`` map status
+    codes through it, so the condition was unmet for exactly the shape the
+    rulebook prescribes -- and was, for a plugin whose every endpoint had been
+    hand-verified.
+
+    Five placements, which is the enumeration this behaviour needs: defined here,
+    imported relatively, imported absolutely in-package, imported from outside the
+    package, and absent entirely.
+    """
+
+    #: A client that imports the map instead of defining it; ``{prelude}`` is the
+    #: import under test.
+    _IMPORTING_CLIENT = (
+        "import requests\n"
+        "{prelude}\n"
+        "\n"
+        "class ExampleApi:\n"
+        "    def check_ip(self, ip_address):\n"
+        '        return self._make_request("GET", "check")\n'
+        "\n"
+        "    def _make_request(self, method, path, **kwargs):\n"
+        "        response = requests.request(method, path, **kwargs)\n"
+        "        if response.status_code in HTTP_ERROR_MAP:\n"
+        "            raise ValueError(HTTP_ERROR_MAP[response.status_code])\n"
+        "        return response.json()\n"
+    )
+
+    def _with_constants(self, tmp_path, prelude: str, *, define_map: bool = True) -> Path:
+        root = _plugin(tmp_path, api_client=self._IMPORTING_CLIENT.format(prelude=prelude))
+        constants = "BASE_URL = 'https://api.example.com'\n"
+        if define_map:
+            constants += 'HTTP_ERROR_MAP = {401: "The API key is invalid."}\n'
+        (root / PACKAGE / "util" / "constants.py").write_text(constants, encoding="utf-8")
+        return root
+
+    def test_a_map_defined_in_the_client_module_is_still_met(self, tmp_path):
+        """The control: the fix adds to the assigned-name check, it does not replace it."""
+        root = _plugin(tmp_path)
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.MET
+
+    def test_a_relative_in_package_import_is_met(self, tmp_path):
+        root = self._with_constants(tmp_path, "from .constants import BASE_URL, HTTP_ERROR_MAP")
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.MET
+
+    def test_an_absolute_in_package_import_is_met(self, tmp_path):
+        root = self._with_constants(tmp_path, f"from {PACKAGE}.util.constants import BASE_URL, HTTP_ERROR_MAP")
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.MET
+
+    def test_an_import_from_outside_the_package_stays_unmet(self, tmp_path):
+        """A map that is not shipped with the plugin is not the plugin's map.
+
+        The client would fail on import in the tenant, so accepting this would let
+        the condition pass on a plugin that cannot start.
+        """
+        root = self._with_constants(tmp_path, "from shared_errors import HTTP_ERROR_MAP", define_map=False)
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.UNMET
+        assert "HTTP_ERROR_MAP" in _detail(root, CONDITION_API_CLIENT)
+
+    def test_neither_defined_nor_imported_stays_unmet(self, tmp_path):
+        root = self._with_constants(tmp_path, "from .constants import BASE_URL", define_map=False)
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.UNMET
+        assert "HTTP_ERROR_MAP" in _detail(root, CONDITION_API_CLIENT)
+
+    def test_the_detail_says_defined_or_imported_so_the_bar_is_legible(self, tmp_path):
+        """An operator reading ``no HTTP_ERROR_MAP`` cannot tell which bar applies."""
+        root = self._with_constants(tmp_path, "from .constants import BASE_URL", define_map=False)
+        assert "defined in or imported into" in _detail(root, CONDITION_API_CLIENT)
+
+    def test_a_dangling_import_is_left_to_the_linter(self, tmp_path):
+        """Imported from a module that does not define it -- accepted here, on purpose.
+
+        The linter and the compile check already report it with a file and a line.
+        Judging it again here would report one defect twice, and would point the
+        fixer at the client module rather than at the module actually missing the
+        name.
+        """
+        root = self._with_constants(tmp_path, "from .constants import BASE_URL, HTTP_ERROR_MAP", define_map=False)
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.MET
+
+    def test_the_other_two_halves_are_unchanged_by_an_imported_map(self, tmp_path):
+        """The condition has three halves and only one moved."""
+        no_helper = (
+            "from .constants import HTTP_ERROR_MAP\n\n\n"
+            "class ExampleApi:\n"
+            "    def check_ip(self, ip):\n"
+            "        return ip\n"
+        )
+        root = self._with_constants(tmp_path, "from .constants import BASE_URL, HTTP_ERROR_MAP")
+        (root / PACKAGE / "util" / "api.py").write_text(no_helper, encoding="utf-8")
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.UNMET
+        assert "_make_request" in _detail(root, CONDITION_API_CLIENT)
+
+        only_helper = (
+            "from .constants import HTTP_ERROR_MAP\n\n\n"
+            "class ExampleApi:\n"
+            "    def _make_request(self, method, path):\n"
+            "        return path\n"
+        )
+        (root / PACKAGE / "util" / "api.py").write_text(only_helper, encoding="utf-8")
+        assert _status(root, CONDITION_API_CLIENT) is ConditionStatus.UNMET
+        assert "domain method" in _detail(root, CONDITION_API_CLIENT)
+
+
 class TestComponentsUseTheClient:
     def test_an_action_making_its_own_request_is_unmet(self, tmp_path):
         root = _plugin(tmp_path, action=SELF_SERVICE_ACTION)

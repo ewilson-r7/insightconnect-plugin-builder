@@ -175,7 +175,11 @@ CONCRETE_OUTPUT_PATHS: Tuple[Tuple[str, str], ...] = (
 RECORDED_STALE_FINDING_COUNT = 16
 RECORDED_DISK_TOP_LEVEL_KEYS = 23
 RECORDED_CONTROL_FINDING_COUNT = 0
-RECORDED_CONTROL_OUTSTANDING = 2
+#: `bugfix.md` 1.8 records 2 -- ``formatted`` (Bug 2, 1.5) and ``api_client`` (1.9).
+#: Change 3 closed ``api_client``, so 1 remains. Change 5 closes ``formatted`` and
+#: this drops to 0. Tracked as the tool's current behaviour rather than left at the
+#: originally recorded figure, so a *different* count is still visible.
+RECORDED_CONTROL_OUTSTANDING = 1
 RECORDED_STALE_OUTSTANDING = 3
 
 

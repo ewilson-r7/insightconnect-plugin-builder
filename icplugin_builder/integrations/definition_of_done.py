@@ -504,6 +504,28 @@ def _defined_names(tree: ast.Module) -> Tuple[frozenset, frozenset]:
     return frozenset(functions), frozenset(assigned)
 
 
+def _imported_from_package(tree: ast.Module, name: str, package: str) -> bool:
+    """Return ``True`` iff ``tree`` imports ``name`` from within ``package``.
+
+    Two forms count, because both are in use: a relative import (``level > 0``,
+    which cannot leave the package) and an absolute one whose module is the
+    package or a submodule of it. An import from anywhere else does not count --
+    a map living outside the plugin is not shipped with the plugin, so a client
+    that reaches for it is broken on import in the tenant.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if not any(alias.name == name for alias in node.names):
+            continue
+        if node.level and node.level > 0:
+            return True
+        module = node.module or ""
+        if module == package or module.startswith(f"{package}."):
+            return True
+    return False
+
+
 def _api_client_condition(package_root: Path, package: str) -> ConditionResult:
     """Check that a real API client exists where the rulebook puts it.
 
@@ -511,6 +533,17 @@ def _api_client_condition(package_root: Path, package: str) -> ConditionResult:
     central request helper, the status-to-exception map -- plus at least one
     public domain method, since a client with nothing but ``_make_request`` gives
     the actions nothing to call.
+
+    The map counts as present when ``api.py`` either defines it or imports it from
+    within the plugin package (clause 2.13). Requiring a literal definition in
+    ``api.py`` contradicted the rulebook, which puts the map in
+    ``util/constants.py`` and has ``api.py`` map codes through it: the condition
+    was unmet for exactly the shape the rulebook prescribes.
+
+    A **dangling** import -- one naming a module that does not define the map -- is
+    deliberately accepted here. The linter and the compile check already report it,
+    with a file and a line; judging it again in this condition would report one
+    defect twice.
     """
     api_path = package_root.joinpath(*_API_CLIENT_PATH)
     relative = f"{package}/{'/'.join(_API_CLIENT_PATH)}"
@@ -527,8 +560,8 @@ def _api_client_condition(package_root: Path, package: str) -> ConditionResult:
     missing: List[str] = []
     if _MAKE_REQUEST not in functions:
         missing.append(f"no central {_MAKE_REQUEST}()")
-    if _ERROR_MAP not in assigned:
-        missing.append(f"no {_ERROR_MAP}")
+    if _ERROR_MAP not in assigned and not _imported_from_package(tree, _ERROR_MAP, package):
+        missing.append(f"no {_ERROR_MAP} defined in or imported into this module")
     if not domain_methods:
         missing.append("no public domain method for actions to call")
 

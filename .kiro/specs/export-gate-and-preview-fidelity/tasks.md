@@ -242,7 +242,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/orchestrator/test_draft_disk_parity_property.py`
     - **Validates: Requirements 2.11**
 
-- [ ] 5. Change 3 — `api_client` accepts an imported error map
+- [x] 5. Change 3 — `api_client` accepts an imported error map
   - **File**: `integrations/definition_of_done.py`, `_api_client_condition`
   - Alongside the existing assigned-name check, treat `HTTP_ERROR_MAP` as present when `api.py` imports it from within the plugin package: an `ast.ImportFrom` whose `names` include `HTTP_ERROR_MAP` and whose module is relative (`level > 0`) or begins with the package name
   - Report unmet only when the map is neither defined nor imported there
@@ -253,28 +253,28 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - _Preservation: 3.3 — the exclusion makes the bar measurable, it does not lower it_
   - _Requirements: 2.13_
 
-  - [ ] 5.1 Unit tests for `_api_client_condition`
+  - [x] 5.1 Unit tests for `_api_client_condition`
     - Defined in `api.py`; relative import; absolute in-package import; import from outside the package; neither
     - `tests/integrations/test_definition_of_done.py`
     - _Requirements: 2.13_
 
-  - [ ] 5.2 Property test: the error map may be defined or imported
+  - [x] 5.2 Property test: the error map may be defined or imported
     - **Property 65** — covered **example-based**, per the design: this is behavior at a source-parsing boundary where enumerated import forms are more informative than generated ones
     - Recorded here so its absence from the property suite is a choice and not an omission; follows the parent's own split at Properties 52–62
     - **Validates: Requirements 2.13**
 
-  - [ ] 5.3 Amend parent Requirement 27.1 — API client clause
+  - [x] 5.3 Amend parent Requirement 27.1 — API client clause
     - The API client's error map may be **defined in or imported into** the client module
     - Revision note in the parent `requirements.md`, per that document's convention
     - _Requirements: 2.14_
 
-  - [ ] 5.4 Verify the Bug 3 exploration tests now pass
+  - [x] 5.4 Verify the Bug 3 exploration tests now pass
     - **Property 1: Expected Behavior** — A Correct Plugin Reported As Broken
     - **IMPORTANT**: Re-run the SAME tests from tasks 1.6, 1.7, 1.8 — do NOT write new ones
     - **EXPECTED OUTCOME**: Tests PASS — 0 completeness findings, the `.plg` carries the agent's spec, `api_client` met
     - _Requirements: Expected Behavior for isBugCondition_3, clauses 2.11, 2.12, 2.13_
 
-  - [ ] 5.5 Verify preservation tests still pass
+  - [x] 5.5 Verify preservation tests still pass
     - **Property 2: Preservation** — Genuine Defects Are Still Reported
     - **IMPORTANT**: Re-run the SAME tests from task 2 — do NOT write new ones
     - In particular: a genuinely incomplete **on-disk** spec produces the same completeness findings as before, now read from disk

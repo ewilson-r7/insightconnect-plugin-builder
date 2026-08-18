@@ -399,9 +399,21 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 > finished to the standard the project sets". An operator is entitled to ship
 > something that works while knowing its coverage is thin. What they are not
 > entitled to is *not being told* -- hence 27.2 and 27.3, which are unaffected.
+>
+> **Revision note, 27.1's API client clause (export gate and preview fidelity
+> bugfix, clause 2.13).** The clause named an API client with centralized request
+> handling without saying where its status-to-exception map has to live, and the
+> check written against it required a literal definition inside the client module.
+> That contradicted the Agent_Rulebook, which puts `HTTP_ERROR_MAP` in
+> `util/constants.py` and has the client map codes through it -- so the condition
+> read unmet for precisely the shape the rulebook prescribes, on a plugin whose
+> every endpoint had been verified by hand. The clause now states that the map may
+> be defined in **or imported into** the client module from within the plugin
+> package. An import from outside the package does not count, because a map that is
+> not shipped with the plugin fails on import in the tenant.
 
 #### Acceptance Criteria
-1. THE Plugin_Builder SHALL treat a plugin as complete only when all of the following hold: the Insight_Plugin_CLI validate operation passes; the Agent_Rulebook's linter reports no findings against hand-written code; every hand-written Python file parses; the plugin exposes an API client with centralized request handling and per-action methods; the connection's connect and test operations are implemented rather than stubbed; unit tests covering each action pass; statement coverage of the plugin package meets the configured minimum; and a dependency manifest exists.
+1. THE Plugin_Builder SHALL treat a plugin as complete only when all of the following hold: the Insight_Plugin_CLI validate operation passes; the Agent_Rulebook's linter reports no findings against hand-written code; every hand-written Python file parses; the plugin exposes an API client with centralized request handling and per-action methods, whose status-to-exception map is either defined in or imported into the client module from within the plugin package; the connection's connect and test operations are implemented rather than stubbed; unit tests covering each action pass; statement coverage of the plugin package meets the configured minimum; and a dependency manifest exists.
 2. IF any Definition_Of_Done condition is unmet, THEN THE Plugin_Builder SHALL report the plugin as incomplete and SHALL name each unmet condition.
 3. THE Plugin_Builder SHALL NOT describe a plugin as complete, ready, or successful while any Definition_Of_Done condition is unmet.
 4. THE Plugin_Builder SHALL determine each Definition_Of_Done condition by executing a check, and SHALL NOT infer any of them from a Plugin_Agent's report of its own work.
