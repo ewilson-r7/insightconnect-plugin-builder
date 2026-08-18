@@ -558,51 +558,54 @@ class TestAxisOneAGenuinelyFailingTestIsStillReported:
             "test_suspend_user" in key for key in keys
         ), f"no test finding names test_suspend_user, so the failure is not identifiable from the keys: {keys}"
 
-    def test_the_pipeline_stage_does_not_name_the_test_on_unfixed_code(self, failing_test_tree: FailingTestObservation):
-        """A **correction to axis 2.1's text**, recorded rather than asserted as hope.
+    def test_the_pipeline_stage_now_names_the_failing_test(self, failing_test_tree: FailingTestObservation):
+        """A **correction to axis 2.1's text**, and the one axis-1 expectation the fix changes.
 
-        The task text says "stage fails, and the failure names the test". The
-        second half is not true of F: the stage is
-        ``docker run --rm <image> python -m pytest -q``, so its output is about an
-        image, never about ``test_suspend_user``. Task 1.1 measured the same thing
-        against the real tree, where a built image's ``ENTRYPOINT`` swallows the
-        arguments and argparse exits 2 for a passing suite and a failing one
-        alike.
+        The task text says "stage fails, and the failure names the test". The second
+        half was not true of F: the stage was
+        ``docker run --rm <image> python -m pytest -q``, so its output was about an
+        image and never about ``test_suspend_user`` -- and task 1.1 measured that a
+        built image's ``ENTRYPOINT`` swallows the arguments, so argparse exits 2 for a
+        passing suite and a failing one alike.
 
-        This is recorded as an observation of F. It is the one axis-1 expectation
-        the fix is *meant* to change, and change 7 is where it changes.
+        Change 7 runs the suite on the host, so the stage's output *is* the plugin's
+        own pytest output and the failing test is named. The **verdict is preserved**
+        -- a tree with a failing test still fails the stage -- which is the half axis 1
+        exists to protect, and is why the preservation property is stated over
+        verdicts rather than over message text. Re-pinned deliberately; the recorded
+        note said this flip was the improvement to expect here.
         """
         stage = failing_test_tree.stage
         assert stage is not None, "the pipeline recorded no test stage"
         assert not stage.passed, (
-            "the test stage passed for a tree whose tests fail, which would break the axis before the fix "
-            f"even starts: {stage.status.value} rc={stage.returncode}"
+            "the test stage passed for a tree whose tests fail, which is the regression axis 1 exists to "
+            f"catch: {stage.status.value} rc={stage.returncode}"
         )
         names_the_test = "test_suspend_user" in failing_test_tree.stage_text
         baseline = pin(
             "axis_1_stage_naming",
             {"stage_status": stage.status.value, "stage_names_the_failing_test": names_the_test},
             description=(
-                "The correction to task 2.1's axis-1 text. F's test stage fails for a tree with a failing "
-                "test, but its recorded output never names the test, because the stage runs pytest inside "
-                "the built plugin image rather than against the plugin's own suite. Recorded so the fix's "
-                "verification compares against what F did, not against what the axis text hoped."
+                "The correction to task 2.1's axis-1 text, now in its after-state. F's test stage failed "
+                "for a tree with a failing test but never named the test, because it ran pytest inside the "
+                "built plugin image rather than against the plugin's own suite. Change 7 runs it on the "
+                "host, so the stage's output is the plugin's own and the test is named. The verdict -- "
+                "failed -- is what axis 1 preserves, and it is unchanged."
             ),
             requirements=("3.1",),
             measured={
-                "stage_command_is_docker_run": True,
+                "stage_command_is_docker_run": False,
                 "note": (
-                    "change 7 is expected to flip stage_names_the_failing_test to true; that is the "
+                    "stage_names_the_failing_test flipped from false to true with change 7; that is the "
                     "improvement, and it is why the preservation property is stated over verdicts"
                 ),
             },
         )
         assert baseline.observed["stage_status"] == stage.status.value
-
-
-# ---------------------------------------------------------------------------
-# Axis 2 -- a genuine hand-written defect
-# ---------------------------------------------------------------------------
+        assert names_the_test, (
+            "the test stage's recorded output does not name test_suspend_user even though it now runs the "
+            f"plugin's own suite: {failing_test_tree.stage_text[-400:]!r}"
+        )
 
 
 @pytest.fixture(scope="module")

@@ -40,7 +40,7 @@ from ..core.plugin_files import (
     is_lint_excluded,
 )
 from .build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile, resolve_lint_profile
-from .plugin_tests import run_unit_tests
+from .plugin_tests import UnitTestRun, run_unit_tests
 
 __all__ = [
     "SOURCE_COMPILE",
@@ -138,6 +138,12 @@ class QualityReport:
             same reason: a ``would-reformat`` finding raised at 120 columns and
             one raised at black's own narrower default are indistinguishable
             otherwise.
+        unit_test_run: the run this report's test findings were derived from, or
+            ``None`` when the tests were not run. Carried so a caller can hand it
+            to the ``Code_Validator``'s ``test`` stage instead of executing the
+            suite a second time (clause 2.4) -- and so the two subsystems reach
+            their different judgments from one execution rather than from two that
+            could disagree.
     """
 
     project_dir: Path
@@ -147,6 +153,7 @@ class QualityReport:
     coverage_percent: Optional[float] = None
     lint_profile: Optional[LintProfile] = None
     line_length: Optional[int] = None
+    unit_test_run: Optional[UnitTestRun] = None
 
     @property
     def clean(self) -> bool:
@@ -288,10 +295,17 @@ class QualityGate:
         skipped.extend(prospector_skip)
 
         coverage_percent: Optional[float] = None
+        unit_test_run: Optional[UnitTestRun] = None
         if self._run_tests:
-            test_findings, test_skip, coverage_percent = await self._check_tests(root)
+            unit_test_run = await run_unit_tests(
+                root,
+                python_executable=self._python,
+                timeout_seconds=self._timeout,
+            )
+            test_findings, test_skip = self._check_tests(unit_test_run)
             findings.extend(test_findings)
             skipped.extend(test_skip)
+            coverage_percent = unit_test_run.coverage_percent
         else:
             # Switched off by the caller rather than unavailable, but the
             # reporting consequence is the same: nothing was learned about the
@@ -308,6 +322,7 @@ class QualityGate:
             coverage_percent=coverage_percent,
             lint_profile=self.lint_profile(),
             line_length=self._line_length,
+            unit_test_run=unit_test_run,
         )
 
     async def _check_compile(self, root: Path, files: Sequence[str]) -> Tuple[List[CodeFinding], List[str]]:
@@ -470,11 +485,12 @@ class QualityGate:
             )
         return findings, skipped
 
-    async def _check_tests(self, root: Path) -> Tuple[List[CodeFinding], List[str], Optional[float]]:
-        """Turn one :class:`UnitTestRun` into findings, skip notes, and a coverage figure.
+    def _check_tests(self, run: UnitTestRun) -> Tuple[List[CodeFinding], List[str]]:
+        """Turn one :class:`UnitTestRun` into findings and skip notes.
 
-        A thin adapter, deliberately. The *mechanics* of running a plugin's tests
-        live in :mod:`~icplugin_builder.integrations.plugin_tests`, because the
+        A thin adapter, and a **pure** one: no subprocess, no filesystem, no
+        decision about how the tests are run. The mechanics live in
+        :mod:`~icplugin_builder.integrations.plugin_tests`, because the
         ``Code_Validator``'s ``test`` stage needs the same run and the two used to
         derive it separately -- which is how they came to report opposite outcomes
         for one tree. What stays here is the judgment this gate owns: which outcomes
@@ -488,14 +504,9 @@ class QualityGate:
         fixed it has finished.
 
         Returns:
-            The findings, the notes about checks that did not run, and the coverage
-            percentage actually measured (``None`` when it was not).
+            The findings and the notes about checks that did not run. The coverage
+            percentage is read from the run itself by the caller.
         """
-        run = await run_unit_tests(
-            root,
-            python_executable=self._python,
-            timeout_seconds=self._timeout,
-        )
         findings: List[CodeFinding] = []
         skipped = list(run.skipped)
 
@@ -509,8 +520,8 @@ class QualityGate:
                         message="no unit_test/ directory; every action needs unit tests",
                     )
                 )
-                return findings, [], None
-            return findings, skipped, None
+                return findings, []
+            return findings, skipped
 
         if run.no_tests:
             findings.append(
@@ -521,7 +532,7 @@ class QualityGate:
                     message="unit_test/ contains no runnable tests",
                 )
             )
-            return findings, skipped, None
+            return findings, skipped
 
         for failure in run.failures:
             findings.append(
@@ -563,7 +574,7 @@ class QualityGate:
                     ),
                 )
             )
-        return findings, skipped, run.coverage_percent
+        return findings, skipped
 
     async def _run(self, command: Sequence[str], *, cwd: Path) -> Optional[Tuple[int, str, str]]:
         """Run a check command, returning ``None`` when its tool is unavailable."""

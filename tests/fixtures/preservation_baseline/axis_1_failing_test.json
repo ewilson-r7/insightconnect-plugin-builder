@@ -4,8 +4,8 @@
   "measured": {
     "docker_available": true,
     "note": "returncode and message are recorded, not asserted: change 7 replaces the in-image docker run with a host run, so both are expected to change while the verdict does not",
-    "test_stage_message": "test stage failed with exit code 125",
-    "test_stage_returncode": 125
+    "test_stage_message": "1 unit test(s) failed: TestSuspendUser::test_suspend_user (host run under /Users/ewilson/.pyenv/versions/3.13.3/bin/python)",
+    "test_stage_returncode": 1
   },
   "observed": {
     "conditions": {
@@ -45,7 +45,7 @@
     "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
     "python": "3.13.3",
     "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
-    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "recorded_utc": "2026-08-18T22:49:22+00:00",
     "tools": {
       "black": "black, 25.11.0 (compiled: yes)",
       "docker": "Docker version 29.7.2, build a7dcaa6",

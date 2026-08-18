@@ -15,7 +15,9 @@ import json
 
 from icplugin_builder.integrations import code_validator as cv
 from icplugin_builder.integrations.build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile
+from icplugin_builder.integrations.plugin_tests import UnitTestFailure, UnitTestRun
 from icplugin_builder.integrations.code_validator import (
+    DEFAULT_STAGE_TIMEOUT_SECONDS,
     DOCKER_UNAVAILABLE_MESSAGE,
     CodeValidator,
     PipelineReport,
@@ -85,6 +87,18 @@ def prospector_findings(*messages) -> bytes:
     return json.dumps(payload).encode("utf-8")
 
 
+def plugin_tree(root):
+    """Give ``root`` the unit_test/ directory the host test stage needs.
+
+    The stage fails closed on a tree with no tests (clause 2.3), which is correct
+    and is asserted on its own below -- so a fixture meant to exercise the
+    *all-stages-pass* path has to carry one.
+    """
+    (root / "unit_test").mkdir(parents=True, exist_ok=True)
+    (root / "unit_test" / "test_it.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    return root
+
+
 def all_pass_router(command):
     """A router where every command (docker probe + all stages) succeeds."""
     if command[0] == "prospector":
@@ -120,7 +134,7 @@ class TestRunPipelineAllPass:
         record = []
         install_router(monkeypatch, all_pass_router, record=record)
 
-        report = asyncio.run(CodeValidator().run_pipeline(tmp_path))
+        report = asyncio.run(CodeValidator().run_pipeline(plugin_tree(tmp_path)))
 
         assert isinstance(report, PipelineReport)
         assert [stage.name for stage in report.stages] == list(StageName.ORDER)
@@ -135,6 +149,7 @@ class TestRunPipelineAllPass:
         class TreeLike:
             root = tmp_path
 
+        plugin_tree(tmp_path)
         report = asyncio.run(CodeValidator().run_pipeline(TreeLike()))
         assert report.project_dir == tmp_path
         assert report.passed is True
@@ -161,7 +176,7 @@ class TestRunPipelineFailures:
             return FakeProcess(returncode=0)
 
         install_router(monkeypatch, router)
-        report = asyncio.run(CodeValidator().run_pipeline(tmp_path))
+        report = asyncio.run(CodeValidator().run_pipeline(plugin_tree(tmp_path)))
 
         lint = report.stage(StageName.LINT)
         assert lint.status is StageStatus.FAILED
@@ -212,7 +227,10 @@ class TestDockerUnavailable:
                 raise FileNotFoundError(2, "no docker")
             if command[0] == "prospector":
                 return FakeProcess(returncode=0, stdout=PROSPECTOR_CLEAN)
-            # No other command should be invoked when Docker is unavailable.
+            # The test stage runs the plugin's tests on the host, so a pytest
+            # invocation here is expected rather than a surprise.
+            if "pytest" in command:
+                return FakeProcess(returncode=5, stdout=b"no tests ran")
             raise AssertionError(f"unexpected command executed: {command}")
 
         install_router(monkeypatch, router)
@@ -221,10 +239,16 @@ class TestDockerUnavailable:
         assert report.docker_available is False
         assert report.docker_message == DOCKER_UNAVAILABLE_MESSAGE
         assert report.stage(StageName.LINT).status is StageStatus.PASSED
-        for name in (StageName.BUILD, StageName.TEST, StageName.VALIDATE):
+        # Clause 2.1's recorded consequence: lint *and* test now yield real results
+        # on a host with no engine, so an operator gets more partial feedback
+        # offline. The gate's conjunction is untouched -- build and validate still
+        # cannot run, so export is still blocked.
+        for name in (StageName.BUILD, StageName.VALIDATE):
             stage = report.stage(name)
             assert stage.status is StageStatus.FAILED
             assert stage.message == DOCKER_UNAVAILABLE_MESSAGE
+        test_stage = report.stage(StageName.TEST)
+        assert test_stage.message != DOCKER_UNAVAILABLE_MESSAGE
         assert report.passed is False
 
 
@@ -388,12 +412,178 @@ class TestReportHelpers:
         report = asyncio.run(CodeValidator().run_pipeline(tmp_path))
         assert report.stage("does-not-exist") is None
 
-    def test_custom_test_command_substitutes_image_tag(self, tmp_path, monkeypatch):
+    def test_no_docker_run_is_dispatched_for_the_tests(self, tmp_path, monkeypatch):
+        """Clause 2.1: the tests are a host run, so nothing is aimed at the image.
+
+        Replaces a check that the in-container command substituted the image tag.
+        That override existed only to point the stage at a container, and the
+        container provably carries neither the tests nor pytest -- so its verdict was
+        independent of the plugin for every tag.
+        """
         record = []
         install_router(monkeypatch, all_pass_router, record=record)
 
-        validator = CodeValidator(test_command=("docker", "run", "{image}", "pytest"))
-        asyncio.run(validator.run_pipeline(tmp_path, image_tag="myplugin:1.0"))
+        asyncio.run(CodeValidator().run_pipeline(tmp_path, image_tag="myplugin:1.0"))
 
-        test_calls = [cmd for cmd, _ in record if cmd[:2] == ["docker", "run"]]
-        assert test_calls == [["docker", "run", "myplugin:1.0", "pytest"]]
+        assert [cmd for cmd, _ in record if cmd[:2] == ["docker", "run"]] == []
+        assert [cmd for cmd, _ in record if cmd[:2] == ["docker", "build"]] == [
+            ["docker", "build", "-t", "myplugin:1.0", "."]
+        ]
+
+
+class TestTheTestStageRunsOnTheHost:
+    """Clause 2.1-2.3 -- the stage's verdict is the plugin's own, or an honest fail.
+
+    The stage used to run ``docker run --rm <image> python -m pytest -q`` against an
+    image carrying neither the tests (the generated ``.dockerignore`` excludes
+    ``unit_test/**/*``) nor pytest (the runtime image correctly declares no test
+    dependencies), so it failed for **every** plugin ever built and the only edits
+    that would have fixed it are to two files the Agent_Rulebook forbids touching.
+
+    Option (a) was taken deliberately: the stage no longer establishes that the
+    tests pass *in the shipping environment*. That intent is unreachable without
+    those forbidden edits, and the Quality_Gate already ran them on the host
+    successfully -- so the change removes a state in which two subsystems
+    contradicted each other about one plugin.
+    """
+
+    def _tree(self, root, *, tests="def test_ok():\n    assert True\n"):
+        (root / "unit_test").mkdir(parents=True, exist_ok=True)
+        (root / "unit_test" / "test_it.py").write_text(tests, encoding="utf-8")
+        (root / "icon_x").mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _stage(self, root, monkeypatch, *, pytest_process=None):
+        def router(command):
+            if command[0] == "prospector":
+                return FakeProcess(returncode=0, stdout=PROSPECTOR_CLEAN)
+            if "pytest" in command and pytest_process is not None:
+                return pytest_process
+            return FakeProcess(returncode=0, stdout=b"ok")
+
+        install_router(monkeypatch, router)
+        report = asyncio.run(CodeValidator(test_python_executable="host-python").run_pipeline(root))
+        return report.stage(StageName.TEST)
+
+    def test_a_passing_suite_passes_the_stage(self, tmp_path):
+        run = UnitTestRun(interpreter="host-python", ran=True, returncode=0, output="1 passed")
+        stage = CodeValidator(test_python_executable="host-python")._judge_tests(run)
+        assert stage.status is StageStatus.PASSED
+        assert "host-python" in stage.message
+        assert stage.stdout == "1 passed"
+
+    def test_a_failing_suite_fails_the_stage_and_names_the_tests(self, tmp_path):
+        run = UnitTestRun(
+            interpreter="host-python",
+            ran=True,
+            returncode=1,
+            output="FAILED unit_test/test_it.py::test_bad",
+            failures=(UnitTestFailure(path="unit_test/test_it.py", line=2, name="test_bad"),),
+        )
+        stage = CodeValidator(test_python_executable="host-python")._judge_tests(run)
+        assert stage.status is StageStatus.FAILED
+        assert "test_bad" in stage.message
+        assert "host-python" in stage.message
+
+    def test_a_timeout_is_recorded_as_a_timeout_not_a_failure(self, tmp_path):
+        run = UnitTestRun(interpreter="host-python", timed_out=True)
+        validator = CodeValidator(test_python_executable="host-python", stage_timeout_seconds=600.0)
+        stage = validator._judge_tests(run)
+        assert stage.status is StageStatus.TIMED_OUT
+        assert stage.timed_out is True
+        assert "600s" in stage.message and "aborted" in stage.message
+
+    def test_the_600s_threshold_is_what_the_stage_asks_for(self, tmp_path):
+        """Req 8.8 still applies, now to the host run."""
+        assert DEFAULT_STAGE_TIMEOUT_SECONDS == 600.0
+        spec = next(
+            s
+            for s in CodeValidator(test_python_executable="host-python")._stage_specs("tag", tmp_path)
+            if s.name == StageName.TEST
+        )
+        assert spec.timeout_seconds == 600.0
+
+    def test_no_unit_test_directory_fails_closed(self, tmp_path):
+        run = UnitTestRun(interpreter="host-python", no_tests=True, message="no unit_test/ directory")
+        stage = CodeValidator(test_python_executable="host-python")._judge_tests(run)
+        assert stage.status is StageStatus.FAILED, "an unrunnable check must never pass quietly"
+        assert "unit_test/" in stage.message
+        assert "host-python" in stage.message
+
+    def test_no_qualifying_interpreter_fails_closed_naming_the_reason(self, tmp_path):
+        run = UnitTestRun(
+            interpreter=None,
+            skipped=("tests (no interpreter can import both insightconnect_plugin_runtime and pytest)",),
+            message="the plugin's unit tests could not be run: no interpreter can import both",
+        )
+        stage = CodeValidator()._judge_tests(run)
+        assert stage.status is StageStatus.FAILED
+        assert "could not be run" in stage.message
+
+    def test_pytest_absent_is_reported_with_remediation_and_never_installed(self, tmp_path):
+        """SCOPE-12 -- the absence is reported, not remedied."""
+        run = UnitTestRun(interpreter="host-python", message="host-python -m pytest is not available")
+        stage = CodeValidator(test_python_executable="host-python")._judge_tests(run)
+        assert stage.status is StageStatus.FAILED
+        assert "Install pytest" in stage.message
+        assert "host-python" in stage.message
+
+    def test_a_collection_error_fails_closed(self, tmp_path):
+        run = UnitTestRun(interpreter="host-python", ran=True, returncode=2, output="ERROR collecting")
+        stage = CodeValidator(test_python_executable="host-python")._judge_tests(run)
+        assert stage.status is StageStatus.FAILED
+        assert "exited 2" in stage.message
+
+    def test_the_stage_runs_with_docker_absent(self, tmp_path, monkeypatch):
+        """A host-run check has no reason to depend on the engine."""
+
+        def router(command):
+            if command[:2] == ["docker", "version"]:
+                raise FileNotFoundError(2, "no docker")
+            if command[0] == "prospector":
+                return FakeProcess(returncode=0, stdout=PROSPECTOR_CLEAN)
+            if "pytest" in command:
+                return FakeProcess(returncode=0, stdout=b"1 passed")
+            raise AssertionError(f"unexpected command executed: {command}")
+
+        install_router(monkeypatch, router)
+        report = asyncio.run(CodeValidator(test_python_executable="host-python").run_pipeline(self._tree(tmp_path)))
+        stage = report.stage(StageName.TEST)
+        assert stage.status is StageStatus.PASSED
+        assert report.docker_available is False
+        # The gate's conjunction is untouched: build and validate still cannot run.
+        assert report.passed is False
+
+    def test_a_precomputed_run_is_reused_rather_than_running_the_suite_twice(self, tmp_path, monkeypatch):
+        """Clause 2.4 -- one execution per export, one interpreter, one verdict."""
+        record = []
+        install_router(monkeypatch, all_pass_router, record=record)
+        supplied = UnitTestRun(interpreter="already-ran", ran=True, returncode=0, output="1 passed")
+
+        report = asyncio.run(
+            CodeValidator(test_python_executable="host-python").run_pipeline(
+                self._tree(tmp_path), unit_test_run=supplied
+            )
+        )
+
+        stage = report.stage(StageName.TEST)
+        assert stage.status is StageStatus.PASSED
+        assert "already-ran" in stage.message
+        assert [cmd for cmd, _ in record if "pytest" in cmd] == [], "the suite was executed a second time"
+
+    def test_without_a_precomputed_run_the_stage_runs_its_own(self, tmp_path, monkeypatch):
+        """A caller holding only the validator still gets a verdict."""
+        record = []
+
+        def router(command):
+            record.append(command)
+            if command[0] == "prospector":
+                return FakeProcess(returncode=0, stdout=PROSPECTOR_CLEAN)
+            if "pytest" in command:
+                return FakeProcess(returncode=0, stdout=b"1 passed")
+            return FakeProcess(returncode=0, stdout=b"ok")
+
+        install_router(monkeypatch, router)
+        report = asyncio.run(CodeValidator(test_python_executable="host-python").run_pipeline(self._tree(tmp_path)))
+        assert report.stage(StageName.TEST).status is StageStatus.PASSED
+        assert [cmd for cmd in record if "pytest" in cmd], "the stage never ran the suite"

@@ -93,7 +93,7 @@ class FakeCodeValidator:
         self.passing = passing
         self.calls = []
 
-    async def run_pipeline(self, project, *, image_tag=None):
+    async def run_pipeline(self, project, *, image_tag=None, unit_test_run=None):
         self.calls.append(project)
         status = StageStatus.PASSED if self.passing else StageStatus.FAILED
         stages = tuple(

@@ -34,9 +34,10 @@ from .build_prep import resolve_test_interpreter
 
 __all__ = [
     "DEFAULT_TEST_TIMEOUT_SECONDS",
-    "TestFailure",
+    "UnitTestFailure",
     "UnitTestRun",
     "run_unit_tests",
+    "unit_test_command",
 ]
 
 #: The abort threshold for a unit test run. Matches the four-stage pipeline's own
@@ -56,7 +57,7 @@ _NO_TESTS = ("no tests ran", "no tests collected")
 
 
 @dataclass(frozen=True)
-class TestFailure:
+class UnitTestFailure:
     """One failing test, located.
 
     Attributes:
@@ -107,7 +108,7 @@ class UnitTestRun:
     ran: bool = False
     no_tests: bool = False
     timed_out: bool = False
-    failures: Tuple[TestFailure, ...] = ()
+    failures: Tuple[UnitTestFailure, ...] = ()
     returncode: Optional[int] = None
     output: str = ""
     coverage_percent: Optional[float] = None
@@ -166,6 +167,18 @@ async def _run(command: Sequence[str], *, cwd: Path, timeout_seconds: float) -> 
     returncode = process.returncode if process.returncode is not None else -1
     output = stdout_bytes.decode("utf-8", errors="replace") + stderr_bytes.decode("utf-8", errors="replace")
     return _Completed(returncode=returncode, output=output)
+
+
+def unit_test_command(interpreter: str) -> Tuple[str, ...]:
+    """The base pytest invocation, without the coverage flags.
+
+    Shared so the ``test`` stage's *description* of what it will run and what
+    :func:`run_unit_tests` actually runs cannot drift apart. Coverage flags are
+    added by the runner, and only after probing that ``pytest-cov`` is importable:
+    passing ``--cov`` without it makes pytest reject the whole argument vector, so
+    the tests would not run at all and the failure would read as the plugin's.
+    """
+    return (str(interpreter), "-m", "pytest", UNIT_TEST_DIR, "-q", "--no-header")
 
 
 async def _terminate(process: "asyncio.subprocess.Process") -> None:
@@ -233,7 +246,7 @@ async def run_unit_tests(
         )
 
     package = package_dir(root)
-    command = [str(interpreter), "-m", "pytest", UNIT_TEST_DIR, "-q", "--no-header"]
+    command = list(unit_test_command(interpreter))
 
     # Coverage is only requested when the plugin's interpreter actually has
     # pytest-cov. Passing --cov without it makes pytest reject the whole argument
@@ -268,7 +281,7 @@ async def run_unit_tests(
             message=f"{UNIT_TEST_DIR}/ contains no runnable tests",
         )
 
-    failures = tuple(TestFailure(path=path, line=line, name=name) for path, line, name in _pytest_failures(output))
+    failures = tuple(UnitTestFailure(path=path, line=line, name=name) for path, line, name in _pytest_failures(output))
 
     percent: Optional[float] = None
     if with_coverage and package:

@@ -183,11 +183,19 @@ class TestTheGateAdapterIsFindingForFindingIdentical:
     preservation baselines beside this file assert the same thing over whole trees.
     """
 
-    def _gate_output(self, root):
+    def _gate_output(self, root, *, interpreter=INTERPRETER, **gate_kwargs):
+        """Run the tests once, then hand the run to the adapter.
+
+        The adapter is a pure function of the run now, so the two steps are
+        separate here as well: what is asserted below is the *translation*, not the
+        running.
+        """
         from icplugin_builder.integrations.quality_gate import QualityGate
 
-        gate = QualityGate(python_executable=INTERPRETER, run_tests=True)
-        return asyncio.run(gate._check_tests(Path(root)))
+        run = _run(root, python_executable=interpreter)
+        gate = QualityGate(python_executable=interpreter, run_tests=True, **gate_kwargs)
+        findings, skipped = gate._check_tests(run)
+        return findings, skipped, run.coverage_percent
 
     def test_a_missing_directory_keeps_its_finding_shape(self, tmp_path):
         findings, skipped, percent = self._gate_output(_tree(tmp_path))
@@ -219,11 +227,8 @@ class TestTheGateAdapterIsFindingForFindingIdentical:
         assert len(keys) == len(set(keys)) == 2, keys
 
     def test_a_missing_interpreter_keeps_its_skip_note(self, tmp_path):
-        from icplugin_builder.integrations.quality_gate import QualityGate
-
         root = _tree(tmp_path, tests="def test_ok():\n    assert True\n")
-        gate = QualityGate(python_executable="/nonexistent/python", run_tests=True)
-        findings, skipped, percent = asyncio.run(gate._check_tests(Path(root)))
+        findings, skipped, percent = self._gate_output(root, interpreter="/nonexistent/python")
         assert findings == []
         assert skipped == ["tests (/nonexistent/python -m pytest not available)"]
         assert percent is None

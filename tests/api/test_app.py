@@ -43,7 +43,7 @@ from icplugin_builder.api.config import AccessConfig, NetworkConfig
 class FakeCodeValidator:
     """A code validator whose four-stage pipeline always passes."""
 
-    async def run_pipeline(self, project, *, image_tag=None):
+    async def run_pipeline(self, project, *, image_tag=None, unit_test_run=None):
         stages = tuple(
             StageResult(
                 name=name,
@@ -66,7 +66,7 @@ class FakeBlockingCodeValidator:
     stages exit non-zero, so the export gate refuses to build.
     """
 
-    async def run_pipeline(self, project, *, image_tag=None):
+    async def run_pipeline(self, project, *, image_tag=None, unit_test_run=None):
         failed = {StageName.LINT, StageName.TEST}
         stages = tuple(
             StageResult(

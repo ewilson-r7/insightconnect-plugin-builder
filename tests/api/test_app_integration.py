@@ -63,7 +63,7 @@ from icplugin_builder.security.access_controller import AccessController, hash_p
 class FakeCodeValidator:
     """A code validator whose four-stage pipeline always passes."""
 
-    async def run_pipeline(self, project, *, image_tag=None):
+    async def run_pipeline(self, project, *, image_tag=None, unit_test_run=None):
         stages = tuple(
             StageResult(
                 name=name,

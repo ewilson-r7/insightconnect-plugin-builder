@@ -1,12 +1,12 @@
 {
   "axis": "axis_1_stage_naming",
-  "description": "The correction to task 2.1's axis-1 text. F's test stage fails for a tree with a failing test, but its recorded output never names the test, because the stage runs pytest inside the built plugin image rather than against the plugin's own suite. Recorded so the fix's verification compares against what F did, not against what the axis text hoped.",
+  "description": "The correction to task 2.1's axis-1 text, now in its after-state. F's test stage failed for a tree with a failing test but never named the test, because it ran pytest inside the built plugin image rather than against the plugin's own suite. Change 7 runs it on the host, so the stage's output is the plugin's own and the test is named. The verdict -- failed -- is what axis 1 preserves, and it is unchanged.",
   "measured": {
-    "note": "change 7 is expected to flip stage_names_the_failing_test to true; that is the improvement, and it is why the preservation property is stated over verdicts",
-    "stage_command_is_docker_run": true
+    "note": "stage_names_the_failing_test flipped from false to true with change 7; that is the improvement, and it is why the preservation property is stated over verdicts",
+    "stage_command_is_docker_run": false
   },
   "observed": {
-    "stage_names_the_failing_test": false,
+    "stage_names_the_failing_test": true,
     "stage_status": "failed"
   },
   "provenance": {
@@ -15,7 +15,7 @@
     "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
     "python": "3.13.3",
     "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
-    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "recorded_utc": "2026-08-18T22:49:22+00:00",
     "tools": {
       "black": "black, 25.11.0 (compiled: yes)",
       "docker": "Docker version 29.7.2, build a7dcaa6",

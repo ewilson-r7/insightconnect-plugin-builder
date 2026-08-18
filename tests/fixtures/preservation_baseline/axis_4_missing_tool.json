@@ -34,7 +34,7 @@
     "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
     "python": "3.13.3",
     "python_executable": "/Users/ewilson/Documents/GitHub/insightconnect-plugin-builder/.venv/bin/python",
-    "recorded_utc": "2026-08-18T12:43:51+00:00",
+    "recorded_utc": "2026-08-18T22:49:22+00:00",
     "tools": {
       "black": "black, 25.11.0 (compiled: yes)",
       "docker": "Docker version 29.7.2, build a7dcaa6",

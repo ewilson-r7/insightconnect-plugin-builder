@@ -732,7 +732,7 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     """
     from ..integrations.agent_config import AgentConfigError, missing_resources, write_agent_config
     from ..integrations.build_engine import BuildEngine
-    from ..integrations.build_prep import resolve_target_python
+    from ..integrations.build_prep import resolve_target_python, resolve_test_interpreter
     from ..integrations.code_validator import CodeValidator
     from ..integrations.export_manager import ExportManager
     from ..integrations.insight_plugin_cli import InsightPluginCli
@@ -785,6 +785,14 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     # target is resolved (never hardcoded) per the build-prep workflow.
     resolved_python = resolve_target_python()
     target_python = resolved_python.executable or "python3"
+
+    # Clause 2.3: the plugin's unit tests need one interpreter that can import both
+    # the SDK and pytest. Resolved separately from the toolchain interpreter above
+    # because on a split host they are not the same, and a stage that assumes they
+    # are reports the host's problem as the plugin's. `None` when nothing qualifies,
+    # which the test stage turns into a fail naming what it tried and why.
+    resolved_test_python = resolve_test_interpreter()
+    test_python = resolved_test_python.executable
     if not resolved_python.is_target_series:
         logger.warning("plugin unit tests will run under an unverified interpreter: %s", resolved_python.detail)
 
@@ -807,12 +815,15 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
         # environment, so the validate stage runs under the same interpreter the
         # plugin's own tests do.
         validate_python_executable=target_python,
+        test_python_executable=test_python,
     )
 
     # One quality gate, shared by the repair loop (implementation path) and the
     # orchestrator (export path). It holds no state, and sharing it keeps both
     # paths judging the code by the same checks and the same interpreter.
-    quality_gate = QualityGate(python_executable=target_python)
+    # The gate runs the plugin's tests too, so it uses the same interpreter the
+    # test stage does -- one execution, one interpreter, one verdict.
+    quality_gate = QualityGate(python_executable=test_python or target_python)
 
     # Build + export
     build_engine = BuildEngine()

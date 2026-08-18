@@ -53,7 +53,7 @@ __all__ = [
     "SDK_IMPORT_MODULE",
     "TEST_RUNNER_MODULE",
     "InterpreterRejection",
-    "TestInterpreter",
+    "InterpreterResolution",
     "resolve_test_interpreter",
     "parse_sdk_changelog_version",
     "parse_pyenv_versions",
@@ -207,7 +207,7 @@ class InterpreterRejection:
 
 
 @dataclass(frozen=True)
-class TestInterpreter:
+class InterpreterResolution:
     """The interpreter a plugin's unit tests can actually be run under.
 
     Attributes:
@@ -250,7 +250,7 @@ def _missing_imports(
 def resolve_test_interpreter(
     candidates: Optional[Sequence[str]] = None,
     series: str = TARGET_PYTHON_SERIES,
-) -> TestInterpreter:
+) -> InterpreterResolution:
     """Resolve an interpreter that can run a generated plugin's unit tests.
 
     Requires a single interpreter that can import **both** the InsightConnect SDK
@@ -272,7 +272,7 @@ def resolve_test_interpreter(
         series: the target version series for the pyenv candidate.
 
     Returns:
-        A :class:`TestInterpreter`. When nothing qualifies, ``resolved`` is
+        A :class:`InterpreterResolution`. When nothing qualifies, ``resolved`` is
         ``False`` and ``detail`` names every candidate with the imports it lacked,
         so the report can say why the tests could not run rather than that they
         failed. **``pytest`` is never installed to make a candidate qualify**
@@ -298,13 +298,15 @@ def resolve_test_interpreter(
         source = PYTHON_SOURCE_PYENV if target.is_target_series else PYTHON_SOURCE_FALLBACK
 
     if not ordered:
-        return TestInterpreter(executable=None, detail="no Python interpreter could be found to run the tests with")
+        return InterpreterResolution(
+            executable=None, detail="no Python interpreter could be found to run the tests with"
+        )
 
     rejections: List[InterpreterRejection] = []
     for candidate in ordered:
         missing = _missing_imports(candidate)
         if not missing:
-            return TestInterpreter(
+            return InterpreterResolution(
                 executable=candidate,
                 source=source,
                 detail=f"{candidate} can import both {SDK_IMPORT_MODULE} and {TEST_RUNNER_MODULE}",
@@ -315,7 +317,7 @@ def resolve_test_interpreter(
             )
         rejections.append(InterpreterRejection(executable=candidate, missing=missing))
 
-    return TestInterpreter(
+    return InterpreterResolution(
         executable=None,
         source=source,
         detail=(

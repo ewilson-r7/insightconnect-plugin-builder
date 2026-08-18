@@ -143,6 +143,10 @@ class MockedExternalProcesses:
             return "agent"
         if argv[0] == "prospector":
             return StageName.LINT
+        # Clause 2.1: the plugin's unit tests are a host run now, not a `docker run`
+        # against the built image.
+        if "pytest" in argv:
+            return StageName.TEST
         if argv[:2] == ["docker", "version"]:
             return "docker_probe"
         if argv[:2] == ["docker", "build"]:
@@ -249,8 +253,17 @@ def _seed_project(projects_root, *, name="acme_widget", vendor="acme"):
     """Create a Project_Folder on disk so iterate mode can load it (the 'create')."""
     spec = _make_spec(name=name, vendor=vendor)
     folder = ProjectFolder.create(projects_root, name, spec)
-    # Persist a couple of files so the working tree is non-empty for packaging.
-    folder.save(spec, generated_files={"README.md": "hello\n", "plugin.py": "# plugin\n"})
+    # Persist a couple of files so the working tree is non-empty for packaging, and
+    # a unit test so the host test stage has something to run: the stage fails closed
+    # on a tree with no tests (clause 2.3), which is asserted on its own elsewhere.
+    folder.save(
+        spec,
+        generated_files={
+            "README.md": "hello\n",
+            "plugin.py": "# plugin\n",
+            "unit_test/test_plugin.py": "def test_ok():\n    assert True\n",
+        },
+    )
     return folder
 
 

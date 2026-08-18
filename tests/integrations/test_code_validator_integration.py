@@ -89,7 +89,7 @@ class MockDockerEngine:
             return StageName.LINT
         if command[:2] == ["docker", "build"]:
             return StageName.BUILD
-        if command[:2] == ["docker", "run"]:
+        if "pytest" in command:
             return StageName.TEST
         # The validate stage runs icon_validator's own validator list under the
         # toolchain's interpreter rather than shelling `insight-plugin validate`,
@@ -143,11 +143,23 @@ class MockDockerEngine:
         return [self.classify(argv) for argv, _ in self.dispatched]
 
 
+def _plugin_tree(root):
+    """Give ``root`` the unit_test/ directory the host test stage needs.
+
+    The stage fails closed on a tree with no tests (clause 2.3), so a fixture
+    exercising the all-stages-pass path has to carry one.
+    """
+    (root / "unit_test").mkdir(parents=True, exist_ok=True)
+    (root / "unit_test" / "test_it.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    return root
+
+
 class TestWiredFourStagePipeline:
     """One build request drives lint -> build -> test -> validate end-to-end."""
 
     def test_all_four_stages_run_in_order_and_report_passes(self, tmp_path, monkeypatch):
         """Req 8.1-8.4: every stage runs, in order, and the aggregate passes."""
+        _plugin_tree(tmp_path)
         engine = MockDockerEngine().install(monkeypatch)
 
         report = asyncio.run(CodeValidator().run_pipeline(tmp_path, image_tag="myplugin:1.0"))
@@ -169,7 +181,8 @@ class TestWiredFourStagePipeline:
         ]
 
     def test_dispatches_expected_docker_and_insight_plugin_commands(self, tmp_path, monkeypatch):
-        """Req 8.2-8.4: build/test go to Docker and validate to the toolchain, one image tag."""
+        """Req 8.2-8.4: build goes to Docker, the tests to the host, validate to the toolchain."""
+        _plugin_tree(tmp_path)
         engine = MockDockerEngine().install(monkeypatch)
 
         asyncio.run(
@@ -182,17 +195,12 @@ class TestWiredFourStagePipeline:
         assert lint_argv[0] == "prospector"
         assert lint_argv[lint_argv.index("--max-line-length") + 1] == str(PLUGIN_LINE_LENGTH)
         assert engine.argv_for(StageName.BUILD) == ["docker", "build", "-t", "myplugin:1.0", "."]
-        # The test stage runs against the *same* image the build produced.
-        assert engine.argv_for(StageName.TEST) == [
-            "docker",
-            "run",
-            "--rm",
-            "myplugin:1.0",
-            "python",
-            "-m",
-            "pytest",
-            "-q",
-        ]
+        # Clause 2.1: the tests run on the host, so the image tag appears nowhere in
+        # the test stage's argv. It could not have been otherwise useful -- the image
+        # carries neither unit_test/ nor pytest.
+        test_argv = engine.argv_for(StageName.TEST)
+        assert test_argv[1:] == ["-m", "pytest", "unit_test", "-q", "--no-header"]
+        assert "myplugin:1.0" not in test_argv
         # Validate runs under the toolchain's interpreter (icon_validator lives
         # there, not in this tool's environment), against the project directory,
         # with the repo-dependent validator named for exclusion.
@@ -220,6 +228,7 @@ class TestWiredTimeoutAbort:
 
     def test_build_stage_aborts_at_the_600s_threshold(self, tmp_path, monkeypatch):
         """A build that overruns is aborted with a 600s timeout fail."""
+        _plugin_tree(tmp_path)
         engine = MockDockerEngine(slow=[StageName.BUILD]).install(monkeypatch)
 
         # A default validator uses the real 600s build/test threshold.
@@ -238,7 +247,8 @@ class TestWiredTimeoutAbort:
         assert engine.timeouts.count(600.0) == 2
 
     def test_test_stage_aborts_at_the_600s_threshold(self, tmp_path, monkeypatch):
-        """A test stage that overruns is likewise aborted, after a passing build."""
+        """A test stage that overruns is likewise aborted -- now on the host (Req 8.8)."""
+        _plugin_tree(tmp_path)
         MockDockerEngine(slow=[StageName.TEST]).install(monkeypatch)
 
         report = asyncio.run(CodeValidator().run_pipeline(tmp_path, image_tag="myplugin:1.0"))

@@ -391,33 +391,33 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - _Preservation: 3.5, 3.6 — the gate stays the four-stage conjunction; an unverifiable condition stays unverified_
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-  - [ ] 9.1 The stage calls `run_unit_tests` instead of `docker run`
+  - [x] 9.1 The stage calls `run_unit_tests` instead of `docker run`
     - `StageResult` carries the pytest output as `stdout`, `returncode` from the run, and a `message` naming the interpreter used
     - `requires_docker` becomes `False` for `test`
     - **Consequence, recorded**: on a host without Docker the pipeline now yields lint **and** test results rather than lint alone — more partial offline feedback, in line with the existing Docker-optional design note. The gate's conjunction is untouched, so export is still blocked while `build` and `validate` cannot run
     - The 600s abort (parent Req 8.8) still applies, now to the host run
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 9.2 Unrunnable fails closed and says why
+  - [x] 9.2 Unrunnable fails closed and says why
     - No `unit_test/`, no interpreter satisfying both imports, or `pytest` absent → `StageStatus.FAILED` with a message naming the interpreter and the reason. **Never a pass**
     - The `Definition_Of_Done` reports `unit_tests_pass` **unverified** in the same situation, which is the distinction 3.6 requires — the gate fails closed, the advisory report stays honest
     - **The operator-facing consequence, stated plainly**: on a host with no suitable interpreter, export requires `force`. That is what 2.3 asks for
     - `pytest`'s absence is reported with remediation and never remedied by installing it (SCOPE-12)
     - _Requirements: 2.3_
 
-  - [ ] 9.3 One execution per export
+  - [x] 9.3 One execution per export
     - In `prepare_export`, run the `Quality_Gate` first and pass its `UnitTestRun` into `run_pipeline(project, unit_test_run=...)`, which uses it instead of running the suite again
     - When no run is supplied — a caller holding only the validator — the stage runs its own
     - One execution, one interpreter, one verdict; and the export preview does one fewer test run than today
     - **A genuinely flaky test can still differ between two executions**; with a single execution per preview there is only one to report
     - _Requirements: 2.4_
 
-  - [ ] 9.4 Unit tests for the `test` stage
+  - [x] 9.4 Unit tests for the `test` stage
     - Pass, fail, timeout at 600s, unrunnable-fails-closed, message names the interpreter, Docker-absent still runs
     - `tests/integrations/test_code_validator.py`
     - _Requirements: 2.1, 2.2, 2.3_
 
-  - [ ] 9.5 Amend parent Requirement 8.3 and design Property 17
+  - [x] 9.5 Amend parent Requirement 8.3 and design Property 17
     - **Lands in this task and not before it**: a requirement stating that tests run on the host while they still run in the image is a false statement in the authoritative document
     - Requirement 8.3 states that the plugin's unit tests are run **on the host under the resolved target interpreter**, and that an unrunnable test run records a fail naming the interpreter and the reason
     - Design Property 17 is **unchanged as a conjunction over four stages**, and gains a note that the `test` stage is a host-run check and why the in-image intent was given up

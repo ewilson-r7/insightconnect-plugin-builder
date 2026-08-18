@@ -189,10 +189,38 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 > and stopping is what allowed unusable plugins through. Requirement 26 adds the
 > corrective step that acts on findings while the plugin is still being built.
 
+>
+> **Revision note, 8.3 (export gate and preview fidelity bugfix, clause 2.1).** The
+> test stage ran `docker run --rm <image> python -m pytest -q` against the built
+> plugin image, which carries neither the tests -- the generated `.dockerignore`
+> excludes `unit_test/**/*` and the Dockerfile's `ADD . /python/src` respects it --
+> nor pytest, since `requirements.txt` correctly declares no test dependencies. The
+> stage therefore failed for **every** plugin the tool has ever built, and returned
+> `permitted: false` from every export preview, while the Quality_Gate reported the
+> same tests passing on the host. Two subsystems, one tree, opposite answers.
+>
+> **Decision: the tests run on the host.** The tradeoff is accepted and worth
+> stating: the stage no longer establishes that the tests pass *in the shipping
+> environment*, which was the original intent. That intent is unreachable without
+> edits to `.dockerignore` and the Dockerfile which the Agent_Rulebook forbids, so
+> the only routes available were a check that could never pass or a weaker check
+> that can. A test-only image layer would preserve the stronger property and is
+> rejected for now on cost -- another image build on a path that already takes
+> minutes. Dropping the stage is rejected because this requirement names four stages
+> and design Property 17 is a conjunction over four.
+>
+> Two consequences follow. The test stage no longer requires Docker, so on a host
+> without the engine lint *and* test now yield real results rather than lint alone --
+> more partial offline feedback, and the gate's conjunction is untouched because
+> build and validate still cannot run. And an unrunnable test run fails closed here
+> while the Definition_Of_Done reports `unit_tests_pass` as *unverified*: the gate
+> has no third state, and the advisory report is where the honest "could not be
+> checked" belongs (27.5).
+
 #### Acceptance Criteria
 1. WHEN the user requests a build, THE Code_Validator SHALL run static lint checks against the generated plugin code and record a pass or fail result for the lint stage.
 2. WHEN the user requests a build, THE Code_Validator SHALL build the plugin container image defined by the plugin's Dockerfile and record a pass or fail result for the build stage.
-3. WHEN the user requests a build, THE Code_Validator SHALL run the plugin's unit tests and record a pass or fail result for the test stage.
+3. WHEN the user requests a build, THE Code_Validator SHALL run the plugin's unit tests **on the host, under an interpreter that can import both the InsightConnect SDK and the test runner**, and record a pass or fail result for the test stage; IF no such interpreter is available, or the plugin has no unit tests to run, THEN THE Code_Validator SHALL record a fail naming the interpreter it tried and the reason, and SHALL NOT record a pass.
 4. WHEN the user requests a build, THE Code_Validator SHALL run the Insight_Plugin_CLI's validators against the plugin, excluding those named per 8.9, and record a pass or fail result for the validate stage.
 5. IF the lint stage, build stage, test stage, or validate stage records a fail result, THEN THE Code_Validator SHALL report failure details to the user identifying which stage failed and the associated error output.
 6. IF the lint stage, build stage, test stage, or validate stage records a fail result, THEN THE Plugin_Builder SHALL prevent export of the plugin and retain the generated code unchanged.

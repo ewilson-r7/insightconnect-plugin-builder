@@ -1045,16 +1045,26 @@ class Orchestrator:
         # well-formed and still be rejected by `insight-plugin validate` for a
         # missing sdk block, version_history, or output examples.
         completeness = check_completeness(export_spec)
-        pipeline_report: Optional[PipelineReport] = None
-        if self._code_validator is not None and session.project_folder is not None:
-            pipeline_report = await self._code_validator.run_pipeline(session.project_folder.path)
-            session.pipeline_report = pipeline_report
 
         # Req 26.1: check the hand-written code here too, not only after an
         # implementation turn. A draft opened from disk and exported straight away
         # never passes through the repair loop, so without this its code reaches
         # the preview having been examined by nothing but the containerized stages.
+        #
+        # Clause 2.4: the gate runs **before** the pipeline so its unit test run can
+        # be handed to the `test` stage rather than the suite being executed twice
+        # per preview. One execution, one interpreter, one verdict -- and a genuinely
+        # flaky test can still differ between two executions, so with a single
+        # execution there is only one outcome to report.
         quality_report = await self._run_quality_gate(session)
+
+        pipeline_report: Optional[PipelineReport] = None
+        if self._code_validator is not None and session.project_folder is not None:
+            pipeline_report = await self._code_validator.run_pipeline(
+                session.project_folder.path,
+                unit_test_run=quality_report.unit_test_run if quality_report is not None else None,
+            )
+            session.pipeline_report = pipeline_report
 
         # Req 27.1: and then ask whether the plugin is actually finished. This is
         # reported next to the gate decision, not folded into it -- export

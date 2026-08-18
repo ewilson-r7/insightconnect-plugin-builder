@@ -38,10 +38,18 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Tuple, Union
 
-from ..core.plugin_files import hand_written_python, is_lint_excluded
-from .build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile, resolve_lint_profile
+from ..core.plugin_files import UNIT_TEST_DIR, hand_written_python, is_lint_excluded
+from .build_prep import (
+    LINT_TOOLS,
+    PLUGIN_LINE_LENGTH,
+    SDK_IMPORT_MODULE,
+    TEST_RUNNER_MODULE,
+    LintProfile,
+    resolve_lint_profile,
+)
+from .plugin_tests import DEFAULT_TEST_TIMEOUT_SECONDS, UnitTestRun, run_unit_tests, unit_test_command
 from .plugin_validate import validate_command
 from .quality_gate import first_json_object
 
@@ -218,7 +226,7 @@ class CodeValidator:
         lint_profile: Optional[LintProfile] = None,
         docker_executable: str = "docker",
         insight_plugin_executable: str = "insight-plugin",
-        test_command: Optional[Sequence[str]] = None,
+        test_python_executable: Optional[str] = None,
         validate_python_executable: str = "python3",
         stage_timeout_seconds: float = DEFAULT_STAGE_TIMEOUT_SECONDS,
         docker_probe_timeout_seconds: float = DEFAULT_DOCKER_PROBE_TIMEOUT_SECONDS,
@@ -240,8 +248,12 @@ class CodeValidator:
                 Retained for callers that override it; the validate stage drives
                 ``icon_validator`` directly so it can skip the checks a standalone
                 plugin cannot satisfy.
-            test_command: Overrides the default in-container unit-test command;
-                ``{image}`` is substituted with the built image tag when present.
+            test_python_executable: The interpreter the plugin's unit tests run
+                under. Resolved with
+                :func:`~icplugin_builder.integrations.build_prep.resolve_test_interpreter`
+                when omitted, which requires one that can import both the SDK and
+                ``pytest`` -- a plugin imports the SDK at module scope, so an
+                interpreter with only one of the two cannot run its tests at all.
             validate_python_executable: The interpreter that has the plugin
                 toolchain (and therefore ``icon_validator``) installed. Resolve it
                 with
@@ -255,12 +267,18 @@ class CodeValidator:
         self._resolved_profile: Optional[LintProfile] = None
         self._docker_executable = docker_executable
         self._insight_plugin_executable = insight_plugin_executable
-        self._test_command = tuple(test_command) if test_command is not None else None
+        self._test_python = test_python_executable
         self._validate_python = validate_python_executable
         self._stage_timeout_seconds = stage_timeout_seconds
         self._docker_probe_timeout_seconds = docker_probe_timeout_seconds
 
-    async def run_pipeline(self, project: object, *, image_tag: Optional[str] = None) -> PipelineReport:
+    async def run_pipeline(
+        self,
+        project: object,
+        *,
+        image_tag: Optional[str] = None,
+        unit_test_run: Optional[UnitTestRun] = None,
+    ) -> PipelineReport:
         """Run lint, build, test, and validate against ``project`` (Req 8.1-8.4, 8.8).
 
         Probes Docker first; when it is unavailable the Docker-dependent stages
@@ -273,8 +291,13 @@ class CodeValidator:
             project: A plugin working tree -- either a path, or any object with a
                 ``root`` attribute (e.g. an
                 :class:`~icplugin_builder.integrations.insight_plugin_cli.ProjectTree`).
-            image_tag: The Docker image tag for the build/test stages; a stable
-                tag is derived from the project directory name when omitted.
+            image_tag: The Docker image tag for the build stage; a stable tag is
+                derived from the project directory name when omitted.
+            unit_test_run: A unit test run the caller has already performed, reused
+                for the ``test`` stage instead of running the suite a second time
+                (clause 2.4). One execution, one interpreter, one verdict -- and a
+                genuinely flaky test can still differ between two executions, so
+                with a single execution per preview there is only one to report.
 
         Returns:
             A :class:`PipelineReport` with one :class:`StageResult` per stage.
@@ -298,7 +321,7 @@ class CodeValidator:
                     )
                 )
                 continue
-            results.append(await self._run_stage(spec, root))
+            results.append(await self._run_stage(spec, root, unit_test_run=unit_test_run))
 
         return PipelineReport(
             project_dir=root,
@@ -372,11 +395,6 @@ class CodeValidator:
 
     def _stage_specs(self, image_tag: str, root: Path) -> Tuple[_StageSpec, ...]:
         """Build the ordered stage specs for one run against ``image_tag``."""
-        if self._test_command is not None:
-            test_command = tuple(part.replace("{image}", image_tag) for part in self._test_command)
-        else:
-            test_command = (self._docker_executable, "run", "--rm", image_tag, "python", "-m", "pytest", "-q")
-
         return (
             _StageSpec(
                 name=StageName.LINT,
@@ -390,10 +408,19 @@ class CodeValidator:
                 requires_docker=True,
                 timeout_seconds=self._stage_timeout_seconds,
             ),
+            # Clause 2.1: the plugin's unit tests run **on the host**, not inside
+            # the built image. The image carries neither the tests -- the generated
+            # `.dockerignore` excludes `unit_test/**/*` -- nor pytest, since the
+            # runtime image correctly declares no test dependencies. So the
+            # in-image command could never report anything about the plugin, and
+            # the only edits that would have fixed it are to two files the
+            # Agent_Rulebook forbids touching. The command here *describes* the
+            # invocation rather than being executed by `_run_stage`; both come from
+            # `unit_test_command`, so the description cannot drift from the run.
             _StageSpec(
                 name=StageName.TEST,
-                command=test_command,
-                requires_docker=True,
+                command=unit_test_command(self._test_python or "python3"),
+                requires_docker=False,
                 timeout_seconds=self._stage_timeout_seconds,
             ),
             # Drives icon_validator directly rather than shelling `insight-plugin
@@ -409,13 +436,23 @@ class CodeValidator:
             ),
         )
 
-    async def _run_stage(self, spec: _StageSpec, cwd: Path) -> StageResult:
+    async def _run_stage(
+        self, spec: _StageSpec, cwd: Path, *, unit_test_run: Optional[UnitTestRun] = None
+    ) -> StageResult:
         """Run one stage's command in ``cwd`` and capture its pass/fail outcome.
 
         A missing executable is a fail with an actionable message; exceeding a
         stage's ``timeout_seconds`` aborts it with a :attr:`StageStatus.TIMED_OUT`
         result (Req 8.8).
+
+        The ``test`` stage does not execute its spec's command: it delegates to the
+        one definition of the unit test run that the ``Quality_Gate`` also consumes,
+        so the two cannot report opposite outcomes for one tree (clause 2.4).
         """
+        if spec.name == StageName.TEST:
+            run = unit_test_run if unit_test_run is not None else await self._unit_test_run(cwd)
+            return self._judge_tests(run)
+
         loop = asyncio.get_event_loop()
         start = loop.time()
         try:
@@ -476,6 +513,96 @@ class CodeValidator:
             stderr=stderr,
             duration_seconds=duration,
             message=f"{spec.name} stage failed with exit code {returncode}",
+        )
+
+    async def _unit_test_run(self, root: Path) -> UnitTestRun:
+        """Run the plugin's unit tests on the host, under the resolved interpreter."""
+        return await run_unit_tests(
+            root,
+            python_executable=self._test_python,
+            timeout_seconds=self._stage_timeout_seconds or DEFAULT_TEST_TIMEOUT_SECONDS,
+            # The stage needs a pass/fail, not a percentage. The Quality_Gate is
+            # where coverage is measured and where its threshold lives.
+            measure_coverage=False,
+        )
+
+    def _judge_tests(self, run: UnitTestRun) -> StageResult:
+        """Decide the ``test`` stage from one :class:`UnitTestRun`.
+
+        **Fails closed** (clause 2.3). The four-stage gate has no third state, so a
+        run that could not happen -- no ``unit_test/`` directory, no interpreter that
+        can import both the SDK and ``pytest``, an interpreter without pytest -- is a
+        fail naming the interpreter and the reason, never a quiet pass. The honest
+        report of that same situation lives in the ``Definition_Of_Done``, where
+        ``unit_tests_pass`` comes back *unverified*: the gate fails closed and the
+        advisory report stays truthful, which is the distinction 3.6 requires.
+
+        The operator-facing consequence, stated rather than discovered: on a host
+        with no suitable interpreter, export requires ``force``.
+        """
+        interpreter = run.interpreter or "no interpreter"
+        if run.passed:
+            return StageResult(
+                name=StageName.TEST,
+                status=StageStatus.PASSED,
+                returncode=run.returncode,
+                stdout=run.output,
+                stderr="",
+                duration_seconds=0.0,
+                message=f"the plugin's unit tests passed on the host under {interpreter}",
+            )
+
+        if run.timed_out:
+            return StageResult(
+                name=StageName.TEST,
+                status=StageStatus.TIMED_OUT,
+                returncode=run.returncode,
+                stdout=run.output,
+                stderr="",
+                duration_seconds=0.0,
+                message=(
+                    f"the plugin's unit tests exceeded the {self._stage_timeout_seconds:.0f}s limit under "
+                    f"{interpreter} and were aborted"
+                ),
+            )
+
+        if not run.ran:
+            reason = run.message or "the unit tests could not be run"
+            remediation = (
+                # SCOPE-12: reported, never remedied. pytest belongs to the plugin's
+                # interpreter and installing it here would silently change the
+                # environment the plugin is judged in.
+                f" Install {TEST_RUNNER_MODULE} into that interpreter, or point the tool at one that has "
+                f"both {SDK_IMPORT_MODULE} and {TEST_RUNNER_MODULE}."
+                if run.interpreter is not None
+                else ""
+            )
+            return StageResult(
+                name=StageName.TEST,
+                status=StageStatus.FAILED,
+                returncode=run.returncode,
+                stdout=run.output,
+                stderr="",
+                duration_seconds=0.0,
+                message=f"the unit tests did not run under {interpreter}: {reason}.{remediation}",
+            )
+
+        if run.no_tests:
+            detail = f"{UNIT_TEST_DIR}/ contains no runnable tests"
+        elif run.failures:
+            named = ", ".join(failure.name for failure in run.failures[:5])
+            more = f" and {len(run.failures) - 5} more" if len(run.failures) > 5 else ""
+            detail = f"{len(run.failures)} unit test(s) failed: {named}{more}"
+        else:
+            detail = f"the unit test run exited {run.returncode} with no parsed failure"
+        return StageResult(
+            name=StageName.TEST,
+            status=StageStatus.FAILED,
+            returncode=run.returncode,
+            stdout=run.output,
+            stderr="",
+            duration_seconds=0.0,
+            message=f"{detail} (host run under {interpreter})",
         )
 
     def _judge_lint(
