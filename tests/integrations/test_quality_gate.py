@@ -10,8 +10,12 @@ file that does not parse is the defect this tool has actually shipped.
 """
 
 import asyncio
+import shutil
+
+import pytest
 
 from icplugin_builder.integrations.build_prep import (
+    FALLBACK_LINT_PROFILE,
     LINT_PROFILE_SOURCE_FALLBACK,
     LINT_TOOLS,
     PLUGIN_LINE_LENGTH,
@@ -422,6 +426,12 @@ class TestToolInvocation:
         # The repository's copy is authoritative. Falling back to ours is not a
         # failure, but it must not pass silently: the two can disagree about what
         # "clean" means, and the operator should know which one judged the plugin.
+        #
+        # Clause 2.8 moved this disclosure off the skip notes and onto the report
+        # itself, because a skip note fired only when the bar was second-best -- so
+        # a run judged by the authoritative profile disclosed nothing at all, and
+        # two operators comparing differing reports could not tell whether the
+        # plugin had changed or the bar had.
         profile = LintProfile(
             path="/tmp/vendored.yaml",
             source=LINT_PROFILE_SOURCE_FALLBACK,
@@ -434,7 +444,10 @@ class TestToolInvocation:
 
         gate._run = fake_run  # noqa: SLF001
         report = asyncio.run(gate.run(tmp_path))
-        assert any("prospector profile" in note for note in report.skipped)
+        assert report.lint_profile is profile
+        assert "/tmp/vendored.yaml" in report.bar()
+        assert LINT_PROFILE_SOURCE_FALLBACK in report.bar()
+        assert "/tmp/vendored.yaml" in report.summary()
 
     def test_an_unresolvable_profile_is_disclosed_too(self, tmp_path):
         profile = LintProfile(path=None, detail="no lint profile found anywhere")
@@ -450,7 +463,40 @@ class TestToolInvocation:
 
 
 class TestFindingsTheRepositoryWouldNotRaise:
-    """End to end against real black and prospector, on the shapes that misfired."""
+    """End to end against real black and prospector, on the shapes that misfired.
+
+    **The profile is pinned and the linter is guarded (clause 2.8, 2.9).**
+    ``test_a_real_defect_is_still_reported`` failed on a developer host before any
+    of this bugfix's changes, and the reported diagnosis -- two lint profiles
+    disagreeing -- was wrong: on that host the repository profile and the vendored
+    fallback are byte-identical, and the test passes with ``prospector`` on
+    ``PATH``. What it could not do is tell "the linter said nothing" from "the
+    linter never ran", because an absent tool yields an empty finding set and the
+    assertion reads that as the defect having gone unreported.
+
+    So two repairs, neither of them profile reconciliation: pin an explicit profile
+    so a content-dependent expectation cannot vary with the developer's home
+    directory, and skip when the tool is absent rather than fail.
+    """
+
+    def _pinned_profile(self, tmp_path) -> LintProfile:
+        """A fixture copy of the vendored profile, so the bar cannot move under us."""
+        pinned = tmp_path / "pinned-prospector.yaml"
+        shutil.copyfile(FALLBACK_LINT_PROFILE, pinned)
+        return LintProfile(
+            path=str(pinned),
+            source=LINT_PROFILE_SOURCE_FALLBACK,
+            detail=f"pinned fixture copy at {pinned} so the expectation does not vary by host",
+        )
+
+    def _gate(self, tmp_path) -> QualityGate:
+        """A gate judging against the pinned profile, skipping if prospector is absent."""
+        if shutil.which("prospector") is None:
+            pytest.skip(
+                "prospector is not on PATH, so this check cannot distinguish a linter that reported "
+                "nothing from one that never ran -- which is the distinction the guard exists for"
+            )
+        return QualityGate(run_tests=False, lint_profile=self._pinned_profile(tmp_path))
 
     def _plugin(self, tmp_path):
         package = tmp_path / "icon_x"
@@ -483,7 +529,7 @@ class TestFindingsTheRepositoryWouldNotRaise:
             "        return {}\n",
             encoding="utf-8",
         )
-        report = asyncio.run(QualityGate(run_tests=False).run(tmp_path))
+        report = asyncio.run(self._gate(tmp_path).run(tmp_path))
         codes = {finding.code for finding in report.by_source(SOURCE_PROSPECTOR)}
         assert "bad-super-call" not in codes, report.render()
         assert "dangerous-default-value" not in codes, report.render()
@@ -498,7 +544,7 @@ class TestFindingsTheRepositoryWouldNotRaise:
             "def fetch(url):\n    return requests.get(url)\n",
             encoding="utf-8",
         )
-        report = asyncio.run(QualityGate(run_tests=False).run(tmp_path))
+        report = asyncio.run(self._gate(tmp_path).run(tmp_path))
         codes = {finding.code for finding in report.by_source(SOURCE_PROSPECTOR)}
         assert "undefined-variable" in codes, report.render()
 
@@ -510,7 +556,7 @@ class TestFindingsTheRepositoryWouldNotRaise:
             "def test_thing():\n    return undefined_name_in_a_test\n",
             encoding="utf-8",
         )
-        report = asyncio.run(QualityGate(run_tests=False).run(tmp_path))
+        report = asyncio.run(self._gate(tmp_path).run(tmp_path))
         lint_paths = {finding.path for finding in report.by_source(SOURCE_PROSPECTOR)}
         assert not any(path.startswith("unit_test/") for path in lint_paths), report.render()
         # ...but the file was still compiled, so a test that cannot parse is caught.

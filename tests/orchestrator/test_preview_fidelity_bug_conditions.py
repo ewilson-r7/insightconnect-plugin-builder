@@ -442,7 +442,7 @@ def _orchestrator(
             quality_gate=QualityGate(python_executable=target_python) if graded else None,
             code_validator=(
                 CodeValidator(
-                    lint_command=("flake8", "."),
+                    prospector_executable="prospector",
                     docker_executable="docker",
                     insight_plugin_executable="insight-plugin",
                     validate_python_executable=target_python,

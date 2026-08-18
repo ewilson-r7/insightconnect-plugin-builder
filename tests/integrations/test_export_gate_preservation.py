@@ -859,24 +859,33 @@ class TestAxisFourAMissingLinterNeverReadsAsACleanLint:
 
 
 class TestTheProfileSourceChangesTheConditionStatus:
-    """An observation of F found while recording axis 4, not an axis of its own.
+    """An observation of F found while recording axis 4, and task 7's decision on it.
 
-    ``_check_prospector`` appends the note ``"prospector profile (<detail>)"``
-    whenever the resolved profile is not the repository's own, and
-    ``definition_of_done._was_skipped`` matches any note beginning with the check's
-    name. So a run under a **non-authoritative profile** reports ``lint_clean``
-    *unverified* -- indistinguishable from a run where prospector was never
-    installed -- even though the linter ran and reported nothing.
+    **What F did.** ``_check_prospector`` appended the note
+    ``"prospector profile (<detail>)"`` whenever the resolved profile was not the
+    repository's own, and ``definition_of_done._was_skipped`` matches any note
+    beginning with the check's name. So a run under a **non-authoritative profile**
+    reported ``lint_clean`` *unverified* -- indistinguishable from a run where
+    prospector was never installed -- even though the linter ran and reported
+    nothing.
 
-    Recorded because it sits directly on 2.8 ("a check whose expected outcome
-    depends on profile content SHALL pin the profile explicitly") and on 26.4 (a
-    skipped check must be distinguishable from a passing one), and because change 5
-    rewires exactly this reporting. It is recorded rather than asserted as
-    desirable: whether F′ keeps it is a decision for task 7, and if F′ changes it
-    the change is visible here instead of surfacing as a mysterious axis-4 failure.
+    **What task 7 decided.** That overloading is removed. Provenance now rides on
+    the report itself (``QualityReport.bar``), where it is disclosed for *every*
+    profile rather than only a second-best one, so the skip-note channel is left to
+    mean what 26.4 needs it to mean: the check did not run. A resolved fallback
+    profile is a bar worth naming, not a check that failed to happen, so
+    ``lint_clean`` now reads ``met``.
+
+    The distinction that had to survive does: prospector genuinely absent still
+    yields a ``prospector (... not available)`` note and an unverified
+    ``lint_clean``, which is what axis 4 proper pins.
+
+    Re-pinned rather than deleted, and the class docstring anticipated this --
+    "if F′ changes it the change is visible here instead of surfacing as a
+    mysterious axis-4 failure".
     """
 
-    def test_a_non_authoritative_profile_reads_as_unverified(self, tmp_path):
+    def test_a_non_authoritative_profile_no_longer_reads_as_unverified(self, tmp_path):
         root = _write_tree(tmp_path / "tree")
         quality = _run_gate(root, run_tests=False, profile=_fallback_sourced_profile())
         if any(note.startswith("prospector (") for note in quality.skipped):
@@ -890,24 +899,31 @@ class TestTheProfileSourceChangesTheConditionStatus:
                 "lint_clean_status": _status_of(done, CONDITION_LINT_CLEAN),
             },
             description=(
-                "The same clean tree and the same profile content, declared fallback rather than repository. "
-                "F appends a 'prospector profile (...)' skip note, which _was_skipped matches by prefix, so "
-                "lint_clean reads unverified even though prospector ran and found nothing. Recorded as an "
-                "observation of F that bears on 2.8 and 26.4."
+                "The same clean tree and the same profile content, declared fallback rather than "
+                "repository. F appended a 'prospector profile (...)' skip note, which _was_skipped matches "
+                "by prefix, so lint_clean read unverified even though prospector ran and found nothing. "
+                "Change 5 moved provenance onto QualityReport.bar, where it is disclosed for every profile, "
+                "leaving the skip-note channel to mean only that a check did not run -- so lint_clean now "
+                "reads met. Re-pinned deliberately; the false unverified was the defect 2.8 and 26.4 name."
             ),
             requirements=("3.6",),
             measured={
                 "note": (
-                    "the other axes pin the profile as repository-sourced precisely to keep this out of "
-                    "them; axis 4's unverified must mean 'the linter was absent' and nothing else"
+                    "axis 4 proper still pins the genuine missing-tool case, so unverified continues to "
+                    "mean 'the linter was absent' and nothing else"
                 )
             },
         )
-
-
-# ---------------------------------------------------------------------------
-# Axis 5 -- the advisory boundary
-# ---------------------------------------------------------------------------
+        assert _status_of(done, CONDITION_LINT_CLEAN) == "met", (
+            "a resolved fallback profile still reads as an unverified lint_clean, so provenance is being "
+            f"reported through the skip-note channel again: {quality.skipped}"
+        )
+        assert not any(
+            "profile" in note for note in quality.skipped
+        ), f"the profile detail is back in the skip notes: {quality.skipped}"
+        assert (
+            str(quality.lint_profile.path) in quality.bar()
+        ), f"the report no longer names the profile it judged under: {quality.bar()!r}"
 
 
 def _all_stages_passed(root: Path) -> PipelineReport:

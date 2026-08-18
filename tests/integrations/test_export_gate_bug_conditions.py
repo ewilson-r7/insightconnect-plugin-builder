@@ -842,54 +842,60 @@ def _widths_the_lint_stage_flags() -> frozenset:
     return frozenset(flagged)
 
 
-class TestTheLintStageRunsFlake8AndNotProspector:
-    """The wiring, measured -- `bugfix.md` 1.4's premise is wrong about the tool.
+class TestTheLintStageRunsProspectorAndNotFlake8:
+    """The wiring, measured -- and `bugfix.md` 1.4's premise about the tool.
 
-    Witnesses. These pass before the fix and are expected to *stop* passing once
-    task 7.1 replaces the linter; they exist so the refutation of 1.4 is recorded
-    as evidence rather than asserted in prose.
+    **What this recorded before change 5.** 1.4 attributed the stage's failure to
+    14 prospector messages. Measured through the stage that actually ran, the
+    linter was ``flake8 .`` -- wired as the constructor's default and passed again
+    explicitly by ``api/app.py`` -- so those messages came from a manual run and not
+    from the stage. That refutation is why the fix replaced the linter instead of
+    merely excluding generated files: ``flake8``'s defaults include ``pycodestyle``,
+    whose ``E501`` fires at 79 columns on code the plugins repository formats to 120
+    and merges without comment.
+
+    Restated in its after-state form rather than deleted, so the sequence stays
+    legible: the stage now runs the same linter the ``Quality_Gate`` does, and that
+    linter is declared, so its absence is reported before a stage fails on it.
     """
 
-    def test_the_stage_command_is_flake8(self):
-        """``code_validator.py:203`` -- the constructor's default, as the stage sees it."""
-        assert _lint_stage_command() == ("flake8", "."), (
-            "the lint stage no longer runs `flake8 .`, so the measurement this task exists to take is "
-            f"obsolete and the partition below describes a different tool: {_lint_stage_command()}"
+    def test_the_stage_command_is_prospector(self):
+        """Clause 2.6 -- one linter, so the two subsystems cannot disagree."""
+        assert _lint_stage_command()[0] == "prospector", (
+            "the lint stage no longer runs prospector, so it and the Quality_Gate can once again reach "
+            f"opposite verdicts about one plugin: {_lint_stage_command()}"
         )
 
-    def test_the_api_wires_the_same_literal(self):
-        """``api/app.py:767`` -- the running server passes the default explicitly."""
+    def test_the_api_wires_no_linter_literal_of_its_own(self):
+        """``api/app.py`` no longer carries a second, divergent notion of the bar."""
         import icplugin_builder.api.app as app_module
 
         source = Path(app_module.__file__).read_text(encoding="utf-8")
-        assert 'lint_command=("flake8", ".")' in source, (
-            "api/app.py no longer wires `flake8 .` into the CodeValidator; the stage's linter has changed "
-            "and this measurement needs retaking"
+        assert 'lint_command=("flake8", ".")' not in source, (
+            "api/app.py wires `flake8 .` into the CodeValidator again, which is the second copy of the "
+            "lint bar that change 5 removed"
         )
 
-    def test_the_stages_linter_is_not_a_declared_required_tool(self):
-        """`bugfix.md` 1.6, design finding 1 -- nothing checks for the stage's own tool."""
+    def test_the_stages_linter_is_a_declared_required_tool(self):
+        """`bugfix.md` 1.6 -- a stage must not fail for want of a tool nobody checks for."""
         executable = _lint_stage_command()[0]
-        assert executable not in REQUIRED_TOOLS, (
-            f"{executable!r} is now declared in REQUIRED_TOOLS {REQUIRED_TOOLS}, so its absence would be "
-            "reported before the stage failed on it -- this witness is closed"
+        assert executable in REQUIRED_TOOLS, (
+            f"the lint stage runs {executable!r}, which is not in REQUIRED_TOOLS {REQUIRED_TOOLS}, so "
+            "check_tooling reports a complete toolchain on a host where the stage cannot run"
         )
 
     def test_where_the_stages_linter_resolves_on_this_host(self):
-        """Record the ``PATH`` fact the stage's verdict silently depends on."""
+        """Record the ``PATH`` fact the stage's verdict depends on."""
         executable = _lint_stage_command()[0]
         with_toolchain = shutil.which(executable)
         bare = shutil.which(executable, path="/usr/bin:/bin:/usr/sbin:/sbin")
         if with_toolchain is None:
             pytest.skip(
                 f"{executable!r} is absent even with the toolchain prepended, so on this host the lint "
-                f"stage fails for want of an undeclared tool: PATH entries {TOOLCHAIN_PATH_ENTRIES}"
+                f"stage cannot run: PATH entries {TOOLCHAIN_PATH_ENTRIES}"
             )
         if bare is not None:
-            pytest.skip(
-                f"{executable!r} resolves on a bare PATH at {bare}, so on this host the undeclared "
-                "dependency is not at risk of being absent"
-            )
+            pytest.skip(f"{executable!r} resolves on a bare PATH at {bare}, so it is not at risk of absence here")
         assert any(entry in with_toolchain for entry in TOOLCHAIN_PATH_ENTRIES), (
             f"{executable!r} resolves at {with_toolchain}, which is outside the toolchain directories "
             f"{TOOLCHAIN_PATH_ENTRIES} and outside a bare PATH -- record where it came from before relying "
@@ -898,76 +904,60 @@ class TestTheLintStageRunsFlake8AndNotProspector:
 
 
 class TestTheLintStageFindingsPartitionIntoThreeBuckets:
-    """The measurement itself -- `bugfix.md` 1.4 re-taken through the stage.
+    """`bugfix.md` 1.4 re-taken through the stage, and what the re-taking decided.
 
-    Witnesses, expected to pass on unfixed code. Each one records a fact the fix's
-    size depends on, so a change in any of them means task 7 needs re-sizing
-    rather than that a test broke.
+    **The measurement, recorded because it sized the fix.** Under ``flake8 .`` the
+    stage's findings for the JumpCloud tree partitioned three ways, not two:
+    messages in generated files, messages in ``unit_test/`` (lint-excluded but *not*
+    generated, so a two-bucket model would have hidden them), and -- decisively --
+    ``E501`` width complaints on hand-written plugin code whose lines were all
+    within the plugins repository's own 120 columns. That last bucket is why
+    excluding generated files was necessary but **not sufficient** for 2.7:
+    ``flake8``'s defaults run ``pycodestyle`` at 79 columns, which the repository
+    never runs at all, so the complaints were about the bar rather than the code and
+    no exclusion could have removed them.
+
+    Restated in its after-state form: judged by prospector under the repository's
+    profile at 120 columns, the tree produces nothing in any of the three buckets,
+    which is the same claim from the other side.
     """
 
-    def test_the_stage_reports_findings_at_all(self):
-        """``findings(X) <> EMPTY`` -- the first conjunct of ``isBugCondition_2``."""
+    def test_the_stage_reports_nothing_for_this_tree(self):
+        """``findings(X) = EMPTY`` -- what ``isBugCondition_2``'s first conjunct became."""
         findings = _lint_stage_findings()
-        assert findings, (
-            "the lint stage reports nothing for this tree, so it is not an instance of isBugCondition_2 "
-            f"and 1.4 is closed by measurement: {_lint_stage_result().status.value}, "
-            f"returncode={_lint_stage_result().returncode!r}"
+        assert not findings, (
+            "the lint stage reports findings for a tree whose every endpoint was hand-verified, so the "
+            f"replacement of the linter did not reach 2.7:\n{_partition_summary(findings)}"
         )
 
-    def test_the_stage_reports_findings_in_generated_files(self):
-        """The part of 1.4 that survives re-measurement: findings the author cannot fix."""
-        generated = _partition(_lint_stage_findings())[BUCKET_GENERATED]
-        assert generated, f"no finding lies in a generated file:\n{_partition_summary(_lint_stage_findings())}"
+    def test_no_width_complaint_is_raised_below_the_plugins_own_line_length(self):
+        """The decisive bucket, from the other side: 120 columns, not pycodestyle's 79."""
+        result = _lint_stage_result()
+        assert str(PLUGIN_LINE_LENGTH) in result.message, (
+            f"the stage's result does not state the width it judged at, so a width complaint could not be "
+            f"attributed to the bar that raised it: {result.message!r}"
+        )
+        narrower = tuple(
+            (finding.path, finding.line, match.group("limit"))
+            for finding in _lint_stage_findings()
+            for match in [_E501_WIDTH.search(finding.message)]
+            if match and int(match.group("limit")) < PLUGIN_LINE_LENGTH
+        )
+        assert not narrower, (
+            f"the stage still judges width below {PLUGIN_LINE_LENGTH} columns, so correctly formatted "
+            f"plugin code reports as a defect: {narrower}"
+        )
 
-    def test_the_partition_has_three_buckets_and_the_third_is_populated(self):
-        """``unit_test/`` is lint-excluded and **not** generated, so two buckets would hide it."""
-        findings = _lint_stage_findings()
-        grouped = _partition(findings)
-        excluded = grouped[BUCKET_LINT_EXCLUDED_HAND_WRITTEN]
-        assert excluded, f"nothing landed in the lint-excluded bucket:\n{_partition_summary(findings)}"
-        for finding in excluded:
-            assert is_lint_excluded(finding.path) and not is_generated(finding.path), (
-                f"{finding.path} is not the third case, so the partition really is two buckets: "
-                f"is_generated={is_generated(finding.path)} is_lint_excluded={is_lint_excluded(finding.path)}"
-            )
+    def test_the_stage_says_what_it_ignored_rather_than_hiding_it(self):
+        """The generated-file bucket is not silently dropped: the message counts it.
 
-    def test_the_stage_reports_width_complaints_on_hand_written_plugin_code(self):
-        """**The decisive measurement.** ``E501`` on files the author both owns and must fix.
-
-        If this holds, excluding generated files is *necessary but not sufficient*
-        for 2.7 and task 7.1's replacement of the linter is part of the fix.
+        2.6's exclusion is justified by what the excluded files *are*, and stating
+        the count is what keeps that from reading as the findings never existing.
         """
-        findings = _lint_stage_findings()
-        hand_written = _partition(findings)[BUCKET_PLAIN_HAND_WRITTEN]
-        assert hand_written, (
-            "every finding lies outside hand-written plugin code, so excluding generated and lint-excluded "
-            f"files would be sufficient and task 7 is the smaller change:\n{_partition_summary(findings)}"
-        )
-        widths = tuple(finding.code for finding in hand_written)
-        assert set(widths) == {"E501"}, (
-            "the hand-written bucket carries codes other than width complaints, so the fix cannot be a "
-            f"question of line length alone:\n{_partition_summary(findings)}"
-        )
-
-    def test_every_hand_written_width_complaint_is_within_the_plugins_own_line_length(self):
-        """The complaints are about the *bar*, not the code: 120 columns, judged at 79."""
-        findings = _lint_stage_findings()
-        hand_written = _partition(findings)[BUCKET_PLAIN_HAND_WRITTEN]
-        measured = tuple((finding.path, finding.line, finding.width) for finding in hand_written)
-        assert measured, f"nothing to measure:\n{_partition_summary(findings)}"
-        over = tuple(item for item in measured if item[2] is None or item[2] > PLUGIN_LINE_LENGTH)
-        assert not over, (
-            f"these hand-written lines exceed the plugin line length of {PLUGIN_LINE_LENGTH}, so they are "
-            f"genuine width defects rather than artefacts of the stage's bar: {over}"
-        )
-        limits = {
-            int(_E501_WIDTH.search(finding.message).group("limit"))
-            for finding in hand_written
-            if _E501_WIDTH.search(finding.message)
-        }
-        assert limits and max(limits) < PLUGIN_LINE_LENGTH, (
-            f"the stage judged these lines at {sorted(limits)} columns; if it applied "
-            f"{PLUGIN_LINE_LENGTH} they would not be findings at all"
+        result = _lint_stage_result()
+        assert "hand-written file(s) judged" in result.message, (
+            f"the stage's result does not say how many files it judged, so a pass over a tree with no "
+            f"hand-written Python is indistinguishable from a clean one: {result.message!r}"
         )
 
 
@@ -975,21 +965,23 @@ class TestBugConditionTwoAsLiterallyStatedDoesNotHoldForTheStage:
     """The refutation, recorded rather than worked around.
 
     ``isBugCondition_2`` says *every* finding is in a generated file. Measured
-    through the stage that actually runs, that is false -- which is the outcome
-    task 1.2 exists to establish, and the reason the fix is not "exclude the
-    generated files". The restatement that *does* hold is the second test: under
-    the bar the plugins repository applies, no finding lies in hand-written plugin
-    code, so 2.7's "a plugin a human reviewer would call clean" is a fair
-    description of this tree.
+    through the stage that actually ran ``flake8``, that was false: width
+    complaints landed on hand-written plugin code too. That is the outcome task 1.2
+    exists to establish, and the reason the fix is not "exclude the generated
+    files". The restatement that *does* hold is the second test: under the bar the
+    plugins repository applies, no finding lies in hand-written plugin code, so
+    2.7's "a plugin a human reviewer would call clean" is a fair description of this
+    tree -- and a stage judged by that bar passes, which is what the first test now
+    records.
     """
 
-    def test_not_every_stage_finding_is_in_a_generated_file(self):
-        """The universal quantifier fails, and one counterexample is enough."""
+    def test_the_stage_no_longer_reports_outside_the_generated_files(self):
+        """After-state of the refutation: neither bucket is populated now."""
         findings = _lint_stage_findings()
         outside = tuple(finding for finding in findings if not is_generated(finding.path))
-        assert outside, (
-            "every finding is in a generated file after all, so isBugCondition_2 holds as literally "
-            f"stated and task 7 need only exclude them:\n{_partition_summary(findings)}"
+        assert not outside, (
+            "the stage reports findings outside generated files, which under the repository's bar means "
+            f"either the plugin regressed or the bar moved:\n{_partition_summary(findings)}"
         )
 
     def test_under_the_repository_bar_no_finding_lies_in_hand_written_plugin_code(self):
@@ -2074,30 +2066,44 @@ class TestThePreExistingFailureFollowsTheToolAndNotTheProfile:
             f"neither `bugfix.md` 1.6 nor the design has identified:\n{outcome.render()}"
         )
 
-    def test_the_test_fails_with_prospector_absent(self):
-        """`bugfix.md` 1.6's symptom, reproduced by removing the tool and nothing else."""
+    def test_the_test_skips_rather_than_fails_with_prospector_absent(self):
+        """`bugfix.md` 1.6's symptom, and what clause 2.9 turned it into.
+
+        Before change 5 this run **failed**, with the empty finding set 1.6
+        describes: the assertion could not tell "the linter reported nothing" from
+        "the linter never ran", which is the distinction parent design Property 58
+        makes one level down. The repair is the guard, so the run now skips -- an
+        unverifiable check reports as unverified rather than as a defect, which is
+        what 26.4 and 27.5 require of the tool and what this asks of its own suite.
+        """
         outcome = _outcome_without_prospector()
-        assert outcome.failed, (
-            "the pre-existing test does not fail with prospector removed from PATH, so the missing-tool "
-            f"diagnosis does not reproduce here:\n{outcome.render()}"
+        assert outcome.was_skipped, (
+            "with prospector removed from PATH the pre-existing test neither skips nor is guarded, so a "
+            f"missing linter still reads as a finding that went unreported:\n{outcome.render()}"
             f"\nremoved directories: {_prospector_directories()}"
         )
-        assert PRE_EXISTING_EXPECTED_CODE in outcome.assertion_message and "set()" in outcome.assertion_message, (
-            "the failure is not the empty finding set 1.6 describes, so it is a different failure and the "
-            f"comparison below is not about the same thing:\n{outcome.render()}"
+        assert PRE_EXISTING_EXPECTED_CODE not in outcome.assertion_message, (
+            "the run still asserts the undefined-variable finding with no linter present, so the guard is "
+            f"not what decided the outcome:\n{outcome.render()}"
         )
 
     def test_the_two_outcomes_differ(self):
-        """The task's own instruction: run it both ways and assert the outcomes differ."""
+        """The task's own instruction: run it both ways and assert the outcomes differ.
+
+        They still differ after the repair, which is the point -- what changed is
+        *how*. A pass and a skip are distinguishable outcomes; a pass and a false
+        failure were distinguishable too, but the failure blamed the plugin for the
+        host's missing linter.
+        """
         present = _outcome_with_prospector()
         absent = _outcome_without_prospector()
-        assert present.passed and absent.failed, (
-            "the outcome is the same with and without prospector, so the tool's presence is not what "
-            f"decides it:\n{present.render()}\n{absent.render()}"
+        assert present.passed and absent.was_skipped, (
+            "the outcome is not pass-with / skip-without, so the tool's presence is either not what "
+            f"decides it or the guard is not in force:\n{present.render()}\n{absent.render()}"
         )
-        assert present.returncode != absent.returncode, (
-            f"both runs exited {present.returncode}, so nothing distinguishes them:\n"
-            f"{present.render()}\n{absent.render()}"
+        assert present.counts != absent.counts, (
+            f"both runs reported the same outcome counts {present.counts}, so nothing distinguishes "
+            f"them:\n{present.render()}\n{absent.render()}"
         )
 
     def test_restoring_only_prospector_restores_the_pass(self):
@@ -2572,76 +2578,79 @@ class TestTheTwoRunsDifferOnlyInTheProfileTheyResolved:
 
 
 class TestOnlyANonAuthoritativeProfileIsDisclosed:
-    """**The counterexample.** The report speaks up only when the bar is second-best.
+    """**The counterexample, and its repair.** The report used to speak up only when
+    the bar was second-best.
 
-    The first two tests are the measurement in both directions and the third and
-    fourth are the code path that produces it. All four pass on unfixed code, and
-    the second is expected to **stop** passing once task 7.3 lands -- that is the
-    fix, and this class is where the before-state is recorded.
+    What this recorded before change 5: ``_check_prospector`` appended the profile's
+    detail to ``skipped`` inside ``if not profile.is_authoritative``, so a run judged
+    by the plugins repository's own profile disclosed nothing at all -- not the path,
+    not the source, not even the word "profile". Two operators comparing differing
+    reports therefore could not tell whether the plugin had changed or the bar had,
+    which is the tradeoff 2.8 states rather than removes.
+
+    Restated in its after-state form: the disclosure is unconditional and structured,
+    carried on the report rather than in a skip note, so it can reach the export
+    payload. The skip note survives for the one case that genuinely *is* a degraded
+    check -- a profile that could not be resolved at all, where prospector runs under
+    weaker rules than intended.
     """
 
-    def test_the_hidden_run_discloses_the_profile_it_fell_back_to(self):
-        """The disclosure that does exist: provenance, when the profile is not authoritative."""
+    def test_the_fallback_run_discloses_the_profile_it_fell_back_to(self):
+        """Provenance, when the profile is not authoritative."""
         disclosure = _fallback_disclosure()
         evidence = _profile_evidence()
-        assert disclosure.mentions(evidence.fallback_path), (
-            "the fallback run's report does not name the vendored profile either, so the profile is never "
-            f"disclosed at all and the gating below is moot:\n{disclosure.render()}"
-        )
-        assert any("profile" in note for note in disclosure.skipped), (
-            f"the provenance reaches the operator through some surface other than a skip note; record which "
-            f"before relying on this measurement:\n{disclosure.render()}"
-        )
+        assert disclosure.mentions(
+            evidence.fallback_path
+        ), f"the fallback run's report does not name the vendored profile:\n{disclosure.render()}"
 
-    def test_the_authoritative_run_discloses_nothing_about_the_profile(self):
-        """**The finding.** Under the authoritative bar the operator learns nothing.
-
-        Not the path, not the source, not even the word: a run judged by the
-        repository's own profile is indistinguishable, from its report alone, from
-        a run judged by anything else.
-        """
+    def test_the_authoritative_run_discloses_the_bar_too(self):
+        """The repair: an authoritative bar is as worth naming as a stale one."""
         disclosure = _authoritative_disclosure()
         evidence = _profile_evidence()
-        disclosed = {
-            "the profile path": disclosure.mentions(evidence.repository_path),
-            "the source label": disclosure.mentions(LINT_PROFILE_SOURCE_REPOSITORY),
-            "the word 'profile'": disclosure.mentions("profile"),
-            "the word 'prospector'": disclosure.mentions("prospector"),
+        undisclosed = {
+            "the profile path": not disclosure.mentions(evidence.repository_path),
+            "the source label": not disclosure.mentions(LINT_PROFILE_SOURCE_REPOSITORY),
         }
-        assert not any(disclosed.values()), (
-            "the authoritative run does disclose the bar after all, so 2.8 is closed by measurement for the "
-            f"profile half and task 7.3 shrinks: {disclosed}\n{disclosure.render()}"
+        assert not any(undisclosed.values()), (
+            "a run judged by the repository's own profile still discloses nothing about the bar, so it is "
+            f"indistinguishable from a run judged by anything else: {undisclosed}\n{disclosure.render()}"
         )
 
-    def test_the_disclosure_is_gated_on_the_profile_being_non_authoritative(self):
-        """The code path, so the claim is about the gate and not about this one tree.
-
-        ``_check_prospector`` appends the detail to ``skipped`` inside
-        ``if not profile.is_authoritative`` and in the unresolved branch. There is
-        no unconditional path from :class:`LintProfile` to the report.
-        """
+    def test_the_disclosure_is_no_longer_gated_on_the_profile_being_non_authoritative(self):
+        """The code path, so the claim is about the gate and not about one tree."""
         source = _quality_gate_source()
         start = source.find("async def _check_prospector")
         assert start >= 0, "quality_gate no longer has a _check_prospector; retake this measurement"
         following = source.find("\n    async def ", start + 1)
         body = source[start : following if following > 0 else len(source)]
-        assert "if not profile.is_authoritative:" in body, (
-            "the disclosure is no longer gated on the profile being non-authoritative; retake this "
-            f"measurement against the current code:\n{body}"
-        )
-        carrying = tuple(line.strip() for line in body.splitlines() if "profile.detail" in line)
-        assert carrying and all(line.startswith("skipped.append(") for line in carrying), (
-            "the profile detail reaches the report by some route other than a skip note, so this "
-            f"measurement of how provenance is surfaced needs retaking: {carrying}"
+        assert "if not profile.is_authoritative:" not in body, (
+            "the disclosure is gated on the profile being non-authoritative again, so an authoritative bar "
+            f"goes unreported:\n{body}"
         )
 
-    def test_no_other_layer_consumes_the_resolved_profile(self):
-        """There is no second route to the operator: one production caller, and it is the gate.
+    def test_the_bar_is_carried_where_a_serializer_can_reach_it(self):
+        """Task 7.3 -- on the report and on the stage result, not only in prose.
 
-        Task 7.3 requires the profile carried "on ``QualityReport`` and on the
-        ``lint`` stage's result, and serialized into the export payload". Today
-        nothing outside the gate so much as reads it, which is why the export
-        preview cannot state the bar even when the gate knows it.
+        Prose in a skip note cannot be put in the export payload, which is where
+        2.8 and task 12.1's "the profile and interpreter named" both need it.
+        """
+        fields = tuple(QualityReport.__dataclass_fields__)
+        assert any("profile" in field for field in fields) and any("line_length" in field for field in fields), (
+            f"QualityReport carries neither the profile nor the line length, so the bar cannot be "
+            f"serialized however the report words it. Its fields are {fields}"
+        )
+        stage_fields = tuple(StageResult.__dataclass_fields__)
+        assert any("profile" in field for field in stage_fields), (
+            f"the lint stage's result carries no profile, so a caller holding only the validator cannot "
+            f"state the bar: {stage_fields}"
+        )
+
+    def test_the_resolved_profile_reaches_both_subsystems(self):
+        """Two production consumers now, which is what makes one bar possible.
+
+        Before change 5 only the gate read it, so the ``lint`` stage judged the same
+        code by a different linter under different rules -- the two-subsystems-
+        disagree shape clause 2.6 closes.
         """
         package = REPO_ROOT / "icplugin_builder"
         readers = sorted(
@@ -2649,9 +2658,9 @@ class TestOnlyANonAuthoritativeProfileIsDisclosed:
             for path in package.rglob("*.py")
             if path.name != "build_prep.py" and "resolve_lint_profile" in path.read_text(encoding="utf-8")
         )
-        assert readers == ["integrations/quality_gate.py"], (
-            "the set of modules consuming the resolved lint profile has changed, so this measurement of "
-            f"where provenance can reach an operator needs retaking: {readers}"
+        assert readers == ["integrations/code_validator.py", "integrations/quality_gate.py"], (
+            "the set of modules consuming the resolved lint profile is not the gate and the validator, so "
+            f"either a consumer was lost or a third has appeared: {readers}"
         )
 
 

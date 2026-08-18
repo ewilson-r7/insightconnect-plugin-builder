@@ -52,6 +52,7 @@ __all__ = [
     "CodeFinding",
     "QualityReport",
     "QualityGate",
+    "first_json_object",
     "package_dir",
 ]
 
@@ -125,6 +126,19 @@ class QualityReport:
             of a plugin that reached the threshold and of one whose coverage was
             never measured, and a caller deciding whether the plugin is finished
             has to tell those apart.
+        lint_profile: the prospector profile the findings were produced under --
+            its path, and whether it came from a plugins checkout or this
+            package's vendored copy. Carried as structured data, not only as
+            prose, so the export payload can state which bar judged the plugin
+            (clause 2.8). Runtime discovery is kept deliberately: a vendored
+            second copy of someone else's rules drifts, and then the two disagree
+            about what clean means. The tradeoff is not removed but stated -- two
+            operators with different checkouts can see different findings, and now
+            the report says which bar produced them.
+        line_length: the column width the format check applied. Reported for the
+            same reason: a ``would-reformat`` finding raised at 120 columns and
+            one raised at black's own narrower default are indistinguishable
+            otherwise.
     """
 
     project_dir: Path
@@ -132,6 +146,8 @@ class QualityReport:
     checked_files: Tuple[str, ...] = ()
     skipped: Tuple[str, ...] = ()
     coverage_percent: Optional[float] = None
+    lint_profile: Optional[LintProfile] = None
+    line_length: Optional[int] = None
 
     @property
     def clean(self) -> bool:
@@ -146,10 +162,29 @@ class QualityReport:
         """The findings produced by one check."""
         return tuple(finding for finding in self.findings if finding.source == source)
 
+    def bar(self) -> str:
+        """State the bar this report was produced under (clause 2.8).
+
+        Reported whichever profile resolved, not only when it is second-best. A
+        run judged by the repository's own profile used to be indistinguishable,
+        from its report alone, from a run judged by anything else -- so two
+        operators comparing differing reports could not tell whether the plugin had
+        changed or the bar had.
+        """
+        parts = []
+        if self.lint_profile is not None:
+            source = self.lint_profile.source or "unresolved"
+            parts.append(f"prospector profile {self.lint_profile.path} (source: {source})")
+        if self.line_length is not None:
+            parts.append(f"line length {self.line_length}")
+        return "; ".join(parts)
+
     def summary(self) -> str:
-        """Return a human-readable one-line summary."""
+        """Return a human-readable one-line summary, naming the bar applied."""
+        bar = self.bar()
+        suffix = f" Judged under {bar}." if bar else ""
         if self.clean and not self.skipped:
-            return f"No findings across {len(self.checked_files)} hand-written file(s)."
+            return f"No findings across {len(self.checked_files)} hand-written file(s).{suffix}"
         parts = [f"{len(self.findings)} finding(s)"]
         for source in (SOURCE_COMPILE, SOURCE_FORMAT, SOURCE_PROSPECTOR, SOURCE_TESTS, SOURCE_COVERAGE):
             count = len(self.by_source(source))
@@ -157,6 +192,8 @@ class QualityReport:
                 parts.append(f"{source}: {count}")
         if self.skipped:
             parts.append(f"skipped: {', '.join(self.skipped)}")
+        if bar:
+            parts.append(f"judged under {bar}")
         return "; ".join(parts)
 
     def render(self, limit: int = 40) -> str:
@@ -221,6 +258,7 @@ class QualityGate:
         self._coverage_threshold = coverage_threshold
         self._line_length = line_length
         self._profile = lint_profile
+        self._resolved_profile: Optional[LintProfile] = None
 
     async def run(self, project_dir: Union[str, Path]) -> QualityReport:
         """Run every check over ``project_dir`` and collect the findings.
@@ -269,6 +307,8 @@ class QualityGate:
             checked_files=files,
             skipped=tuple(skipped),
             coverage_percent=coverage_percent,
+            lint_profile=self.lint_profile(),
+            line_length=self._line_length,
         )
 
     async def _check_compile(self, root: Path, files: Sequence[str]) -> Tuple[List[CodeFinding], List[str]]:
@@ -306,7 +346,7 @@ class QualityGate:
         return findings, []
 
     async def _check_format(self, root: Path, files: Sequence[str]) -> Tuple[List[CodeFinding], List[str]]:
-        """Report files ``black`` would reformat."""
+        """Report files ``black`` would reformat, one finding per file."""
         findings: List[CodeFinding] = []
         # --line-length is not optional. A generated plugin carries no
         # pyproject.toml, so black would otherwise apply its own 88-column
@@ -314,7 +354,14 @@ class QualityGate:
         # correctly formatted plugin code reports as needing reformatting, and the
         # repair loop asks the agent to rewrap it to a width the repository's CI
         # will then object to.
-        command = [self._black, "--check", "--quiet", f"--line-length={self._line_length}", *files]
+        #
+        # --quiet is deliberately *not* passed. It suppresses the very
+        # "would reformat <path>" lines parsed below, so every unformatted tree
+        # collapsed to one pathless `format:.:-:would-reformat` finding: neither the
+        # operator nor the repair loop could tell which file to fix, and the key was
+        # identical however many files were unformatted, so fixing one of two read
+        # as a stall to the loop's finding-key arithmetic (3.8).
+        command = [self._black, "--check", f"--line-length={self._line_length}", *files]
         result = await self._run(command, cwd=root)
         if result is None:
             return findings, [f"format ({self._black} not available)"]
@@ -322,8 +369,7 @@ class QualityGate:
         returncode, stdout, stderr = result
         if returncode == 0:
             return findings, []
-        # black names each file it would reformat on stderr; when --quiet
-        # suppresses that, fall back to a single tree-level finding.
+        # black names each file it would reformat on stderr.
         named = [token for token in (stderr + stdout).split() if token.endswith(".py") and not is_generated(token)]
         if named:
             for path in sorted(set(named)):
@@ -336,15 +382,36 @@ class QualityGate:
                     )
                 )
         else:
+            # black said something needs reformatting but named nothing this check
+            # judges. Reported rather than dropped: a non-zero exit with no
+            # attributable file is a check that could not be acted on, which is a
+            # different thing from a clean run.
             findings.append(
                 CodeFinding(
                     source=SOURCE_FORMAT,
                     path=".",
                     code="would-reformat",
-                    message="black would reformat one or more files; run black to fix",
+                    message=(
+                        "black reported files needing reformatting but named none this check judges; "
+                        f"its output was: {(stderr + stdout).strip()[:200]}"
+                    ),
                 )
             )
         return findings, []
+
+    def lint_profile(self) -> LintProfile:
+        """The prospector profile this gate judges against, resolved once.
+
+        Memoized so the profile named in the report is the one the linter ran
+        under: resolution reads the filesystem, and a checkout appearing or
+        vanishing mid-run would otherwise attribute a verdict to a profile that
+        did not produce it.
+        """
+        if self._profile is not None:
+            return self._profile
+        if self._resolved_profile is None:
+            self._resolved_profile = resolve_lint_profile()
+        return self._resolved_profile
 
     async def _check_prospector(self, root: Path) -> Tuple[List[CodeFinding], List[str]]:
         """Run prospector as the plugins repository runs it, and parse its JSON.
@@ -354,16 +421,20 @@ class QualityGate:
         repository merges without comment, and the repair loop cannot fix any of
         them. See :func:`~icplugin_builder.integrations.build_prep.resolve_lint_profile`
         and :data:`~icplugin_builder.integrations.build_prep.LINT_TOOLS`.
+
+        The profile's provenance is carried on the report itself
+        (:meth:`QualityReport.bar`) rather than appended here as a skip note, so an
+        authoritative bar is disclosed as readily as a stale one. A profile that
+        could not be resolved at all remains a skip note, because that is a check
+        running under weaker rules than intended and not merely a bar worth naming.
         """
         findings: List[CodeFinding] = []
         skipped: List[str] = []
 
         command = [self._prospector, "--output-format", "json"]
-        profile = self._profile if self._profile is not None else resolve_lint_profile()
+        profile = self.lint_profile()
         if profile.resolved:
             command.extend(["--profile", str(profile.path)])
-            if not profile.is_authoritative:
-                skipped.append(f"prospector profile ({profile.detail})")
         else:
             skipped.append(f"prospector profile ({profile.detail})")
         for tool in LINT_TOOLS:
@@ -377,7 +448,7 @@ class QualityGate:
             return findings, [f"prospector ({self._prospector} not available)"]
 
         _, stdout, _ = result
-        payload = _first_json_object(stdout)
+        payload = first_json_object(stdout)
         if payload is None:
             return findings, skipped + ["prospector (output was not parseable JSON)"]
 
@@ -613,7 +684,7 @@ def _parse_coverage_total(output: str) -> Optional[float]:
         return None
 
 
-def _first_json_object(text: str) -> Optional[dict]:
+def first_json_object(text: str) -> Optional[dict]:
     """Extract the first top-level JSON object from ``text``.
 
     Prospector prints JSON to stdout but tools it wraps may emit warnings around

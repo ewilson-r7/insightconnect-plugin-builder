@@ -11,8 +11,10 @@ integration test are covered separately by tasks 15.2 and 15.11.
 """
 
 import asyncio
+import json
 
 from icplugin_builder.integrations import code_validator as cv
+from icplugin_builder.integrations.build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile
 from icplugin_builder.integrations.code_validator import (
     DOCKER_UNAVAILABLE_MESSAGE,
     CodeValidator,
@@ -65,8 +67,28 @@ def install_router(monkeypatch, router, *, record=None):
     monkeypatch.setattr(cv.asyncio, "create_subprocess_exec", fake_exec)
 
 
+#: What prospector prints when it has nothing to report. The ``lint`` stage reads
+#: its verdict from this JSON rather than from the exit code, because prospector
+#: exits 0 even when it *does* report messages -- so a fake that only sets a
+#: returncode would let every tree pass.
+PROSPECTOR_CLEAN = b'{"messages": []}'
+
+
+def prospector_findings(*messages) -> bytes:
+    """Prospector JSON reporting ``(path, line, code)`` triples."""
+    payload = {
+        "messages": [
+            {"location": {"path": path, "line": line}, "code": code, "message": f"{code} at {path}:{line}"}
+            for path, line, code in messages
+        ]
+    }
+    return json.dumps(payload).encode("utf-8")
+
+
 def all_pass_router(command):
     """A router where every command (docker probe + all stages) succeeds."""
+    if command[0] == "prospector":
+        return FakeProcess(returncode=0, stdout=PROSPECTOR_CLEAN)
     return FakeProcess(returncode=0, stdout=b"ok")
 
 
@@ -131,8 +153,11 @@ class TestRunPipelineAllPass:
 class TestRunPipelineFailures:
     def test_nonzero_stage_records_fail_with_output(self, tmp_path, monkeypatch):
         def router(command):
-            if command[0] == "flake8":
-                return FakeProcess(returncode=1, stdout=b"E501 line too long")
+            if command[0] == "prospector":
+                return FakeProcess(
+                    returncode=0,
+                    stdout=prospector_findings(("icon_x/util/api.py", 12, "undefined-variable")),
+                )
             return FakeProcess(returncode=0)
 
         install_router(monkeypatch, router)
@@ -140,8 +165,8 @@ class TestRunPipelineFailures:
 
         lint = report.stage(StageName.LINT)
         assert lint.status is StageStatus.FAILED
-        assert lint.returncode == 1
-        assert "E501" in lint.stdout
+        assert "undefined-variable" in lint.stdout
+        assert "icon_x/util/api.py" in lint.stdout
         assert report.passed is False
         assert [s.name for s in report.failed_stages] == [StageName.LINT]
 
@@ -185,8 +210,8 @@ class TestDockerUnavailable:
         def router(command):
             if command[0] == "docker" and command[1:] == ["version"]:
                 raise FileNotFoundError(2, "no docker")
-            if command[0] == "flake8":
-                return FakeProcess(returncode=0, stdout=b"lint ok")
+            if command[0] == "prospector":
+                return FakeProcess(returncode=0, stdout=PROSPECTOR_CLEAN)
             # No other command should be invoked when Docker is unavailable.
             raise AssertionError(f"unexpected command executed: {command}")
 
@@ -211,8 +236,11 @@ class TestCodeRetention:
         before = source.read_text(encoding="utf-8")
 
         def router(command):
-            if command[0] == "flake8":
-                return FakeProcess(returncode=1, stdout=b"lint failed")
+            if command[0] == "prospector":
+                return FakeProcess(
+                    returncode=0,
+                    stdout=prospector_findings(("action.py", 2, "undefined-variable")),
+                )
             return FakeProcess(returncode=0)
 
         install_router(monkeypatch, router)
@@ -220,6 +248,138 @@ class TestCodeRetention:
 
         assert report.passed is False
         assert source.read_text(encoding="utf-8") == before
+
+
+class TestTheLintStageJudgesHandWrittenCodeAtTheStatedBar:
+    """The ``lint`` stage's verdict comes from findings, not an exit code (2.6-2.8).
+
+    Prospector exits ``0`` even when it reports messages, so the exit code cannot
+    carry the verdict -- and the findings are what let the stage ignore files the
+    plugin's author is forbidden to edit. In the run that motivated this, fourteen
+    messages blocked an export and every one of them was in a generated
+    ``__init__.py`` or ``schema.py``: real, correctly located, and unfixable by
+    their audience.
+    """
+
+    def _tree(self, tmp_path):
+        package = tmp_path / "icon_x"
+        (package / "util").mkdir(parents=True)
+        (package / "util" / "api.py").write_text("x = 1\n", encoding="utf-8")
+        (package / "util" / "schema.py").write_text("y = 2\n", encoding="utf-8")
+        (tmp_path / "unit_test").mkdir()
+        (tmp_path / "unit_test" / "test_api.py").write_text("z = 3\n", encoding="utf-8")
+        return tmp_path
+
+    def _lint(self, tmp_path, monkeypatch, stdout, returncode=0):
+        def router(command):
+            if command[0] == "prospector":
+                return FakeProcess(returncode=returncode, stdout=stdout)
+            return FakeProcess(returncode=0)
+
+        install_router(monkeypatch, router)
+        report = asyncio.run(CodeValidator().run_pipeline(self._tree(tmp_path)))
+        return report.stage(StageName.LINT)
+
+    def test_it_runs_prospector_under_the_resolved_profile_and_the_plugin_width(self, tmp_path, monkeypatch):
+        record = []
+        install_router(monkeypatch, all_pass_router, record=record)
+        asyncio.run(CodeValidator().run_pipeline(tmp_path))
+
+        command = next(cmd for cmd, _ in record if cmd[0] == "prospector")
+        assert command[command.index("--max-line-length") + 1] == str(PLUGIN_LINE_LENGTH)
+        for tool in LINT_TOOLS:
+            assert ["--tool", tool] == command[command.index(tool) - 1 : command.index(tool) + 1]
+
+    def test_a_finding_in_a_generated_file_does_not_fail_the_stage(self, tmp_path, monkeypatch):
+        stage = self._lint(
+            tmp_path,
+            monkeypatch,
+            prospector_findings(("icon_x/util/schema.py", 4, "bad-super-call")),
+        )
+        assert stage.status is StageStatus.PASSED
+        assert "1 finding(s) in generated or excluded files ignored" in stage.message
+
+    def test_a_finding_in_the_unit_tests_does_not_fail_the_stage(self, tmp_path, monkeypatch):
+        # unit_test/ is lint-excluded and still compiled, formatted and run (3.7).
+        stage = self._lint(
+            tmp_path,
+            monkeypatch,
+            prospector_findings(("unit_test/test_api.py", 9, "protected-access")),
+        )
+        assert stage.status is StageStatus.PASSED
+
+    def test_a_finding_in_hand_written_code_fails_the_stage(self, tmp_path, monkeypatch):
+        stage = self._lint(
+            tmp_path,
+            monkeypatch,
+            prospector_findings(("icon_x/util/api.py", 7, "undefined-variable")),
+        )
+        assert stage.status is StageStatus.FAILED
+        assert "icon_x/util/api.py:7: undefined-variable" in stage.stdout
+
+    def test_a_zero_exit_with_findings_still_fails(self, tmp_path, monkeypatch):
+        """Prospector exits 0 even when it reports; the exit code cannot be the verdict."""
+        stage = self._lint(
+            tmp_path,
+            monkeypatch,
+            prospector_findings(("icon_x/util/api.py", 7, "undefined-variable")),
+            returncode=0,
+        )
+        assert stage.returncode == 0
+        assert stage.status is StageStatus.FAILED
+
+    def test_a_nonzero_exit_with_no_finding_still_passes(self, tmp_path, monkeypatch):
+        """The mirror image: prospector's exit code says nothing about the plugin."""
+        stage = self._lint(tmp_path, monkeypatch, PROSPECTOR_CLEAN, returncode=1)
+        assert stage.returncode == 1
+        assert stage.status is StageStatus.PASSED
+
+    def test_unparseable_output_fails_rather_than_passing_quietly(self, tmp_path, monkeypatch):
+        """The gate has no third state, so a stage that read nothing establishes nothing."""
+        stage = self._lint(tmp_path, monkeypatch, b"Traceback (most recent call last): boom")
+        assert stage.status is StageStatus.FAILED
+        assert "no parseable JSON" in stage.message
+
+    def test_the_result_names_the_profile_the_source_and_the_width(self, tmp_path, monkeypatch):
+        stage = self._lint(tmp_path, monkeypatch, PROSPECTOR_CLEAN)
+        assert stage.line_length == PLUGIN_LINE_LENGTH
+        assert stage.lint_profile is not None
+        assert str(PLUGIN_LINE_LENGTH) in stage.message
+        assert str(stage.lint_profile.path) in stage.message
+        assert (stage.lint_profile.source or "unresolved") in stage.message
+
+    def test_a_pinned_profile_is_used_as_given(self, tmp_path, monkeypatch):
+        record = []
+        install_router(monkeypatch, all_pass_router, record=record)
+        profile = LintProfile(path="/tmp/pinned.yaml", source="repository", detail="pinned")
+        asyncio.run(CodeValidator(lint_profile=profile).run_pipeline(tmp_path))
+
+        command = next(cmd for cmd, _ in record if cmd[0] == "prospector")
+        assert command[command.index("--profile") + 1] == "/tmp/pinned.yaml"
+
+    def test_a_tree_with_no_hand_written_python_passes_naming_zero_files(self, tmp_path, monkeypatch):
+        """The tradeoff, recorded rather than hidden: the stage has no third state.
+
+        The honest report of such a tree lives in the ``Definition_Of_Done``, where
+        ``code_parses`` comes back unverified.
+        """
+        install_router(monkeypatch, all_pass_router)
+        report = asyncio.run(CodeValidator().run_pipeline(tmp_path))
+        stage = report.stage(StageName.LINT)
+        assert stage.status is StageStatus.PASSED
+        assert "0 hand-written file(s) judged" in stage.message
+
+    def test_a_missing_linter_fails_the_stage_naming_it(self, tmp_path, monkeypatch):
+        def router(command):
+            if command[0] == "prospector":
+                raise FileNotFoundError(2, "No such file or directory")
+            return FakeProcess(returncode=0)
+
+        install_router(monkeypatch, router)
+        report = asyncio.run(CodeValidator().run_pipeline(tmp_path))
+        stage = report.stage(StageName.LINT)
+        assert stage.status is StageStatus.FAILED
+        assert "prospector" in stage.message
 
 
 class TestReportHelpers:

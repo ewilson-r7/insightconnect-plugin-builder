@@ -123,7 +123,7 @@ class MockedExternalProcesses:
       scaffolder / refresh / validate operations;
     * ``docker version`` / ``build`` / ``run`` -- the Docker probe and the
       build/test stages;
-    * ``flake8 .`` -- the offline lint stage.
+    * ``prospector`` -- the offline lint stage, under the resolved profile.
 
     Every launched ``(argv, cwd)`` is recorded on :attr:`dispatched` so a test can
     assert exactly what reached each external and that nothing else did.
@@ -141,7 +141,7 @@ class MockedExternalProcesses:
             return "kiro"
         if argv[0] == "kiro-cli":
             return "agent"
-        if argv[0] == "flake8":
+        if argv[0] == "prospector":
             return StageName.LINT
         if argv[:2] == ["docker", "version"]:
             return "docker_probe"
@@ -182,7 +182,11 @@ class MockedExternalProcesses:
             return _FakeProcess(returncode=0, stdout=_AGENT_TRANSCRIPT.encode("utf-8"))
         if kind == "docker_probe":
             return _FakeProcess(returncode=0, stdout=b"Docker version 25.0.0")
-        # Every insight-plugin / docker / flake8 stage passes cleanly.
+        # Every insight-plugin / docker / prospector stage passes cleanly.
+        if kind == StageName.LINT:
+            # Prospector JSON, because the lint stage reads its verdict from the
+            # findings rather than from the exit code.
+            return _FakeProcess(returncode=0, stdout=b'{"messages": []}')
         return _FakeProcess(returncode=0, stdout=f"{kind} ok".encode("utf-8"))
 
     # -- assertion helpers --------------------------------------------------
@@ -264,7 +268,7 @@ def _wire_real_stack(projects_root, *, uploader):
         plugin_agent=PluginAgent(cost, executable="kiro-cli"),
         refresh_coordinator=RefreshCoordinator(cli=InsightPluginCli("insight-plugin")),
         code_validator=CodeValidator(
-            lint_command=("flake8", "."),
+            prospector_executable="prospector",
             docker_executable="docker",
             insight_plugin_executable="insight-plugin",
         ),
@@ -344,7 +348,7 @@ class TestEndToEndCreateGenerateValidateBuildExport:
         client = TestClient(create_app(orchestrator=orch, registry=orch._registry))
 
         # prepare_export runs the real Spec_Validator plus the real four-stage
-        # Code_Validator (flake8 + docker build/run + insight-plugin validate,
+        # Code_Validator (prospector + docker build/run + insight-plugin validate,
         # all mocked) and the real Build_Engine preview.
         plan = client.post("/api/session/s1/export/prepare").json()
         assert plan["permitted"] is True  # spec valid AND all four stages passed (Req 7.4, 8.6, 8.7)

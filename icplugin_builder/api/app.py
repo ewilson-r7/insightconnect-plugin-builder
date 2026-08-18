@@ -52,6 +52,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..core.visualization import render_visualization
+from ..integrations.code_validator import StageName
 from ..integrations.definition_of_done import DoneReport
 from ..integrations.export_manager import TenantCredentials
 from ..orchestrator.orchestrator import (
@@ -234,6 +235,39 @@ def _serialize_export_plan(plan: ExportPlan) -> Dict[str, Any]:
             for finding in (plan.completeness.findings if plan.completeness else ())
         ],
         "failed_stages": [stage.name for stage in plan.decision.failed_stages],
+        # Clause 2.8: a finding is attributable to the bar that produced it. Two
+        # operators with different plugins checkouts can still be held to
+        # different profiles; what the payload adds is that the preview says which
+        # one judged this plugin, and at what width.
+        "lint_bar": _serialize_lint_bar(plan),
+    }
+
+
+def _serialize_lint_bar(plan: ExportPlan) -> Optional[Dict[str, Any]]:
+    """Serialize which prospector profile and line length judged the plugin.
+
+    Read from the ``Quality_Gate``'s report when there is one and from the ``lint``
+    stage's result otherwise, because either can be the thing that ran: a preview
+    computed without a project folder has no gate report, and a caller holding only
+    the validator has no quality report.
+    """
+    report = plan.quality_report
+    if report is not None and (report.lint_profile is not None or report.line_length is not None):
+        profile = report.lint_profile
+        return {
+            "profile_path": str(profile.path) if profile is not None and profile.path else None,
+            "profile_source": profile.source if profile is not None else None,
+            "line_length": report.line_length,
+        }
+    stage = plan.pipeline_report.stage(StageName.LINT) if plan.pipeline_report is not None else None
+    if stage is None or (stage.lint_profile is None and stage.line_length is None):
+        return None
+    return {
+        "profile_path": (
+            str(stage.lint_profile.path) if stage.lint_profile is not None and stage.lint_profile.path else None
+        ),
+        "profile_source": stage.lint_profile.source if stage.lint_profile is not None else None,
+        "line_length": stage.line_length,
     }
 
 
@@ -762,9 +796,11 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     insight_plugin_cli = InsightPluginCli(executable="insight-plugin")
     refresh_coordinator = RefreshCoordinator(cli=insight_plugin_cli)
 
-    # Code validation (flake8 + Docker build/test + insight-plugin validate)
+    # Code validation (prospector + Docker build/test + insight-plugin validate).
+    # The lint stage runs the same linter under the same profile as the
+    # Quality_Gate, so the two cannot disagree about whether a plugin is clean.
     code_validator = CodeValidator(
-        lint_command=("flake8", "."),
+        prospector_executable="prospector",
         docker_executable="docker",
         insight_plugin_executable="insight-plugin",
         # icon_validator lives with the plugin toolchain, not in this tool's

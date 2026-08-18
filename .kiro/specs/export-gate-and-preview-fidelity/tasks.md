@@ -308,7 +308,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - _Preservation: 3.3, 3.7 — a genuine hand-written defect is still reported; unit_test/ stays compiled, formatted, and run_
   - _Requirements: 2.6, 2.7, 2.8, 2.9_
 
-  - [ ] 7.1 The `lint` stage is judged by the same linter and profile as the `Quality_Gate`
+  - [x] 7.1 The `lint` stage is judged by the same linter and profile as the `Quality_Gate`
     - Replace `flake8 .` with prospector under the resolved profile, `LINT_TOOLS`, and the hand-written file set from `core/plugin_files`; derive the stage verdict from that finding set — pass iff no finding refers to a hand-written file
     - **This goes beyond "exclude generated files" deliberately, and 2.7 is why**: `flake8`'s defaults include `pycodestyle`, which the plugins repository never runs, so a plugin a reviewer would call clean fails the stage on codes outside the bar no matter which files are excluded
     - It also removes the second two-subsystems-disagree case of the same shape as 2.4, and removes a stage that could fail because `flake8` — absent from `REQUIRED_TOOLS` — is not installed
@@ -317,18 +317,18 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Remove the `lint_command=("flake8", ".")` wiring from `api/app.py` and the default from `code_validator.py`
     - _Requirements: 2.6, 2.7_
 
-  - [ ] 7.2 Format check — re-measure first, edit only if the measurement says so
+  - [x] 7.2 Format check — re-measure first, edit only if the measurement says so
     - `_check_format` already restricts to `hand_written_python`. **If task 1.3's re-measured run is clean, the code change here is nil and the finding is closed by measurement rather than by edit** — record that outcome in this task
     - If it is not clean, route the file set through `core/plugin_files.hand_written_python` and fix whatever admitted the generated paths
     - _Requirements: 2.7_
 
-  - [ ] 7.3 Report the bar
+  - [x] 7.3 Report the bar
     - Carry the applied profile path, its source (`repository` / `fallback`), and the applied line length on `QualityReport` and on the `lint` stage's result, and serialize them into the export payload
     - **Decision as recorded: runtime discovery is kept**, because a vendored second copy of someone else's rules drifts and then the two disagree about what clean means (parent task 38)
     - The tradeoff, now stated rather than removed: two operators with different checkouts can still see different findings; what changes is that the report says which bar produced them
     - _Requirements: 2.8_
 
-  - [ ] 7.4 Pin the profile in content-dependent tests, and skip when the tool is absent
+  - [x] 7.4 Pin the profile in content-dependent tests, and skip when the tool is absent
     - **This is the actual repair for the pre-existing failure, per task 1.4's corrected diagnosis** — not profile reconciliation
     - `QualityGate` already accepts `lint_profile`: have `TestFindingsTheRepositoryWouldNotRaise` pass an explicit `LintProfile` pointing at a fixture copy, so the assertion no longer varies with the developer's home directory
     - Guard on `shutil.which("prospector")` so a missing linter is a **skip** rather than a false failure — the same distinction parent design Property 58 makes
@@ -349,7 +349,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/integrations/test_quality_gate_hand_written_property.py`
     - **Validates: Requirements 2.6, 2.7, 2.8, 2.9** — also preserves 3.3, 3.7
 
-  - [ ] 7.7 Amend parent Requirements 26.3 and 27.1
+  - [x] 7.7 Amend parent Requirements 26.3 and 27.1
     - 26.3 names the single definition of generated files that the `Quality_Gate`, the `lint` stage, and the packaging exclusion all consume
     - 27.1's `lint_clean` and formatting conditions apply to **hand-written code only**
     - Revision notes in the parent `requirements.md`, per that document's convention. Lands with the code that makes them true, per task 6 and this task

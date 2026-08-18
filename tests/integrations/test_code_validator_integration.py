@@ -24,6 +24,7 @@ The scenarios cover the full pipeline the user drives with one build request:
 import asyncio
 
 from icplugin_builder.integrations import code_validator as cv
+from icplugin_builder.integrations.build_prep import PLUGIN_LINE_LENGTH
 from icplugin_builder.integrations.code_validator import (
     DEFAULT_STAGE_TIMEOUT_SECONDS,
     CodeValidator,
@@ -68,7 +69,7 @@ class MockDockerEngine:
     """A mock Docker engine + ``insight-plugin`` CLI for the wired pipeline.
 
     The harness classifies each launched command (the ``docker version`` probe,
-    ``flake8`` lint, ``docker build``, ``docker run`` test, and
+    ``prospector`` lint, ``docker build``, ``docker run`` test, and
     ``insight-plugin validate``) and returns a scripted fake process for it,
     recording every ``(argv, cwd)`` on :attr:`dispatched`. Commands named in
     ``slow`` return a blocking process so the validator's ``wait_for`` guard
@@ -84,7 +85,7 @@ class MockDockerEngine:
     def classify(command):
         if command[:2] == ["docker", "version"]:
             return "probe"
-        if command[0] == "flake8":
+        if command[0] == "prospector":
             return StageName.LINT
         if command[:2] == ["docker", "build"]:
             return StageName.BUILD
@@ -111,6 +112,12 @@ class MockDockerEngine:
                 return _FakeProcess(returncode=0, stdout=b"Docker version 25.0.0")
             if kind in engine._slow:
                 return _SlowProcess()
+            if kind == StageName.LINT:
+                # The lint stage reads its verdict from prospector's JSON rather
+                # than from the exit code, because prospector exits 0 even when it
+                # reports messages -- a fake that only sets a returncode would let
+                # every tree pass.
+                return _FakeProcess(returncode=0, stdout=b'{"messages": []}')
             return _FakeProcess(returncode=0, stdout=f"{kind} ok".encode())
 
         async def fake_wait_for(awaitable, timeout):
@@ -171,7 +178,9 @@ class TestWiredFourStagePipeline:
             )
         )
 
-        assert engine.argv_for(StageName.LINT) == ["flake8", "."]
+        lint_argv = engine.argv_for(StageName.LINT)
+        assert lint_argv[0] == "prospector"
+        assert lint_argv[lint_argv.index("--max-line-length") + 1] == str(PLUGIN_LINE_LENGTH)
         assert engine.argv_for(StageName.BUILD) == ["docker", "build", "-t", "myplugin:1.0", "."]
         # The test stage runs against the *same* image the build produced.
         assert engine.argv_for(StageName.TEST) == [

@@ -40,7 +40,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
+from ..core.plugin_files import hand_written_python, is_lint_excluded
+from .build_prep import LINT_TOOLS, PLUGIN_LINE_LENGTH, LintProfile, resolve_lint_profile
 from .plugin_validate import validate_command
+from .quality_gate import first_json_object
 
 __all__ = [
     "StageStatus",
@@ -107,6 +110,15 @@ class StageResult:
         duration_seconds: Wall-clock time the stage ran for.
         message: A human-readable note explaining a non-pass outcome (timeout,
             missing executable, or the actionable Docker error). Empty on pass.
+        lint_profile: for the ``lint`` stage, the prospector profile the verdict
+            was reached under -- its path and whether it came from the plugins
+            repository or this package's vendored copy. ``None`` for every other
+            stage. Carried as structured data rather than only in the message so
+            the export payload can state which bar produced a finding (clause
+            2.8): two operators with different checkouts can still be held to
+            different bars, and what changes is that the report says so.
+        line_length: for the ``lint`` stage, the column width applied. ``None``
+            elsewhere.
     """
 
     name: str
@@ -116,6 +128,8 @@ class StageResult:
     stderr: str
     duration_seconds: float
     message: str = ""
+    lint_profile: Optional[LintProfile] = None
+    line_length: Optional[int] = None
 
     @property
     def passed(self) -> bool:
@@ -200,7 +214,8 @@ class CodeValidator:
     def __init__(
         self,
         *,
-        lint_command: Sequence[str] = ("flake8", "."),
+        prospector_executable: str = "prospector",
+        lint_profile: Optional[LintProfile] = None,
         docker_executable: str = "docker",
         insight_plugin_executable: str = "insight-plugin",
         test_command: Optional[Sequence[str]] = None,
@@ -211,7 +226,15 @@ class CodeValidator:
         """Configure the pipeline.
 
         Args:
-            lint_command: The static-lint command (runs offline, no Docker).
+            prospector_executable: The linter the ``lint`` stage runs (offline, no
+                Docker). It is prospector rather than ``flake8`` because the
+                ``Quality_Gate`` judges the same code with prospector under the
+                plugins repository's own profile, and two subsystems applying
+                different rules to one plugin is the defect clause 2.6 closes.
+            lint_profile: The prospector profile to judge against; resolved from a
+                local plugins checkout (or this package's vendored copy) when
+                omitted. Pass one explicitly when a verdict must not vary with the
+                operator's home directory.
             docker_executable: The ``docker`` binary name/path (build/test/probe).
             insight_plugin_executable: The ``insight-plugin`` binary name/path.
                 Retained for callers that override it; the validate stage drives
@@ -227,7 +250,9 @@ class CodeValidator:
             stage_timeout_seconds: The build/test abort threshold (Req 8.8).
             docker_probe_timeout_seconds: The ``docker version`` probe timeout.
         """
-        self._lint_command = tuple(lint_command)
+        self._prospector = prospector_executable
+        self._configured_profile = lint_profile
+        self._resolved_profile: Optional[LintProfile] = None
         self._docker_executable = docker_executable
         self._insight_plugin_executable = insight_plugin_executable
         self._test_command = tuple(test_command) if test_command is not None else None
@@ -314,6 +339,37 @@ class CodeValidator:
             return DockerProbe(available=True, detail=detail)
         return DockerProbe(available=False, message=DOCKER_UNAVAILABLE_MESSAGE, detail=detail)
 
+    def lint_profile(self) -> LintProfile:
+        """The prospector profile this validator judges against, resolved once.
+
+        Memoized so the command the ``lint`` stage runs and the bar its result
+        reports cannot disagree: resolution reads the filesystem, and a checkout
+        appearing or vanishing between the two would otherwise produce a verdict
+        attributed to a profile that did not produce it.
+        """
+        if self._configured_profile is not None:
+            return self._configured_profile
+        if self._resolved_profile is None:
+            self._resolved_profile = resolve_lint_profile()
+        return self._resolved_profile
+
+    def _lint_command(self) -> Tuple[str, ...]:
+        """The prospector invocation, matching the ``Quality_Gate``'s exactly.
+
+        The profile and the explicit tool list both matter, and for the same
+        reason: left to its defaults prospector also runs ``pycodestyle``, whose
+        ``E501`` fires at 79 columns on code the plugins repository formats to 120
+        and merges without comment. Naming the width as well means the two
+        subsystems and the repository's own CI agree about what clean is.
+        """
+        command = [self._prospector, "--output-format", "json", "--max-line-length", str(PLUGIN_LINE_LENGTH)]
+        profile = self.lint_profile()
+        if profile.resolved:
+            command.extend(["--profile", str(profile.path)])
+        for tool in LINT_TOOLS:
+            command.extend(["--tool", tool])
+        return tuple(command)
+
     def _stage_specs(self, image_tag: str, root: Path) -> Tuple[_StageSpec, ...]:
         """Build the ordered stage specs for one run against ``image_tag``."""
         if self._test_command is not None:
@@ -324,7 +380,7 @@ class CodeValidator:
         return (
             _StageSpec(
                 name=StageName.LINT,
-                command=self._lint_command,
+                command=self._lint_command(),
                 requires_docker=False,
                 timeout_seconds=None,
             ),
@@ -401,6 +457,8 @@ class CodeValidator:
         returncode = process.returncode if process.returncode is not None else -1
         stdout = _decode(stdout_bytes)
         stderr = _decode(stderr_bytes)
+        if spec.name == StageName.LINT:
+            return self._judge_lint(cwd, returncode=returncode, stdout=stdout, stderr=stderr, duration=duration)
         if returncode == 0:
             return StageResult(
                 name=spec.name,
@@ -418,6 +476,91 @@ class CodeValidator:
             stderr=stderr,
             duration_seconds=duration,
             message=f"{spec.name} stage failed with exit code {returncode}",
+        )
+
+    def _judge_lint(
+        self,
+        root: Path,
+        *,
+        returncode: int,
+        stdout: str,
+        stderr: str,
+        duration: float,
+    ) -> StageResult:
+        """Decide the ``lint`` stage from its findings rather than its exit code.
+
+        The exit code cannot carry the verdict: prospector exits ``0`` even when it
+        reports messages, so trusting it would pass every tree. Reading the
+        findings is also what lets the stage ignore what the plugin's author is
+        forbidden to change -- the fourteen messages that blocked an export in the
+        originating run were all in generated ``__init__.py`` and ``schema.py``
+        files, real and correctly located and unfixable by their audience.
+
+        Findings outside the linter's remit are counted and named but do not fail
+        the stage, so the report says what was ignored rather than hiding it.
+
+        Unparseable output is a **fail**: the four-stage gate has no third state,
+        and a stage that could not read its linter has established nothing.
+        """
+        profile = self.lint_profile()
+        judged = tuple(path for path in hand_written_python(root) if not is_lint_excluded(path))
+        bar = (
+            f"{len(judged)} hand-written file(s) judged at {PLUGIN_LINE_LENGTH} columns by "
+            f"{self._prospector} under the {profile.source or 'unresolved'} profile {profile.path}"
+        )
+
+        payload = first_json_object(stdout)
+        if payload is None:
+            return StageResult(
+                name=StageName.LINT,
+                status=StageStatus.FAILED,
+                returncode=returncode,
+                stdout=stdout,
+                stderr=stderr,
+                duration_seconds=duration,
+                message=f"{self._prospector} produced no parseable JSON, so the lint stage established nothing ({bar})",
+                lint_profile=profile,
+                line_length=PLUGIN_LINE_LENGTH,
+            )
+
+        actionable = []
+        ignored = 0
+        for message in payload.get("messages", []) or []:
+            if not isinstance(message, dict):
+                continue
+            location = message.get("location") or {}
+            path = str(location.get("path", "")).strip()
+            if not path or is_lint_excluded(path):
+                ignored += 1
+                continue
+            line = location.get("line")
+            code = str(message.get("code") or "unknown")
+            detail = str(message.get("message") or "").strip()
+            actionable.append(f"{path}:{line if isinstance(line, int) else '?'}: {code}: {detail}")
+
+        ignored_note = f"; {ignored} finding(s) in generated or excluded files ignored" if ignored else ""
+        if actionable:
+            return StageResult(
+                name=StageName.LINT,
+                status=StageStatus.FAILED,
+                returncode=returncode,
+                stdout="\n".join(actionable),
+                stderr=stderr,
+                duration_seconds=duration,
+                message=f"{len(actionable)} lint finding(s) in hand-written code ({bar}{ignored_note})",
+                lint_profile=profile,
+                line_length=PLUGIN_LINE_LENGTH,
+            )
+        return StageResult(
+            name=StageName.LINT,
+            status=StageStatus.PASSED,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+            duration_seconds=duration,
+            message=f"no lint finding in hand-written code ({bar}{ignored_note})",
+            lint_profile=profile,
+            line_length=PLUGIN_LINE_LENGTH,
         )
 
 
