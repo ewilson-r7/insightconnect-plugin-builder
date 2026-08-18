@@ -27,12 +27,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ruamel.yaml import YAMLError
 
 from icplugin_builder.core.cost_controller import CostController
-from icplugin_builder.core.draft import ComponentKind
+from icplugin_builder.core.draft import ComponentKind, Draft
 from icplugin_builder.core.generation import ArtifactKind, GenerationRequest
 from icplugin_builder.core.spec_model import Component, PluginSpec, SemVer
-from icplugin_builder.core.yaml_codec import load_plugin_spec
+from icplugin_builder.core.yaml_codec import dump_plugin_spec, load_plugin_spec
 from icplugin_builder.integrations.code_validator import (
     PipelineReport,
     StageName,
@@ -58,6 +59,7 @@ from icplugin_builder.orchestrator import (
     TurnPlan,
     TurnStatus,
 )
+from icplugin_builder.orchestrator.orchestrator import _draft_from_folder
 from icplugin_builder.orchestrator.session import ExportStatus
 from icplugin_builder.persistence.audit_log import AuditLog
 from icplugin_builder.persistence.project_folder import (
@@ -251,6 +253,58 @@ class TestEntryModes:
         orch = Orchestrator()
         with pytest.raises(EntryModeError):
             orch.start_session("bogus", session_id="s1", user_id="u1")
+
+
+# --- reading a draft from a tree (bugfix task 3.1, clause 2.11) -------------
+
+
+class TestDraftFromFolder:
+    """One helper reads a ``Draft`` from a tree.
+
+    The helper exists so that the entry modes and the mid-session refresh that
+    clause 2.11 adds all read the tree the same way. Read and parse failures
+    propagate from it unchanged: the caller decides whether an unreadable spec
+    means "refuse to open" (entry modes) or "keep the draft you have" (the
+    refresh in task 4.2).
+    """
+
+    def test_reads_the_spec_and_the_tree_from_disk(self, tmp_path):
+        folder = create_project(tmp_path, name="on_disk")
+        draft = _draft_from_folder(folder)
+        assert draft.spec.name == "on_disk"
+        assert draft.code_files["README.md"] == "hello\n"
+
+    def test_reads_what_is_on_disk_rather_than_what_was_authored(self, tmp_path):
+        folder = create_project(tmp_path, name="on_disk")
+        rewritten = make_spec(name="on_disk", description="edited on disk by someone else")
+        folder.spec_path.write_text(dump_plugin_spec(rewritten), encoding="utf-8")
+
+        draft = _draft_from_folder(folder)
+        assert draft.spec.description == "edited on disk by someone else"
+
+    def test_an_unreadable_spec_raises_rather_than_returning_a_partial_draft(self, tmp_path):
+        folder = create_project(tmp_path, name="on_disk")
+        folder.spec_path.unlink()
+        with pytest.raises(OSError):
+            _draft_from_folder(folder)
+
+    def test_an_unparseable_spec_raises(self, tmp_path):
+        folder = create_project(tmp_path, name="on_disk")
+        folder.spec_path.write_text("name: [unclosed\n", encoding="utf-8")
+        with pytest.raises(YAMLError):
+            _draft_from_folder(folder)
+
+    def test_a_caller_can_preserve_its_draft_when_the_read_fails(self, tmp_path):
+        """The fallback task 4.2 depends on: catching the raise leaves the draft."""
+        folder = create_project(tmp_path, name="on_disk")
+        held = Draft(spec=make_spec(name="in_session"))
+        folder.spec_path.write_text("name: [unclosed\n", encoding="utf-8")
+
+        try:
+            held = _draft_from_folder(folder)
+        except (OSError, ValueError, YAMLError):
+            pass
+        assert held.spec.name == "in_session"
 
 
 # --- input gate & clarification (Req 1, 22.5) ------------------------------

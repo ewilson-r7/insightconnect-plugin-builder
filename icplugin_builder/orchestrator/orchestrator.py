@@ -391,12 +391,11 @@ class Orchestrator:
             raise EntryModeError("iterate mode requires a configured projects_root")
         try:
             folder = ProjectFolder.open(self._projects_root, plugin_name)
-            spec = load_plugin_spec(folder.spec_path.read_text(encoding="utf-8"))
+            draft = _draft_from_folder(folder)
         except (ProjectFolderError, OSError, ValueError) as error:
             # Req 21.6: report the specific missing/unreadable content, no partial draft.
             raise EntryModeError(f"could not load plugin {plugin_name!r}: {error}") from error
 
-        draft = Draft(spec=spec, code_files=_read_dir_tree(folder.path))
         return SessionState(
             session_id=session_id,
             user_id=user_id,
@@ -404,8 +403,8 @@ class Orchestrator:
             provenance=ProvenanceRecord(entry_mode=ENTRY_MODE_ITERATE_CUSTOM, created_utc=_now_iso()),
             draft=draft,
             project_folder=folder,
-            baseline_spec=copy.deepcopy(spec),
-            last_exported_spec=copy.deepcopy(spec),
+            baseline_spec=copy.deepcopy(draft.spec),
+            last_exported_spec=copy.deepcopy(draft.spec),
         )
 
     def _start_enhance(
@@ -423,11 +422,10 @@ class Orchestrator:
         try:
             result = self._source_provider.import_plugin(source, production_plugin)
             folder = result.project_folder
-            spec = load_plugin_spec(folder.spec_path.read_text(encoding="utf-8"))
+            draft = _draft_from_folder(folder)
         except Exception as error:  # noqa: BLE001 -- surface any import failure as an entry-mode error.
             raise EntryModeError(f"could not import production plugin {production_plugin!r}: {error}") from error
 
-        draft = Draft(spec=spec, code_files=_read_dir_tree(folder.path))
         return SessionState(
             session_id=session_id,
             user_id=user_id,
@@ -435,7 +433,7 @@ class Orchestrator:
             provenance=result.provenance,
             draft=draft,
             project_folder=folder,
-            baseline_spec=copy.deepcopy(spec),
+            baseline_spec=copy.deepcopy(draft.spec),
             private_source_notice=result.private_source_notice,
         )
 
@@ -1553,6 +1551,27 @@ def _implementation_instruction(
             ]
         )
     return "\n".join(lines) + "\n"
+
+
+def _draft_from_folder(folder: ProjectFolder) -> Draft:
+    """Read a :class:`Draft` from a project folder's on-disk state.
+
+    The spec comes from the folder's ``plugin.spec.yaml`` and the code files from
+    the tree, so the returned draft is a *view of what is on disk* rather than an
+    independently authored value. That distinction is the point: disk is what gets
+    packaged and shipped, so it is what the session's draft has to agree with once
+    the delegated agent has written to the tree.
+
+    Read and parse failures propagate unchanged. Callers decide what a broken spec
+    means: entry modes refuse to open a partial draft, while a mid-session refresh
+    keeps the draft it already has.
+
+    Raises:
+        OSError: if the spec file cannot be read.
+        ValueError: if the spec cannot be parsed.
+    """
+    spec = load_plugin_spec(folder.spec_path.read_text(encoding="utf-8"))
+    return Draft(spec=spec, code_files=_read_dir_tree(folder.path))
 
 
 def _read_dir_tree(root: Union[str, Path]) -> Dict[str, Any]:

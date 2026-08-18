@@ -167,7 +167,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/integrations/test_export_gate_preservation_property.py`
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12**
 
-- [ ] 3. Change 1 — one helper reads a `Draft` from a tree (refactor)
+- [x] 3. Change 1 — one helper reads a `Draft` from a tree (refactor)
   - **SCOPE-4: this is a pure move with no behavior change, and lands before change 2 which needs it.** Its own commit
   - `_start_iterate` and `_start_enhance` in `orchestrator/orchestrator.py` already do this twice: `load_plugin_spec(folder.spec_path.read_text(...))` plus `_read_dir_tree(folder.path)`
   - Add a module-level `_draft_from_folder(folder) -> Draft` and call it from both
@@ -176,7 +176,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - Assert the refactor is behavior-preserving by re-running the existing orchestrator suite unchanged
   - _Requirements: 2.11_
 
-  - [ ] 3.1 Unit tests for `_draft_from_folder`
+  - [x] 3.1 Unit tests for `_draft_from_folder`
     - Unreadable spec, unparseable spec, and the draft-preserved fallback change 4.2 depends on
     - `tests/orchestrator/test_orchestrator.py`
     - _Requirements: 2.11_
