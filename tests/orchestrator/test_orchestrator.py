@@ -1417,3 +1417,81 @@ def _one_page_pdf(text):
     buffer = io.BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
+
+
+class TestProgressReportsWorkActuallyPerformed:
+    """Clause 2.17 -- the phases reported are the phases entered.
+
+    The defect was reporting from the *plan*: the route announced "Generating logic
+    for 3 action(s)..." from `plan.reasoning` before the turn ran, and the turn then
+    declined to do any of it, because implementing against an undocumented vendor API
+    ends in a clarification request (Req 28.12). The operator was told about work
+    that never happened.
+    """
+
+    class Recorder:
+        """A ProgressReporter that just remembers what it was told."""
+
+        def __init__(self):
+            self.steps = []
+
+        def report(self, step):
+            self.steps.append(step)
+
+    def test_a_turn_that_declines_the_work_never_reports_implementing(self, tmp_path):
+        """The clarification path: asked for code, reported no implementation."""
+        create_project(tmp_path, name="vendor_plugin")
+        orch = Orchestrator(projects_root=tmp_path)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="vendor_plugin")
+        recorder = self.Recorder()
+
+        plan = TurnPlan(
+            reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, parameters={"action": "scan"})],
+            vendor_api="Acme Cloud",
+        )
+        result = asyncio.run(orch.submit_message("s1", "Implement scan.", plan, progress=recorder))
+
+        assert result.status is TurnStatus.CLARIFICATION
+        assert not any("implementing" in step for step in recorder.steps), recorder.steps
+
+    def test_a_turn_that_does_the_work_reports_implementing(self, tmp_path):
+        """The other direction, so the check is not vacuous."""
+        folder = create_project(tmp_path, name="acme_plugin")
+        agent = FakeAgent()
+        orch = Orchestrator(projects_root=tmp_path, plugin_agent=agent)
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="acme_plugin")
+        recorder = self.Recorder()
+
+        plan = TurnPlan(reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, parameters={"action": "scan"})])
+        result = asyncio.run(orch.submit_message("s1", "Implement scan.", plan, progress=recorder))
+
+        assert result.status is TurnStatus.APPLIED
+        assert any("implementing" in step for step in recorder.steps), recorder.steps
+        assert folder.path.is_dir()
+
+    def test_the_phases_are_reported_in_the_order_they_run(self, tmp_path):
+        create_project(tmp_path, name="acme_plugin")
+        orch = Orchestrator(projects_root=tmp_path, plugin_agent=FakeAgent())
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="acme_plugin")
+        recorder = self.Recorder()
+
+        plan = TurnPlan(
+            operations=[AddComponent(ComponentKind.ACTION, "scan", make_action())],
+            reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, parameters={"action": "scan"})],
+        )
+        asyncio.run(orch.submit_message("s1", "Add and implement scan.", plan, progress=recorder))
+
+        assert recorder.steps[0].startswith("applying"), recorder.steps
+        implementing = next(index for index, step in enumerate(recorder.steps) if "implementing" in step)
+        evaluating = next(index for index, step in enumerate(recorder.steps) if "evaluating" in step)
+        assert implementing < evaluating, recorder.steps
+
+    def test_a_turn_with_no_reporter_behaves_identically(self, tmp_path):
+        """The seam is optional: a caller that does not want progress pays nothing."""
+        create_project(tmp_path, name="acme_plugin")
+        orch = Orchestrator(projects_root=tmp_path, plugin_agent=FakeAgent())
+        orch.start_session(ENTRY_MODE_ITERATE_CUSTOM, session_id="s1", user_id="u1", plugin_name="acme_plugin")
+
+        plan = TurnPlan(reasoning=[GenerationRequest(kind=ArtifactKind.ACTION_LOGIC, parameters={"action": "scan"})])
+        result = asyncio.run(orch.submit_message("s1", "Implement scan.", plan))
+        assert result.status is TurnStatus.APPLIED

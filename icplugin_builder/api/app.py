@@ -42,8 +42,11 @@ orchestrator-driving endpoints to the network.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -718,15 +721,25 @@ def create_app(
                         # which will ask for clarification.
                         await websocket.send_json({"type": "error", "detail": f"Interpretation error: {interpret_err}"})
                         continue
-                if plan and plan.reasoning:
-                    await websocket.send_json(
-                        {"type": "status", "message": f"Generating logic for {len(plan.reasoning)} action(s)..."}
-                    )
-                elif plan and plan.operations:
-                    await websocket.send_json(
-                        {"type": "status", "message": f"Applying {len(plan.operations)} operation(s)..."}
-                    )
-                result = await orchestrator.submit_message(session_id, text, plan)
+                # Clause 2.17: no announcement here. The generation status used to be
+                # emitted from `plan.reasoning` *before* the turn ran, so a turn that
+                # declined the work -- a request to implement against an undocumented
+                # vendor API ends in a clarification -- had already told the operator
+                # it was generating logic. The orchestrator reports the phases it
+                # actually enters instead.
+                #
+                # Clause 2.19: and a ticker re-emits the current phase while it runs,
+                # so a long delegated run is distinguishable from a hang. The
+                # originating run went 13 minutes with no frame at all.
+                reporter = _WebsocketProgress(websocket)
+                ticker = asyncio.create_task(reporter.tick())
+                try:
+                    result = await orchestrator.submit_message(session_id, text, plan, progress=reporter)
+                finally:
+                    ticker.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await ticker
+                    await reporter.drain()
                 await websocket.send_json({"type": "turn", "result": _serialize_turn_result(result)})
                 await websocket.send_json({"type": "tokens", "token_total": result.token_total})
                 current = orchestrator.session(session_id)
@@ -744,6 +757,59 @@ def create_app(
             app.mount("/", StaticFiles(directory=str(static_path), html=True), name="ui")
 
     return app
+
+
+#: How often the ticker re-states the phase in progress. Short enough that a run of
+#: any real length produces frames, long enough that a fast turn stays quiet.
+PROGRESS_INTERVAL_SECONDS = 1.0
+
+
+class _WebsocketProgress:
+    """Turns the orchestrator's phase reports into websocket frames (clause 2.17, 2.19).
+
+    Two jobs, and they are separate on purpose. The orchestrator calls
+    :meth:`report` when a phase *starts*, which is the part that must not be
+    inferred from the plan. The ticker then re-emits the current phase with the
+    elapsed seconds while it runs, which is what makes a 13-minute delegated run
+    distinguishable from a hang.
+
+    Frames are queued rather than sent from :meth:`report`, because the orchestrator
+    calls it synchronously from inside the turn and awaiting a socket write there
+    would put the API's I/O in the middle of the orchestration loop.
+    """
+
+    def __init__(self, websocket: WebSocket, *, interval: float = PROGRESS_INTERVAL_SECONDS) -> None:
+        self._websocket = websocket
+        self._interval = interval
+        self._step: Optional[str] = None
+        self._started_at: float = time.monotonic()
+        self._pending: List[str] = []
+
+    def report(self, step: str) -> None:
+        """Record the phase now starting, and queue a frame announcing it."""
+        self._step = step
+        self._started_at = time.monotonic()
+        self._pending.append(step)
+
+    async def drain(self) -> None:
+        """Send any queued phase announcements."""
+        while self._pending:
+            await self._send(self._pending.pop(0))
+
+    async def tick(self) -> None:
+        """Emit queued phases, then re-state the current one while it runs."""
+        while True:
+            await self.drain()
+            await asyncio.sleep(self._interval)
+            await self.drain()
+            if self._step is not None:
+                elapsed = time.monotonic() - self._started_at
+                await self._send(f"{self._step} ({elapsed:.0f}s)")
+
+    async def _send(self, message: str) -> None:
+        """Send one status frame, ignoring a socket the client has already closed."""
+        with suppress(Exception):
+            await self._websocket.send_json({"type": "status", "message": message})
 
 
 def _lookup_session(orchestrator: Orchestrator, session_id: str) -> SessionState:

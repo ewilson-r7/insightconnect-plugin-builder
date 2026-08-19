@@ -462,7 +462,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - `tests/integrations/test_build_engine_byproducts_property.py`
     - **Validates: Requirements 2.15** — also preserves 3.2
 
-- [ ] 11. Change 9 — reporting and accounting
+- [x] 11. Change 9 — reporting and accounting
   - Each of these is small and lands **on its own commit** (SCOPE-7); they are grouped only for reading
   - _Requirements: 2.16, 2.17, 2.18, 2.19, 2.20, 2.21, 2.22_
 
@@ -473,7 +473,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Unit test: `failed_stages` carries every failing stage; truncation at 10,000 characters with `full_output` retained
     - _Requirements: 2.16_
 
-  - [ ] 11.2 Progress reports work actually performed, and keeps reporting
+  - [x] 11.2 Progress reports work actually performed, and keeps reporting
     - Move the `"Generating logic for N action(s)…"` frame out of the websocket handler's pre-submit path — where it is emitted from the plan before the orchestrator decides anything — and make it a step the orchestrator reports when it actually dispatches code requests
     - A minimal `ProgressReporter` protocol (`report(step: str)`) is passed into `submit_message`; the orchestrator reports at phase boundaries (applying operations, scaffolding, refreshing, implementing, repair round *n* of *m*, checking, evaluating done)
     - The websocket route wraps it to send a `status` frame plus a ticker task that re-emits the current step with elapsed seconds while a phase runs, so a 13-minute agent run is distinguishable from a hang

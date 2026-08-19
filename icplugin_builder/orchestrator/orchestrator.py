@@ -46,7 +46,7 @@ import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
 
 from ruamel.yaml import YAMLError
 
@@ -207,6 +207,20 @@ class TurnPlan:
     def is_ambiguous(self) -> bool:
         """Return ``True`` iff the turn requested clarification."""
         return self.clarification is not None
+
+
+class ProgressReporter(Protocol):
+    """The one thing the orchestrator needs to say which phase is running.
+
+    A protocol with a single method, and the minimum shape that lets the
+    orchestrator report without importing the API layer -- which is the reason it
+    exists at all rather than the route inferring progress from the plan. A ticker
+    in the route can only re-emit what the route already knows, and the route does
+    not know that the repair loop is on round 2 of 3.
+    """
+
+    def report(self, step: str) -> None:
+        """Record that ``step`` is now the phase in progress."""
 
 
 class Orchestrator:
@@ -445,7 +459,14 @@ class Orchestrator:
 
     # -- conversation turns (Req 1, 3, 15, 22) ------------------------------
 
-    async def submit_message(self, session_id: str, text: str, plan: Optional[TurnPlan] = None) -> TurnResult:
+    async def submit_message(
+        self,
+        session_id: str,
+        text: str,
+        plan: Optional[TurnPlan] = None,
+        *,
+        progress: Optional[ProgressReporter] = None,
+    ) -> TurnResult:
         """Validate a message and apply its interpreted turn plan.
 
         Enforces the input gate first: empty/whitespace-only or over-long input is
@@ -460,6 +481,13 @@ class Orchestrator:
             plan: the interpreted :class:`TurnPlan`; when ``None`` the message
                 cannot be acted on and clarification is requested (interpretation
                 is upstream of the orchestrator).
+            progress: optional reporter told which phase is running, as it starts
+                (clause 2.17, 2.19). Reported from here rather than inferred by the
+                caller from the plan, because the plan says what was *asked for* and
+                a turn may decline to do it -- a request to implement against an
+                undocumented vendor API ends in a clarification, and announcing
+                generation from the plan told the operator about work that never
+                happened.
 
         Returns:
             A :class:`TurnResult` describing the outcome.
@@ -491,9 +519,15 @@ class Orchestrator:
                 token_total=self.token_total(session_id),
             )
 
-        return await self.apply_turn(session_id, plan)
+        return await self.apply_turn(session_id, plan, progress=progress)
 
-    async def apply_turn(self, session_id: str, plan: TurnPlan) -> TurnResult:
+    async def apply_turn(
+        self,
+        session_id: str,
+        plan: TurnPlan,
+        *,
+        progress: Optional[ProgressReporter] = None,
+    ) -> TurnResult:
         """Apply a turn's operations and reasoning, refreshing on structural change.
 
         The draft operations run against an isolated copy through the atomic apply
@@ -512,6 +546,11 @@ class Orchestrator:
             A :class:`TurnResult` describing the outcome.
         """
         session = self.session(session_id)
+
+        def step(name: str) -> None:
+            """Report the phase now starting, if anyone is listening."""
+            if progress is not None:
+                progress.report(name)
 
         if plan.is_ambiguous:
             return TurnResult(
@@ -536,6 +575,8 @@ class Orchestrator:
             )
 
         # 1. Apply the draft edits atomically (commit-on-success, Req 1.7).
+        if plan.operations:
+            step(f"applying {len(plan.operations)} draft operation(s)")
         try:
             new_draft = atomic_apply(session.draft, lambda draft: _apply_operations(draft, plan.operations))
         except ComponentNotFoundError as error:
@@ -558,6 +599,8 @@ class Orchestrator:
         #    before the working tree exists. Code implementation is *not* done
         #    here -- it is delegated in step 5, after the scaffold exists.
         prose_requests, code_requests = _partition_reasoning(plan.reasoning)
+        if prose_requests:
+            step(f"writing {len(prose_requests)} description(s)")
         try:
             generated = await self._dispatch_reasoning(session, prose_requests)
         except (CostLimitError, LLMGeneratorError) as error:
@@ -585,6 +628,7 @@ class Orchestrator:
         # Lazily materialize a project folder for net-new sessions on the first
         # structural change, scaffolding it deterministically when possible.
         if change.is_structural and session.project_folder is None and self._projects_root is not None:
+            step("scaffolding the plugin working tree")
             session.project_folder = await self._materialize_project_folder(session, new_draft.spec)
 
         # Clause 2.11: persist the spec on *any* change, not only a structural
@@ -597,6 +641,7 @@ class Orchestrator:
             session.project_folder.save(new_draft.spec, generated_files=_as_generated(new_draft.code_files))
 
         if change.is_structural and session.project_folder is not None and self._refresh is not None:
+            step("refreshing the generated files")
             await self._refresh.refresh_if_structural(
                 session.baseline_spec, new_draft.spec, session.project_folder.path
             )
@@ -612,6 +657,11 @@ class Orchestrator:
         #    itself; nothing is spliced back from its output.
         message = ""
         if code_requests:
+            # Clause 2.17: reported *here*, where the work is dispatched, rather than
+            # by the caller from the plan. A turn that ends in a clarification never
+            # reaches this line, so it can no longer announce generation it declined
+            # to do.
+            step(f"implementing {len(code_requests)} action(s) with the agent")
             try:
                 run = await self._delegate_implementation(session, code_requests)
             except (CostLimitError, LLMGeneratorError) as error:
@@ -645,6 +695,7 @@ class Orchestrator:
             #    failures without acting on them is what let broken plugins
             #    through, so the loop runs here rather than leaving the findings
             #    for someone to read later.
+            step("checking the implemented code and repairing what is wrong")
             repair = await self._repair(session)
             if repair is not None:
                 session.repair_outcome = repair
@@ -675,6 +726,7 @@ class Orchestrator:
             #    satisfy every one of them while still having no API client and a
             #    stubbed connection test. Only this gate reports the conjunction,
             #    so its answer goes out with the turn (Req 27.2, 27.3).
+            step("evaluating whether the plugin is finished")
             done = self._evaluate_done(session, repair)
             if done is not None:
                 session.done_report = done

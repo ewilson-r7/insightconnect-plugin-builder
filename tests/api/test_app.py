@@ -21,9 +21,16 @@ Covered here (basic endpoint + startup coverage; deeper coverage is task 22.2):
 
 from fastapi.testclient import TestClient
 
+import asyncio
+from contextlib import suppress
 from pathlib import Path
 
-from icplugin_builder.api.app import _serialize_export_plan, create_app, create_app_from_config
+from icplugin_builder.api.app import (
+    _serialize_export_plan,
+    _WebsocketProgress,
+    create_app,
+    create_app_from_config,
+)
 from icplugin_builder.api.config import load_config
 from icplugin_builder.core.truncation import MAX_DISPLAY_CHARS
 from icplugin_builder.core.spec_model import PluginSpec, SemVer
@@ -468,3 +475,87 @@ class TestBlockedExportDetail:
         payload = _serialize_export_plan(self._plan(spec_valid=False))
         assert payload["permitted"] is False
         assert isinstance(payload["failed_stages"], list)
+
+
+class TestProgressReporting:
+    """Clause 2.17 and 2.19 -- report the work done, and keep reporting while it runs.
+
+    The generation status used to be emitted from `plan.reasoning` *before* the turn
+    ran, so a turn that declined the work had already announced it: a request to
+    implement against an undocumented vendor API ends in a clarification, and the
+    operator had been told "Generating logic for 3 action(s)..." first. And the route
+    sent nothing between that frame and the turn's result, so a 13-minute delegated
+    run looked exactly like a hang.
+    """
+
+    class _Socket:
+        """A websocket that records the frames sent to it."""
+
+        def __init__(self):
+            self.frames = []
+
+        async def send_json(self, frame):
+            self.frames.append(frame)
+
+        def statuses(self):
+            return [frame["message"] for frame in self.frames if frame.get("type") == "status"]
+
+    def test_a_reported_phase_reaches_the_client(self):
+        socket = self._Socket()
+        reporter = _WebsocketProgress(socket)
+        reporter.report("implementing 3 action(s) with the agent")
+        asyncio.run(reporter.drain())
+        assert socket.statuses() == ["implementing 3 action(s) with the agent"]
+
+    def test_nothing_is_sent_for_a_turn_that_reports_no_phase(self):
+        """A turn that declines the work announces nothing, which is the whole point."""
+        socket = self._Socket()
+        asyncio.run(_WebsocketProgress(socket).drain())
+        assert socket.statuses() == []
+
+    def test_the_ticker_restates_the_current_phase_with_its_elapsed_time(self):
+        """2.19: the operator's question is "is anything happening?"."""
+
+        async def drive():
+            socket = self._Socket()
+            reporter = _WebsocketProgress(socket, interval=0.05)
+            reporter.report("implementing 3 action(s) with the agent")
+            ticker = asyncio.create_task(reporter.tick())
+            await asyncio.sleep(0.3)
+            ticker.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker
+            return socket.statuses()
+
+        statuses = asyncio.run(drive())
+        assert len(statuses) > 1, f"the ticker emitted nothing beyond the first frame: {statuses}"
+        assert any("s)" in status and "agent" in status for status in statuses[1:]), statuses
+
+    def test_the_ticker_follows_the_phase_as_it_changes(self):
+        async def drive():
+            socket = self._Socket()
+            reporter = _WebsocketProgress(socket, interval=0.05)
+            reporter.report("scaffolding the plugin working tree")
+            ticker = asyncio.create_task(reporter.tick())
+            await asyncio.sleep(0.15)
+            reporter.report("implementing 2 action(s) with the agent")
+            await asyncio.sleep(0.15)
+            ticker.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker
+            return socket.statuses()
+
+        statuses = asyncio.run(drive())
+        assert any("scaffolding" in status for status in statuses), statuses
+        assert any("implementing" in status for status in statuses), statuses
+
+    def test_a_closed_socket_does_not_break_the_turn(self):
+        """The ticker runs beside the orchestration loop; it must not be able to kill it."""
+
+        class Broken(self._Socket):
+            async def send_json(self, frame):
+                raise RuntimeError("client went away")
+
+        reporter = _WebsocketProgress(Broken())
+        reporter.report("implementing 1 action(s) with the agent")
+        asyncio.run(reporter.drain())
