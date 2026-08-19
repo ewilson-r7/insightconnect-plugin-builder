@@ -556,7 +556,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - Browser Mode was off for the entire originating run, so every finding in `bugfix.md` came from timings and payloads and no part of the preview UI has been observed
   - _Requirements: Known Gaps in bugfix.md and design.md_
 
-- [ ] 15. Checkpoint — ensure all tests pass
+- [x] 15. Checkpoint — ensure all tests pass
   - Run the full suite: the exploration tests from task 1 now pass, the preservation tests from task 2 still pass, every property test at 100+ examples, and the integration suite
   - Confirm the three bug conditions are closed against the JumpCloud tree at `~/.icplugin-builder/projects/jumpcloud/`: `permitted: true` without `force`, zero completeness findings, `spec_preview` equal to the on-disk spec
   - Confirm the preservation comparison over **verdicts** — stage statuses, finding keys, condition statuses, the export decision, the packaged member set — against task 2.1's captured baselines, allowing only the byproducts 2.15 removes and the one Docker-absent stage message

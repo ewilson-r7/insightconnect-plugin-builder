@@ -548,3 +548,48 @@ without them.
   invocation over the websocket, timestamps frames, flags gaps over 10s),
   `/tmp/icpb_export.py`, `/tmp/icpb_conds.py`, `/tmp/icpb_force_and_audit.py`,
   `/tmp/jc_reference/*.yaml`, `/tmp/icpb_runlog/`.
+
+### Checkpoint result (task 15)
+
+Measured against the real tree at `~/.icplugin-builder/projects/jumpcloud/` on
+2026-08-19, with the toolchain and Docker on `PATH` and a real Docker daemon, using
+`/tmp/icpb_checkpoint.py` (wires the collaborators exactly as `api/app.py` does).
+
+All four stages pass, so an export is permitted with no `force`:
+
+```
+lint      passed    no lint finding in hand-written code (6 hand-written file(s)
+                    judged at 120 columns by prospector under the repository profile)
+build     passed
+test      passed    the plugin's unit tests passed on the host under
+                    /Users/ewilson/.pyenv/versions/3.13.3/bin/python
+validate  passed
+```
+
+- **`permitted: true` without `force`** — the run this bugfix came from needed
+  `force`, and both stages that blocked it now pass on the same tree.
+- **Zero completeness findings**, against the spec on disk and against the preview.
+- **`spec_preview` is the spec on disk**, compared as whole serialized documents
+  rather than field by field.
+- **The tree was not modified** — every file's hash is unchanged across the
+  preview. Worth stating separately: the "disk is authoritative" change of task 4
+  removed a write-back, and this is that removal observed rather than reasoned
+  about.
+
+> **Refinement to this plan's own wording for condition 3.** Task 15 asks for
+> "`spec_preview` equal to the on-disk spec". Taken literally that condition is
+> false and should be: the preview differs from disk by `vendor: rapid7` →
+> `rapid7_custom` (Requirement 11) and `version: 1.0.0` → `1.0.1` with its history
+> entry (Requirement 12). Both are transformations the specification requires an
+> export to apply *to* the disk spec, and normalizing exactly those two leaves the
+> documents identical. The precise condition is therefore "the preview is the disk
+> spec plus the transformations the specification requires, and nothing else" —
+> which is the claim that actually distinguishes a correct preview from the stale
+> draft this bug was about. Recorded because on first measurement both differences
+> were momentarily indistinguishable from the defect.
+
+The absent interpreter split is worth noting as changed since the reproduction: a
+single pyenv 3.13.3 interpreter now satisfies both imports, so the split-host case
+that motivated clause 2.3 is no longer reproducible here. Task 12.3 covers it with
+stand-in interpreters for that reason, rather than depending on a host condition
+that has since gone away.
