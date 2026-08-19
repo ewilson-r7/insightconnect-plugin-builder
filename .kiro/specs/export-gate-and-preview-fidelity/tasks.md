@@ -508,20 +508,25 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - **The steering correction (`plugin-spec.md`) lands in the plugins repository**, since `~/.kiro` is a symlink into it. It is outside this repo's test surface and is recorded as an accompanying change rather than a verified one
     - _Requirements: 2.22, 1.17_
 
-  - [ ] 11.7 Property test: every paid invocation is counted
+  - [x] 11.7 Property test: every paid invocation is counted
     - **Property 72** — the session token total equals the sum of the successful invocations, the interpreter included; failed invocations are excluded
     - Generate interleaved successful and failed interpreter and agent invocations
     - Consistent with parent Property 9
     - `tests/orchestrator/test_interpreter_usage_property.py`
     - **Validates: Requirements 2.18**
 
-  - [ ] 11.8 Example-based coverage for Properties 70, 71, 73, 74
+  - [x] 11.8 Example-based coverage for Properties 70, 71, 73, 74
     - **Property 70** — a blocked export reports each failing stage's output, bounded by the truncation-with-full-access rule, full text retained. Covered by 11.1
     - **Property 71** — no progress message announces generation work the turn does not perform; progress carrying the current step is emitted at bounded intervals for a delegated run's duration. Covered by 11.2 and the websocket integration test in 12.4
     - **Property 73** — truncation is disclosed with name, full size, included size, and the statement that the agent receives the whole file. Covered by 11.4
     - **Property 74** — credential types defined by the installed `Insight_Plugin_CLI` schema report no finding; a type the schema does not define is still reported. Covered by 11.6, and consistent with parent Property 61
     - **These are behavior at process, filesystem, and websocket boundaries, where example-based tests over the real interfaces are more informative than generated ones.** Recorded as a task so the choice is visible; follows the parent's own split at Properties 52–62
     - **Validates: Requirements 2.16, 2.17, 2.19, 2.20, 2.22**
+    - Verified at close: 70 by the failing-stage payload assertions in `tests/api/test_app.py`, 71 by the
+      progress tests in `tests/api/test_app.py` and `tests/orchestrator/test_orchestrator.py` plus the
+      websocket tests in `tests/test_export_preview_integration.py`, 73 by
+      `TestTheAttachmentIsTruncatedSilently` in `tests/orchestrator/test_preview_fidelity_bug_conditions.py`,
+      74 by `tests/core/test_spec_completeness.py` and `tests/integrations/test_export_gate_bug_conditions.py`
 
 - [x] 12. Integration tests over the whole preview
   - _Requirements: 2.2, 2.3, 2.7, 2.12, 2.16, 2.17, 2.19_
