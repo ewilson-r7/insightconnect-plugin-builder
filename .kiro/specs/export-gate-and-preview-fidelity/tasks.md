@@ -442,7 +442,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Covered by 9.4 plus the split-interpreter integration test in 12.3; recorded here so the choice is visible
     - **Validates: Requirements 2.3** — also preserves 3.6
 
-- [ ] 10. Change 8 — packaging excludes byproducts
+- [x] 10. Change 8 — packaging excludes byproducts
   - **File**: `integrations/build_engine.py`
   - `list_plugin_files` filters through `core/plugin_files.is_packaging_excluded`, which adds `.coverage` and `.coverage.*` at any depth to the existing directory exclusions
   - Because `list_plugin_files` is the single source of truth the packager and the preview both consume (parent Property 30), the preview file list changes with it
@@ -452,11 +452,11 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - _Preservation: 3.2_
   - _Requirements: 2.15_
 
-  - [ ] 10.1 Verify against the exploration test
+  - [x] 10.1 Verify against the exploration test
     - Re-run task 1.9: `.coverage` and `unit_test/.coverage` are absent from the `.plg`, and every other member is still present
     - _Requirements: 2.15_
 
-  - [ ] 10.2 Property test: packaging excludes byproducts and nothing else new
+  - [x] 10.2 Property test: packaging excludes byproducts and nothing else new
     - **Property 69** — the packaged file set excludes `.builder/`, every reference document, and every build/test byproduct including `.coverage` at any depth, and contains every other file present in the tree
     - Generate trees with arbitrary byproduct placement
     - `tests/integrations/test_build_engine_byproducts_property.py`

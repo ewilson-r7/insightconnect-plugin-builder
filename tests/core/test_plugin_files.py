@@ -43,10 +43,12 @@ CASES = (
     ("Makefile", True, True, False),
     ("help.md", True, True, False),
     (".CHECKSUM", True, True, False),
-    # Generated directories.
+    # Generated directories. `bin/` holds the plugin's entry point and is packaged;
+    # `build/` and `dist/` are setuptools *output* -- copies of code packaged from its
+    # real location, plus built archives -- so change 8 keeps them out of the .plg.
     ("bin/icon_x", True, True, False),
-    ("build/lib/icon_x/api.py", True, True, False),
-    ("dist/thing.tar.gz", True, True, False),
+    ("build/lib/icon_x/api.py", True, True, True),
+    ("dist/thing.tar.gz", True, True, True),
     # The unit tests: lint-excluded, NOT generated, and packaged.
     ("unit_test/test_action.py", False, True, False),
     ("unit_test/helpers/fixtures.py", False, True, False),
@@ -91,16 +93,57 @@ def test_every_packaging_excluded_directory_is_excluded_at_any_depth():
         assert is_packaging_excluded(f"icon_x/deep/{name}/thing")
 
 
-def test_a_coverage_file_is_not_yet_excluded_from_packaging():
-    """Recorded, not desired. Change 8 (task 10) is what adds byproduct *files*.
+def test_byproduct_files_are_excluded_from_packaging():
+    """Change 8's addition: the file half a directory-name set could not express.
 
-    This predicate covers directory names only, exactly as
-    ``build_engine._EXCLUDED_DIRS`` did before the move, which is what makes the
-    move a refactor. Asserting the current answer here means task 10's change is
-    visible as a change rather than as a test that quietly starts passing.
+    Wave 8 left this predicate directory-only on purpose, so that adding the
+    byproduct patterns would read as a change rather than as a test quietly starting
+    to pass. This is that change: coverage data at any depth, coverage.py's
+    per-process files under parallel mode, loose bytecode beside its source, the
+    setuptools build and egg-info trees, and the tarball the generated Makefile
+    writes.
     """
-    assert not is_packaging_excluded(".coverage")
-    assert not is_packaging_excluded("unit_test/.coverage")
+    for path in (
+        ".coverage",
+        "unit_test/.coverage",
+        "icon_x/util/.coverage",
+        ".coverage.host.12345.678901",
+        "icon_x/util/api.pyc",
+        "icon_x/util/api.pyo",
+        "build/lib/icon_x/util/api.py",
+        "jumpcloud_rapid7_plugin.egg-info/PKG-INFO",
+        "rapid7-jumpcloud-1.0.0.tar.gz",
+        "thing.tgz",
+    ):
+        assert is_packaging_excluded(path), path
+
+
+def test_a_file_named_build_is_still_packaged():
+    """``build`` is excluded at directory positions only.
+
+    Matching it anywhere would drop a plugin file that happened to be called
+    ``build``, which is a different thing from the directory ``setup.py build``
+    writes.
+    """
+    assert not is_packaging_excluded("build")
+    assert not is_packaging_excluded("icon_x/build")
+    assert is_packaging_excluded("build/lib/thing.py")
+
+
+def test_hand_written_and_generated_plugin_files_are_still_packaged():
+    """The other half of 3.2: the exclusion must not reach anything the plugin needs."""
+    for path in (
+        "plugin.spec.yaml",
+        "requirements.txt",
+        "icon_x/util/api.py",
+        "unit_test/test_api.py",
+        "setup.py",
+        "Dockerfile",
+        "help.md",
+        ".CHECKSUM",
+        "bin/icon_x",
+    ):
+        assert not is_packaging_excluded(path), path
 
 
 def test_a_unit_test_path_is_lint_excluded_but_not_generated():

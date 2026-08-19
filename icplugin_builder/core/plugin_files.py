@@ -41,6 +41,10 @@ __all__ = [
     "GENERATED_FILE_NAMES",
     "GENERATED_DIR_NAMES",
     "PACKAGING_EXCLUDED_DIR_NAMES",
+    "PACKAGING_EXCLUDED_BUILD_DIR",
+    "PACKAGING_EXCLUDED_DIR_SUFFIX",
+    "PACKAGING_EXCLUDED_FILE_SUFFIXES",
+    "COVERAGE_DATA_FILE",
     "UNIT_TEST_DIR",
     "is_generated",
     "is_lint_excluded",
@@ -69,6 +73,21 @@ GENERATED_DIR_NAMES = frozenset({"bin", ".builder", "build", "dist", "__pycache_
 #: Directories that never reach the ``.plg``: the tool's own metadata subtree
 #: (Req 14.3) and transient version-control and cache directories.
 PACKAGING_EXCLUDED_DIR_NAMES = frozenset({".builder", ".git", "__pycache__", ".pytest_cache", ".mypy_cache"})
+
+#: Directory names produced by ``setup.py build`` / ``egg_info``. Matched at
+#: directory positions only, so a *file* called ``build`` is still packaged.
+PACKAGING_EXCLUDED_BUILD_DIR = "build"
+PACKAGING_EXCLUDED_DIR_SUFFIX = ".egg-info"
+
+#: Coverage data. ``coverage.py`` writes ``.coverage``, and one
+#: ``.coverage.<host>.<pid>.<random>`` per process under parallel mode, so the
+#: prefix has to be matched as well as the bare name.
+COVERAGE_DATA_FILE = ".coverage"
+
+#: File suffixes that are always a build or test byproduct: compiled bytecode
+#: sitting beside its source rather than under ``__pycache__``, and the archive the
+#: generated Makefile's ``tarball`` target writes at the plugin root.
+PACKAGING_EXCLUDED_FILE_SUFFIXES = (".pyc", ".pyo", ".tar.gz", ".tgz")
 
 #: Where a plugin's unit tests live.
 UNIT_TEST_DIR = "unit_test"
@@ -106,13 +125,44 @@ def is_lint_excluded(relative_path: Union[str, PurePosixPath]) -> bool:
 def is_packaging_excluded(relative_path: Union[str, PurePosixPath]) -> bool:
     """Return ``True`` iff ``relative_path`` must not reach the ``.plg``.
 
+    Three kinds of thing, for three different reasons:
+
+    * the tool's own ``.builder/`` metadata and transient VCS and cache
+      directories, which are not part of the plugin;
+    * ``build/`` and ``*.egg-info/`` trees, which ``setup.py`` writes as copies of
+      code already packaged from its real location;
+    * byproduct *files* -- coverage data, loose ``.pyc``/``.pyo`` bytecode, and the
+      tarball the generated Makefile emits -- which a local test or build run leaves
+      lying in the tree.
+
+    The file half is what a directory-name set could not express, and it is why an
+    operator who had run the tests once shipped their coverage database inside the
+    artifact.
+
     Deliberately *not* :func:`is_generated`: a generated ``schema.py`` or
     ``Dockerfile`` is excluded from lint and still packaged, because the plugin
-    cannot run without it. Only the tool's own metadata and transient directories
-    are dropped here.
+    cannot run without it.
+
+    The tradeoff, stated rather than hidden: a plugin that genuinely needed to ship
+    a ``.tar.gz`` resource or a directory called ``build`` would have it dropped.
+    Neither appears in any plugin the tool has produced, and both are what the
+    toolchain itself writes there, so the exclusion is justified by what the file
+    *is* rather than by its having been inconvenient.
     """
-    parts = PurePosixPath(str(relative_path)).parts
-    return any(part in PACKAGING_EXCLUDED_DIR_NAMES for part in parts)
+    path = PurePosixPath(str(relative_path))
+    parts = path.parts
+    if not parts:
+        return False
+    if any(part in PACKAGING_EXCLUDED_DIR_NAMES for part in parts):
+        return True
+    # Directory positions only, so a file named `build` is still packaged.
+    for part in parts[:-1]:
+        if part == PACKAGING_EXCLUDED_BUILD_DIR or part.endswith(PACKAGING_EXCLUDED_DIR_SUFFIX):
+            return True
+    name = parts[-1]
+    if name == COVERAGE_DATA_FILE or name.startswith(f"{COVERAGE_DATA_FILE}."):
+        return True
+    return name.endswith(PACKAGING_EXCLUDED_FILE_SUFFIXES)
 
 
 def hand_written_python(project_dir: Union[str, Path]) -> Tuple[str, ...]:
