@@ -523,23 +523,23 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - **These are behavior at process, filesystem, and websocket boundaries, where example-based tests over the real interfaces are more informative than generated ones.** Recorded as a task so the choice is visible; follows the parent's own split at Properties 52–62
     - **Validates: Requirements 2.16, 2.17, 2.19, 2.20, 2.22**
 
-- [ ] 12. Integration tests over the whole preview
+- [x] 12. Integration tests over the whole preview
   - _Requirements: 2.2, 2.3, 2.7, 2.12, 2.16, 2.17, 2.19_
 
-  - [ ] 12.1 Whole preview, real toolchain, mocked Docker
+  - [x] 12.1 Whole preview, real toolchain, mocked Docker
     - A delegated implementation turn followed by `export/prepare`; assert `permitted: true`, zero completeness findings, `spec_preview` equal to disk, and the profile and interpreter named
     - _Requirements: 2.2, 2.7, 2.8, 2.12_
 
-  - [ ] 12.2 Blocked preview
+  - [x] 12.2 Blocked preview
     - A tree with a genuine hand-written defect and a failing test; assert both stages appear in `failed_stages` with their output, and that `force` is not required for anything that actually passes
     - _Requirements: 2.16_
 
-  - [ ] 12.3 Split-interpreter host
+  - [x] 12.3 Split-interpreter host
     - Reproduce the tester's configuration with fake interpreters; assert the stage fails closed, `unit_tests_pass` is **unverified**, and the message names the interpreter
     - **This is the one Bug 1 case that only appears when the SDK and `pytest` live in different interpreters**, and it is why 2.3 exists
     - _Requirements: 2.3_
 
-  - [ ] 12.4 Progress and cancellation
+  - [x] 12.4 Progress and cancellation
     - Drive one long delegated run over the websocket; assert no gap between frames exceeds the reporting interval, that each frame names a step, and that no frame announces generation for a turn that ends in a clarification
     - _Requirements: 2.17, 2.19_
 

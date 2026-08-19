@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Union
 
 from ..core.plugin_files import UNIT_TEST_DIR, package_dir
-from .build_prep import resolve_test_interpreter
+from .build_prep import TEST_RUNNER_MODULE, resolve_test_interpreter
 
 __all__ = [
     "DEFAULT_TEST_TIMEOUT_SECONDS",
@@ -54,6 +54,11 @@ _COVERAGE_TOTAL = re.compile(r"^TOTAL\s+.*?(\d+(?:\.\d+)?)%", re.MULTILINE)
 
 #: pytest's wording when a run collected nothing.
 _NO_TESTS = ("no tests ran", "no tests collected")
+
+#: What an interpreter that starts but has no pytest says. Recognised because the
+#: alternative is reporting "your tests failed" for a host that cannot run them --
+#: which is the shape of the defect clause 2.3 exists to prevent, one level down.
+_PYTEST_ABSENT = ("no module named pytest", "no module named 'pytest'")
 
 
 @dataclass(frozen=True)
@@ -269,6 +274,15 @@ async def run_unit_tests(
         )
 
     output = completed.output
+    if _pytest_absent(output):
+        return UnitTestRun(
+            interpreter=interpreter,
+            returncode=completed.returncode,
+            output=output,
+            package=package,
+            skipped=(f"tests ({interpreter} has no {TEST_RUNNER_MODULE})",),
+            message=f"{interpreter} cannot run the tests: {TEST_RUNNER_MODULE} is not installed for it",
+        )
     if _no_tests_collected(output):
         return UnitTestRun(
             interpreter=interpreter,
@@ -337,6 +351,17 @@ async def _has_pytest_cov(interpreter: str, timeout_seconds: float) -> bool:
         [str(interpreter), "-c", "import pytest_cov"], cwd=Path.cwd(), timeout_seconds=timeout_seconds
     )
     return completed.ok and completed.returncode == 0
+
+
+def _pytest_absent(output: str) -> bool:
+    """Return ``True`` iff the interpreter started but could not import pytest.
+
+    Distinguished from a failing suite because the two call for different actions:
+    one is the plugin's problem and the other is the host's, and conflating them
+    reports a host with no test runner as a plugin whose tests fail.
+    """
+    lowered = output.lower()
+    return any(phrase in lowered for phrase in _PYTEST_ABSENT)
 
 
 def _no_tests_collected(output: str) -> bool:
