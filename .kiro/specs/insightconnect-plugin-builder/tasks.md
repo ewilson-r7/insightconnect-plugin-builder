@@ -688,9 +688,55 @@ others had made concrete.
 
 ## Remaining work
 
-Nothing outstanding. Every requirement in the specification is implemented, and
-the two decisions that were blocking -- what gates an export, and where vendor
-documentation comes from -- have been taken and recorded against tasks 37 and 36.
+Every requirement in the specification is implemented. What follows is the
+distance that remains between this plan and the code, which is not zero.
+
+### The export gate and preview fidelity bugfix
+
+`.kiro/specs/export-gate-and-preview-fidelity/` holds a bugfix for three defects
+in the **gate and reporting layer** -- not in code generation, which was verified
+correct against the supplied vendor Swagger specs. An end-to-end run on
+2026-08-17 built a correct plugin and then reported it broken three independent
+ways, leaving `force` as the only route to an export:
+
+- the `test` stage ran the suite inside an image carrying neither the tests nor
+  the test runner, so it failed for every plugin ever built;
+- the `lint` stage failed only on generated files the author is forbidden to edit;
+- the export preview judged a stale in-session draft instead of the spec on disk.
+
+All nine changes have landed, each as its own commit. The amendments those
+decisions required are in this specification already: Requirement 8.3 now states
+where the unit tests run, Requirement 26.3 names the single definition of
+generated files, Requirement 16.1 states that the previewed spec is the spec that
+would be packaged, Requirement 27.1's lint and formatting conditions apply to
+hand-written code only and its API-client condition accepts an imported error
+map, and design Property 17 keeps the four-stage conjunction while recording that
+the `test` stage is a host-run check.
+
+**Still open: the accessibility review of the surface that bugfix created**
+(its task 14). The failed-stage region in the export preview and the periodic
+status frames during a long run are both new, and neither has been checked for
+keyboard operation, focus order, or screen-reader announcement -- a frame that
+re-announces every few seconds is a live-region decision, not a default. Browser
+Mode was off for the entire originating run, so no part of the preview UI has
+ever been observed. That review needs a real browser and assistive technology and
+cannot be closed from the test suite.
+
+### Gaps that predate the bugfix and remain
+
+- **No tenant import has ever been performed** -- the one test that would prove
+  that path end to end. Requirement 12 is implemented and property-tested; it has
+  not been exercised against a real tenant.
+- **The PDF and `reference_urls` attachment paths are unreachable from the
+  browser.** The backend accepts them (Requirement 28); `MessageInput.tsx` accepts
+  only `.json,.yaml,.yml,.txt,.md` and reads each file via `await file.text()`,
+  and `MessageAttachment` in `types.ts` carries no `encoding` or `media_type`
+  field, so the base64 route the backend needs cannot be populated by the UI.
+  Closing that is a frontend task in its own right.
+- **Whether the repair loop ran at all cannot be determined after the fact.**
+  Requirement 26's convergence test is implemented and its rounds are now visible
+  *while a turn runs*, but nothing records them, so a finished run cannot be
+  audited for how many rounds it took.
 
 Keep this section, and put the next gap in it rather than in a commit message: it
 exists so the distance between this plan and the code is visible rather than

@@ -543,7 +543,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Drive one long delegated run over the websocket; assert no gap between frames exceeds the reporting interval, that each frame names a step, and that no frame announces generation for a turn that ends in a clarification
     - _Requirements: 2.17, 2.19_
 
-- [ ] 13. Record this bugfix in the parent plan
+- [x] 13. Record this bugfix in the parent plan
   - Replace the parent `tasks.md` "Remaining work" section's "Nothing outstanding" with this bugfix and the parts of it still open, for as long as any are
   - That section exists so the distance between the plan and the code is visible rather than discovered; an empty list is a claim worth being able to check, so it should not read empty while this work is in flight
   - Update it again when the work lands, rather than leaving it stale
