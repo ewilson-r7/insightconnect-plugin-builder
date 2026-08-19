@@ -170,6 +170,26 @@ the interpreter's view, and nothing tells the user.
 
 1.16 WHEN the export preview is returned, THEN `version_display` is empty.
 
+> **Correction: not a defect. Closed by task 11.5's diagnosis with no code change.**
+> The observed run had no prior export, so `bump_for_export` correctly reported no
+> change and `prepare_export` left the display empty -- `"<previous> -> <new>"` has
+> nothing to say when there is no previous version. Requirement 12.6, which clause
+> 2.21 cites, is explicitly about the display *after* a version bump, and
+> Requirement 12.7 requires the version stay unchanged when no prior export exists.
+> Both were behaving correctly.
+>
+> The propagation was measured separately and works: a second preview, after the
+> first export put a version in the registry, bumps and reports `1.0.0 -> 1.0.1`,
+> and that string reaches the serialized payload.
+>
+> The remedy 2.21 proposes -- populate the display with the version that would be
+> exported -- rests on the preview showing "no version at all", and it does not:
+> `spec_preview.version` carries it and the UI renders the whole spec beside the
+> display line. So what 1.16 describes is a presentation preference, not a lost
+> value, and changing it would make a first preview claim a bump that did not
+> happen. Recorded here rather than actioned.
+
+
 1.17 WHEN `~/.kiro/steering/plugin-spec.md` is read as the authority on
 credential types, THEN it lists three, omitting `credential_token`, which
 `insight_plugin/features/common/schema_util.py` defines with shape

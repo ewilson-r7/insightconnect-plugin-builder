@@ -493,7 +493,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Unit test: notice content
     - _Requirements: 2.20_
 
-  - [ ] 11.5 `version_display` — diagnose before editing
+  - [x] 11.5 `version_display` — diagnose before editing
     - **Read the run's registry state first.** `apply_version_bump` produces `"<previous> -> <new>"` and `prepare_export` sets the display only when `bump.changed`
     - **If the observed run had no prior export**, an empty display is parent Req 12.7 behaving correctly, and the defect is that the preview shows no version at all — fixed by populating the display with the version that would be exported, marked as unchanged (which Req 12.6 does not speak to, so this does not contradict it)
     - **If a bump did occur and the display was still empty**, the defect is in the propagation and the fix is there
