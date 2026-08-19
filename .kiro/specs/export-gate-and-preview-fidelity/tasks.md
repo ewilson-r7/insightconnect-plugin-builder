@@ -383,7 +383,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - A difference here means this is not a refactor and the change has to be re-scoped
     - _Requirements: 2.4_
 
-- [ ] 9. Change 7 — the `test` stage runs the tests on the host
+- [x] 9. Change 7 — the `test` stage runs the tests on the host
   - **Decision as recorded (2.1): option (a), host-run.** The stage no longer establishes that the tests pass *in the shipping environment*; that intent is unreachable without edits to `.dockerignore` and the Dockerfile the `Agent_Rulebook` forbids. Option (b), a test-only image layer, keeps the stronger property and is rejected on cost — another image build on a path that already takes minutes. Option (c), dropping the stage, is rejected because Requirement 8 names four stages and Property 17 is a conjunction over four
   - **Files**: `integrations/code_validator.py`, `orchestrator/orchestrator.py`, `api/app.py`
   - _Bug_Condition: isBugCondition_1(X) — hostUnitTestsPass(X) AND dockerignoreExcludes(X, 'unit_test') AND NOT imageHasPytest(X)_
@@ -424,20 +424,20 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - Revision notes in the parent `requirements.md` and `design.md`, per those documents' conventions. The four stages remain the export gate and only the export gate, per parent task 37
     - _Requirements: 2.5_
 
-  - [ ] 9.6 Verify the Bug 1 exploration tests now pass
+  - [x] 9.6 Verify the Bug 1 exploration tests now pass
     - **Property 1: Expected Behavior** — A Healthy Plugin Clears The Gate
     - **IMPORTANT**: Re-run the SAME tests from tasks 1.1 and 1.2's contradiction check — do NOT write new ones
     - **EXPECTED OUTCOME**: Tests PASS — the `test` stage passes for a healthy plugin, `export/prepare` returns `permitted: true` without `force`, and the two subsystems agree
     - Re-run task 2's preservation tests: a genuinely failing `test_suspend_user` still fails the stage, and the failure still names the test
     - _Requirements: 2.1, 2.2, 2.4_
 
-  - [ ] 9.7 Property test: one definition of the unit test run, in both directions
+  - [x] 9.7 Property test: one definition of the unit test run, in both directions
     - **Property 66** — the `test` stage's verdict equals whether the plugin's unit tests pass under the resolved interpreter, pass when they pass and fail when they fail; the `Quality_Gate`'s test findings derive from the same execution definition and the same interpreter; the two never report contradictory outcomes for one tree
     - Generate trees with passing and failing suites
     - `tests/integrations/test_unit_test_run_agreement_property.py`
     - **Validates: Requirements 2.1, 2.2, 2.4**
 
-  - [ ] 9.8 Property test: an unrunnable test run fails closed and says why
+  - [x] 9.8 Property test: an unrunnable test run fails closed and says why
     - **Property 67** — covered **example-based**, per the design: interpreter probes and subprocess output are process-boundary behavior where tests over the real interfaces are more informative than generated ones
     - Covered by 9.4 plus the split-interpreter integration test in 12.3; recorded here so the choice is visible
     - **Validates: Requirements 2.3** — also preserves 3.6
