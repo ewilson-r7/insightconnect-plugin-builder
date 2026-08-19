@@ -62,3 +62,9 @@ addopts = "-ra"
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    # Opts out of tests/conftest.py's blanket block on the package-index lookup.
+    # Such a test still contacts no network -- it injects a stub fetcher -- it just
+    # needs the real resolution logic left in place to exercise.
+    "consults_package_index: exercises the PyPI SDK-version lookup with a stub fetcher",
+]

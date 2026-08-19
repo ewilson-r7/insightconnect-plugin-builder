@@ -8,6 +8,9 @@ here".
 """
 
 import asyncio
+from types import SimpleNamespace
+
+import pytest
 
 from icplugin_builder.integrations import build_prep as bp
 from icplugin_builder.integrations.build_prep import (
@@ -19,6 +22,7 @@ from icplugin_builder.integrations.build_prep import (
     ToolStatus,
     check_tooling,
     parse_sdk_changelog_version,
+    SDK_SOURCE_PYPI,
     resolve_sdk_version,
 )
 
@@ -64,11 +68,103 @@ class TestParseChangelog:
         assert parse_sdk_changelog_version(text) == "5.1.2"
 
 
+class _StubIndex:
+    """Answers the PyPI lookup with a prepared body, so no test hits the network.
+
+    Implements the same ``Fetcher`` protocol the reference-material retrieval uses,
+    which is why that protocol exists.
+    """
+
+    def __init__(self, body: str = '{"info": {"version": "7.1.0"}}', error: Exception = None) -> None:
+        self._body = body
+        self._error = error
+        self.calls = 0
+
+    def fetch(self, url, *, timeout, max_bytes):
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        return SimpleNamespace(data=self._body.encode("utf-8"), media_type="application/json", url=url)
+
+
+@pytest.mark.consults_package_index
+class TestResolveSdkVersionFromTheIndex:
+    """PyPI is consulted first, because it is where "latest release" is defined.
+
+    The changelog source below reads a local clone of the SDK repository at a
+    hardcoded path -- a convention of one machine. Most operators have no such
+    checkout, so for them the only source was whatever happened to be installed,
+    labelled as possibly lagging. The index works everywhere.
+    """
+
+    def test_the_index_is_preferred_and_labelled(self, tmp_path):
+        readme = tmp_path / "README.md"
+        readme.write_text(README, encoding="utf-8")
+        index = _StubIndex('{"info": {"version": "7.1.0"}}')
+
+        resolved = resolve_sdk_version(readme, fetcher=index)
+
+        # The changelog says 6.6.0 and is present; the index still wins.
+        assert resolved.version == "7.1.0"
+        assert resolved.source == SDK_SOURCE_PYPI
+        assert index.calls == 1
+        assert "PyPI" in resolved.detail
+
+    def test_an_unreachable_index_falls_through_and_says_why(self, tmp_path):
+        """Offline is not an error. A build must still be possible."""
+        readme = tmp_path / "README.md"
+        readme.write_text(README, encoding="utf-8")
+
+        resolved = resolve_sdk_version(readme, fetcher=_StubIndex(error=OSError("Network is unreachable")))
+
+        assert resolved.version == "6.6.0"
+        assert resolved.source == SDK_SOURCE_CHANGELOG
+        assert "Network is unreachable" in resolved.detail, "the reason the lookup failed is not carried"
+        assert str(readme) in resolved.detail
+
+    def test_a_malformed_index_response_falls_through(self, tmp_path):
+        readme = tmp_path / "README.md"
+        readme.write_text(README, encoding="utf-8")
+
+        resolved = resolve_sdk_version(readme, fetcher=_StubIndex("not json at all"))
+
+        assert resolved.source == SDK_SOURCE_CHANGELOG
+        assert "no usable version" in resolved.detail
+
+    def test_an_empty_version_is_refused_rather_than_used(self, tmp_path):
+        readme = tmp_path / "README.md"
+        readme.write_text(README, encoding="utf-8")
+
+        resolved = resolve_sdk_version(readme, fetcher=_StubIndex('{"info": {"version": "  "}}'))
+
+        assert resolved.source == SDK_SOURCE_CHANGELOG
+        assert "empty version" in resolved.detail
+
+    def test_the_lookup_can_be_declined_entirely(self, tmp_path):
+        """For an operator who does not want the tool making outbound requests."""
+        readme = tmp_path / "README.md"
+        readme.write_text(README, encoding="utf-8")
+        index = _StubIndex()
+
+        resolved = resolve_sdk_version(readme, fetcher=index, consult_pypi=False)
+
+        assert index.calls == 0, "the index was consulted despite consult_pypi=False"
+        assert resolved.source == SDK_SOURCE_CHANGELOG
+
+
 class TestResolveSdkVersion:
+    """The sources consulted when the index is unavailable.
+
+    Each of these passed ``resolve_sdk_version(readme)`` and asserted the changelog
+    was preferred, which was true when it was the first source. The index now comes
+    first, so they name the source they are actually about -- the alternative would
+    be five tests that quietly contact PyPI and pass for the wrong reason.
+    """
+
     def test_prefers_the_changelog_and_labels_it(self, tmp_path):
         readme = tmp_path / "README.md"
         readme.write_text(README, encoding="utf-8")
-        resolved = resolve_sdk_version(readme)
+        resolved = resolve_sdk_version(readme, consult_pypi=False)
         assert resolved.version == "6.6.0"
         assert resolved.source == SDK_SOURCE_CHANGELOG
         assert resolved.is_latest_known
@@ -79,16 +175,16 @@ class TestResolveSdkVersion:
         # builds plugins rather than running them -- so the fallback is exercised
         # with the lookup stubbed. It must be labelled as possibly lagging.
         monkeypatch.setattr(bp, "_installed_sdk_version", lambda: "6.4.4")
-        resolved = resolve_sdk_version(tmp_path / "absent" / "README.md")
+        resolved = resolve_sdk_version(tmp_path / "absent" / "README.md", consult_pypi=False)
         assert resolved.version == "6.4.4"
         assert resolved.source == SDK_SOURCE_INSTALLED
         assert not resolved.is_latest_known
         assert "may lag" in resolved.detail
 
-    def test_unresolvable_when_neither_source_is_available(self, tmp_path):
-        # No SDK checkout and the runtime not installed: report unresolved with a
+    def test_unresolvable_when_no_source_is_available(self, tmp_path):
+        # No index, no SDK checkout, runtime not installed: report unresolved with a
         # reason rather than inventing a version.
-        resolved = resolve_sdk_version(tmp_path / "absent" / "README.md")
+        resolved = resolve_sdk_version(tmp_path / "absent" / "README.md", consult_pypi=False)
         assert not resolved.resolved
         assert resolved.version is None
         assert "not found" in resolved.detail
@@ -96,25 +192,26 @@ class TestResolveSdkVersion:
     def test_reports_a_readme_without_a_changelog(self, tmp_path):
         readme = tmp_path / "README.md"
         readme.write_text("# Title\n\nNothing here.\n", encoding="utf-8")
-        resolved = resolve_sdk_version(readme)
+        resolved = resolve_sdk_version(readme, consult_pypi=False)
         assert "no version bullet" in resolved.detail
 
     def test_the_real_sdk_checkout_resolves_when_present(self):
         # Not a hardcoded expectation: assert only that if the conventional
-        # checkout exists, the changelog path is what gets used.
+        # checkout exists, the changelog path is what gets used when the index is
+        # declined.
         from pathlib import Path
 
         from icplugin_builder.integrations.build_prep import DEFAULT_SDK_README
 
         if not Path(DEFAULT_SDK_README).expanduser().is_file():
             return
-        resolved = resolve_sdk_version()
+        resolved = resolve_sdk_version(consult_pypi=False)
         assert resolved.source == SDK_SOURCE_CHANGELOG
         assert resolved.version and resolved.version.count(".") == 2
 
     def test_expands_a_user_relative_path(self):
         # Should not raise on a ~ path that does not exist.
-        assert isinstance(resolve_sdk_version("~/definitely/not/here/README.md"), SdkVersion)
+        assert isinstance(resolve_sdk_version("~/definitely/not/here/README.md", consult_pypi=False), SdkVersion)
 
 
 class TestCheckTooling:

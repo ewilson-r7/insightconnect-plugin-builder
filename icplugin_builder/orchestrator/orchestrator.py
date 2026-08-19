@@ -41,6 +41,7 @@ while the API/UI layers are built on top (tasks 22-24).
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 import tempfile
@@ -85,6 +86,7 @@ from ..integrations.plugin_agent import AgentRunResult, PluginAgent
 from ..integrations.quality_gate import QualityGate, QualityReport
 from ..integrations.reference_material import (
     REFERENCE_DIR,
+    Fetcher,
     ReferenceAcquirer,
     ReferenceSet,
     read_reference_state,
@@ -243,6 +245,8 @@ class Orchestrator:
         quality_gate: Optional[QualityGate] = None,
         reference_acquirer: Optional[ReferenceAcquirer] = None,
         sdk_readme: Optional[Union[str, Path]] = None,
+        sdk_fetcher: Optional[Fetcher] = None,
+        consult_pypi: bool = True,
         template_library: Optional[TemplateLibrary] = None,
         refresh_coordinator: Optional[RefreshCoordinator] = None,
         spec_validator: Optional[SpecValidator] = None,
@@ -286,8 +290,14 @@ class Orchestrator:
                 :class:`ReferenceAcquirer`; inject one with a fake fetcher in tests
                 so no network is contacted.
             sdk_readme: path to the InsightConnect SDK repository's ``README.md``,
-                whose changelog is the source of the SDK version stamped into a
-                new plugin's spec. ``None`` uses the conventional clone location.
+                a fallback source for the SDK version stamped into a new plugin's
+                spec. ``None`` uses the conventional clone location.
+            sdk_fetcher: retrieves the SDK version from the package index; inject a
+                fake in tests so no network is contacted. ``None`` uses the real one.
+            consult_pypi: whether to consult the package index at all. The index is
+                the only source available to an operator with no local SDK clone,
+                which is most of them, so it is on by default; set ``False`` to keep
+                the tool from making outbound requests.
             template_library: templates consulted before dispatching to the LLM;
                 defaults to :func:`default_template_library` (Req 3.3).
             refresh_coordinator: runs ``insight-plugin refresh`` after structural
@@ -314,6 +324,10 @@ class Orchestrator:
         self._quality_gate = quality_gate
         self._reference_acquirer = reference_acquirer
         self._sdk_readme = sdk_readme
+        #: Injected so a test never contacts the package index, and so an operator
+        #: can decline outbound requests. ``None`` means use the real fetcher.
+        self._sdk_fetcher = sdk_fetcher
+        self._consult_pypi = consult_pypi
         self._template_library = template_library if template_library is not None else default_template_library()
         self._refresh = refresh_coordinator
         self._spec_validator = spec_validator if spec_validator is not None else SpecValidator()
@@ -621,7 +635,7 @@ class Orchestrator:
         # files all agree. Stamping only the copy handed to the scaffolder would
         # be undone by the save below.
         if change.is_structural:
-            stamped = self._with_resolved_sdk(new_draft.spec)
+            stamped = await self._with_resolved_sdk(new_draft.spec)
             if stamped is not new_draft.spec:
                 new_draft = Draft(spec=stamped, code_files=dict(new_draft.code_files))
 
@@ -917,21 +931,31 @@ class Orchestrator:
             return ProjectFolder.adopt(root, name, spec)
         return ProjectFolder.create(self._projects_root, name, spec)
 
-    def _with_resolved_sdk(self, spec: PluginSpec) -> PluginSpec:
+    async def _with_resolved_sdk(self, spec: PluginSpec) -> PluginSpec:
         """Stamp the resolved SDK version into ``spec`` when it carries none.
 
         `insight-plugin validate` requires an ``sdk`` block, and every plugin this
-        tool produced before this step shipped without one. The version is read
-        from the SDK's own changelog rather than hardcoded, and an ``sdk`` block
-        that is already populated is left untouched.
+        tool produced before this step shipped without one. The version is resolved
+        rather than hardcoded, and an ``sdk`` block that is already populated is left
+        untouched.
+
+        Run in a thread because resolution now consults the package index, and a
+        blocking fetch here would stall the event loop -- including the progress
+        frames this turn is emitting, which would present as the very hang they exist
+        to rule out.
 
         Resolution failure is not fatal: the spec is returned unchanged and the
         completeness check will report the missing field, which is a better
-        outcome than blocking the turn over a missing SDK checkout.
+        outcome than blocking the turn over an unreachable index.
         """
         if _sdk_block_present(spec):
             return spec
-        resolved = resolve_sdk_version(self._sdk_readme)
+        resolved = await asyncio.to_thread(
+            resolve_sdk_version,
+            self._sdk_readme,
+            fetcher=self._sdk_fetcher,
+            consult_pypi=self._consult_pypi,
+        )
         if not resolved.resolved or resolved.version is None:
             logger.warning("could not resolve an SDK version (%s); leaving sdk unset", resolved.detail)
             return spec

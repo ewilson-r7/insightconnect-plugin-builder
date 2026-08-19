@@ -22,18 +22,24 @@ be installed here".
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import shutil
 import subprocess
 import sys
+import urllib.error
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
+
+from .reference_material import Fetcher, UrllibReferenceFetcher
 
 __all__ = [
     "DEFAULT_SDK_README",
     "SDK_DISTRIBUTION",
     "REQUIRED_TOOLS",
+    "SDK_PYPI_URL",
+    "SDK_SOURCE_PYPI",
     "SDK_SOURCE_CHANGELOG",
     "SDK_SOURCE_INSTALLED",
     "SdkVersion",
@@ -72,8 +78,20 @@ DEFAULT_SDK_README = "~/Documents/GitHub/komand-plugin-sdk-python/README.md"
 SDK_DISTRIBUTION = "insightconnect-plugin-runtime"
 
 #: How a resolved SDK version was obtained.
+SDK_SOURCE_PYPI = "pypi"
 SDK_SOURCE_CHANGELOG = "changelog"
 SDK_SOURCE_INSTALLED = "installed"
+
+#: Where the latest released SDK version is actually defined. Consulted first,
+#: because the local SDK checkout the changelog source reads was a convention of one
+#: machine and most operators have no such clone.
+SDK_PYPI_URL = f"https://pypi.org/pypi/{SDK_DISTRIBUTION}/json"
+
+#: Bounds on that lookup. Short enough that an unreachable index delays a build by
+#: seconds rather than stalling it, and the ceiling is generous against the ~165 KB
+#: the index currently returns for this distribution.
+SDK_LOOKUP_TIMEOUT_SECONDS = 10.0
+SDK_LOOKUP_MAX_BYTES = 4_000_000
 
 #: The Python series the SDK targets. Resolved to a concrete patch version at
 #: runtime rather than hardcoded, per the build-prep workflow.
@@ -454,50 +472,109 @@ def _installed_sdk_version() -> Optional[str]:
         return None
 
 
-def resolve_sdk_version(sdk_readme: Optional[Union[str, Path]] = None) -> SdkVersion:
+def _pypi_sdk_version(
+    *,
+    fetcher: Optional["Fetcher"] = None,
+    timeout_seconds: float = SDK_LOOKUP_TIMEOUT_SECONDS,
+    max_bytes: int = SDK_LOOKUP_MAX_BYTES,
+) -> Tuple[Optional[str], str]:
+    """Return the latest released SDK version from PyPI, and how it went.
+
+    Reuses :class:`UrllibReferenceFetcher` rather than opening a second HTTP path:
+    it is already HTTPS-only, sends no credential or cookie, refuses a redirect that
+    leaves HTTPS, and caps what it will read. Those properties are exactly the ones
+    this call wants, and a second client would have to re-earn them.
+
+    Returns:
+        ``(version, detail)``. ``version`` is ``None`` on any failure -- offline,
+        refused, malformed -- with ``detail`` saying which, because an operator with
+        no network still has to be able to build a plugin.
+    """
+    client = fetcher if fetcher is not None else UrllibReferenceFetcher()
+    try:
+        fetched = client.fetch(SDK_PYPI_URL, timeout=timeout_seconds, max_bytes=max_bytes)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        return None, f"could not reach PyPI for {SDK_DISTRIBUTION}: {error}"
+    try:
+        payload = json.loads(fetched.data.decode("utf-8", errors="replace"))
+        version = str(payload["info"]["version"]).strip()
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        return None, f"PyPI returned no usable version for {SDK_DISTRIBUTION}: {error}"
+    if not version:
+        return None, f"PyPI reported an empty version for {SDK_DISTRIBUTION}"
+    return version, f"the latest release on PyPI ({SDK_PYPI_URL})"
+
+
+def resolve_sdk_version(
+    sdk_readme: Optional[Union[str, Path]] = None,
+    *,
+    fetcher: Optional["Fetcher"] = None,
+    consult_pypi: bool = True,
+) -> SdkVersion:
     """Resolve the SDK version to build against.
 
-    Prefers the SDK repository's changelog (the latest released version) and
-    falls back to the installed distribution, recording which was used so the
-    difference is visible rather than silently assumed.
+    Source order, and why:
+
+    1. **PyPI** -- the distribution index is where "the latest release" is actually
+       defined, and it is the only source available to an operator who has no local
+       clone of the SDK repository. Which is most of them: that clone was a
+       convention of one machine.
+    2. The SDK repository's ``README.md`` changelog, when a local checkout has one.
+       It tracks releases closely and needs no network.
+    3. The *installed* distribution version, labelled as such, so "latest released"
+       is distinguishable from "what happens to be installed here".
+
+    A network failure is not an error. It falls through to the next source and the
+    reason is carried in ``detail``, because an operator working offline still has
+    to be able to build a plugin.
 
     Args:
         sdk_readme: path to the SDK repository's ``README.md``. Defaults to
             :data:`DEFAULT_SDK_README`.
+        fetcher: injected for tests, so no test contacts the network.
+        consult_pypi: set ``False`` to skip the lookup entirely -- for an operator
+            who does not want the tool making outbound requests.
 
     Returns:
-        An :class:`SdkVersion`; ``resolved`` is ``False`` when neither source
-        yielded a version.
+        An :class:`SdkVersion`; ``resolved`` is ``False`` when no source yielded one.
     """
+    notes: List[str] = []
+
+    if consult_pypi:
+        version, detail = _pypi_sdk_version(fetcher=fetcher)
+        if version:
+            return SdkVersion(version=version, source=SDK_SOURCE_PYPI, detail=detail)
+        notes.append(detail)
+
     candidate = Path(sdk_readme if sdk_readme is not None else DEFAULT_SDK_README).expanduser()
     if candidate.is_file():
         try:
             text = candidate.read_text(encoding="utf-8", errors="replace")
         except OSError as error:
             text = ""
-            detail = f"could not read {candidate}: {error}"
-        else:
-            detail = ""
+            notes.append(f"could not read {candidate}: {error}")
         if text:
             parsed = parse_sdk_changelog_version(text)
             if parsed:
                 return SdkVersion(
                     version=parsed,
                     source=SDK_SOURCE_CHANGELOG,
-                    detail=f"read from the changelog in {candidate}",
+                    detail="; ".join(notes + [f"read from the changelog in {candidate}"]),
                 )
-            detail = f"no version bullet found under '## Changelog' in {candidate}"
+            notes.append(f"no version bullet found under '## Changelog' in {candidate}")
     else:
-        detail = f"SDK README not found at {candidate}"
+        notes.append(f"SDK README not found at {candidate}")
 
     installed = _installed_sdk_version()
     if installed:
         return SdkVersion(
             version=installed,
             source=SDK_SOURCE_INSTALLED,
-            detail=(f"{detail}; using the installed {SDK_DISTRIBUTION} version, which may lag the latest release"),
+            detail="; ".join(
+                notes + [f"using the installed {SDK_DISTRIBUTION} version, which may lag the latest release"]
+            ),
         )
-    return SdkVersion(version=None, detail=detail)
+    return SdkVersion(version=None, detail="; ".join(notes))
 
 
 def resolve_lint_profile(profile: Optional[Union[str, Path]] = None) -> LintProfile:
