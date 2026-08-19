@@ -9,54 +9,153 @@ and runs the toolchain to check its own output.
 It runs entirely on your machine. There is no hosted backend and no account
 model.
 
+## Quick start
+
+```bash
+git clone https://github.com/rapid7/insightconnect-plugin-builder.git
+cd insightconnect-plugin-builder
+make setup            # installs dependencies and builds the web interface
+icplugin-builder      # then open the printed URL, http://127.0.0.1:8787
+```
+
+`make setup` is `pip install -e ".[dev]"` plus a build of the web interface.
+Installing the package alone leaves the interface unbuilt, and the server then
+serves the API with nothing at `/`.
+
+On first start the tool writes two files and tells you where:
+
+- `~/.icplugin-builder/config.yaml` -- your configuration. Edit it freely; it is
+  never overwritten once it exists.
+- `~/.kiro/agents/icplugin-builder.json` -- the agent config it delegates plugin
+  implementation to. A file you wrote yourself at that path is left alone.
+
+That is enough to open the interface, describe a plugin, and edit a spec. To
+*build, validate and package* a plugin you also need the toolchain below.
+
+## What you need
+
+To start the tool and work on a spec:
+
+| | |
+|---|---|
+| Python 3.11+ | `python3 --version` |
+| Node 18+ and npm | only to build the web interface, i.e. `make setup` / `make ui` |
+| [Kiro CLI](https://kiro.dev), authenticated | `kiro-cli whoami` |
+| The InsightConnect plugin skills and steering at `~/.kiro/skills` and `~/.kiro/steering` | see [Agent rulebook](#agent-rulebook) |
+
+To build, validate and package a plugin, additionally:
+
+| | |
+|---|---|
+| `insight-plugin` | `pip install insight-plugin` |
+| `prospector` and `black` | `pip install prospector black` |
+| Docker, with the daemon running | `docker info` |
+| A Python interpreter that can import **both** `insightconnect_plugin_runtime` **and** `pytest` | this is the interpreter your plugin's unit tests run under |
+
+That last row is easy to get wrong and worth a moment. The plugin's tests run on
+your machine rather than inside the plugin image, so one interpreter has to have
+both the InsightConnect SDK and `pytest`. It is common to end up with the SDK in
+one Python and `pytest` in another, in which case the export gate fails closed and
+names the interpreter it tried -- correct behaviour, but baffling if you were not
+expecting it.
+
+**Everything in the second table has to be on the `PATH` of the shell you start
+the server from.** On macOS `insight-plugin` and `prospector` often land in
+`~/Library/Python/3.x/bin` and `docker` in
+`/Applications/Docker.app/Contents/Resources/bin`, and neither is on a
+non-login shell's `PATH`. A tool the server cannot see is reported as absent, which
+looks like a defect in the plugin rather than a gap in the environment.
+
+Without Docker and the toolchain, conversation, spec editing, visualization,
+documentation and project history all still work.
+
+## Check your setup
+
+The interface reports what it found, and the startup output names anything
+missing. To check before starting:
+
+```bash
+kiro-cli whoami                                   # authenticated?
+insight-plugin --version                          # toolchain on PATH?
+prospector --version && black --version
+docker info > /dev/null && echo "docker ok"       # daemon running?
+python3 -c "import insightconnect_plugin_runtime, pytest; print('sdk + pytest ok')"
+```
+
+The last line is the split-interpreter check. Run it with the *same* `python3`
+you expect the tool to use; if it fails, install the missing one into that
+interpreter rather than into another.
+
+## Agent rulebook
+
+The tool does not encode plugin conventions. The agent's rulebook is the
+InsightConnect plugin skills and steering installed under `~/.kiro/` --
+`plugin-dev`, `create-new-plugin`, `implementation`, `common-mistakes`,
+`plugin-spec`, `testing`, `structure`, `exceptions`, `prospector` and the rest.
+Editing one of those files changes how the tool builds plugins, with no second
+copy in this codebase to keep in sync.
+
+Eleven specific files are referenced (`DEFAULT_SKILL_RESOURCES` in
+`icplugin_builder/integrations/agent_config.py`). If any are absent the tool starts
+and warns that the agent will run with reduced guidance -- it does not fail, but the
+plugins it writes will be worse.
+
+> **Where to get them:** they live in the InsightConnect plugins repository's
+> `.kiro/` directory. Clone that repository and symlink or copy its `.kiro/skills`
+> and `.kiro/steering` contents into `~/.kiro/`.
+
 ## How it works
 
 The tool is an orchestration layer, not a code generator. The two things it
 wraps are the real InsightConnect toolchain (`insight-plugin`, the SDK, Docker)
 and the **Kiro CLI running as an agent** in the plugin's own working directory.
 
-Plugin conventions are not encoded in this repo. The agent's rulebook is the
-InsightConnect plugin skills and steering in `~/.kiro/` -- `plugin-dev`,
-`create-new-plugin`, `implementation`, `common-mistakes`, `plugin-spec`,
-`testing`, and the rest. Editing one of those files changes how the tool builds
-plugins, with no second copy in this codebase to keep in sync.
-
 `plugin.spec.yaml` is the source of truth for every plugin. Derived files
 (`schema.py`, `Dockerfile`, `Makefile`, `setup.py`, `help.md`, `.CHECKSUM`) are
 produced by `insight-plugin refresh` and never hand-edited.
 
-## Requirements
+Generated plugins are checked before they can be exported: `insight-plugin
+validate` passes, the linter is clean on hand-written code, the unit tests pass,
+and coverage meets its minimum. A plugin that does not clear that bar is reported
+as unfinished with the outstanding conditions named, rather than exported quietly.
 
-- Python 3.11+
-- The [Kiro CLI](https://kiro.dev), installed and authenticated (`kiro-cli whoami`)
-- `insight-plugin` on `PATH`
-- The plugin skills and steering installed at `~/.kiro/skills` and `~/.kiro/steering`
-- Docker, for the build / validate / package path only. Everything else --
-  conversation, spec editing, visualization, documentation, project history --
-  works without it.
+## Configuration
 
-## Running it
+Read from `~/.icplugin-builder/config.yaml`, or from `$ICPLUGIN_BUILDER_CONFIG`
+if set. Written on first start with the one required section filled in and the
+rest commented at its default:
 
-```bash
-pip install -e .
-icplugin-builder
+```yaml
+llm:
+  provider: kiro_cli
+  kiro_cli_path: kiro-cli     # absolute path if yours is not on PATH
 ```
 
-Configuration is read from `~/.icplugin-builder/config.yaml` (override with
-`ICPLUGIN_BUILDER_CONFIG`). The server binds the loopback interface by default;
-open the printed URL.
+The server binds `127.0.0.1:8787` by default, so the tool is reachable only from
+your own machine. `$ICPLUGIN_BUILDER_UI_DIR` overrides where the web interface is
+served from.
 
-On first start the tool registers its agent config at
-`~/.kiro/agents/icplugin-builder.json`. A config you wrote yourself at that path
-is never overwritten.
+## Troubleshooting
+
+| What you see | What it means |
+|---|---|
+| `no built UI found` at startup, bare 404 at `/` | the web interface is not built -- run `make ui` |
+| `ConfigError: llm: required configuration section is missing` | your config file exists but has no `llm:` section; the template is in [Configuration](#configuration) |
+| `ModuleNotFoundError: hypothesis` when running `pytest` | dev dependencies are missing -- `make install` |
+| A stage reports a tool as absent although you have it | the server's `PATH` does not include it; start it from a shell that does |
+| The `test` stage fails naming an interpreter | that interpreter cannot import both the SDK and `pytest` -- see [What you need](#what-you-need) |
+| Export blocked with conditions listed | the plugin genuinely is not finished; the named conditions are what is outstanding |
 
 ## Development
 
 ```bash
-pytest                                  # full suite
-flake8 icplugin_builder tests
-black icplugin_builder tests
-cd frontend && npm run build            # UI, served as static assets
+make check                              # lint + full test suite
+make test                               # pytest, single-shot
+make lint                               # flake8
+make format                             # black
+make ui                                 # rebuild the web interface
+make dist                               # wheel, interface included
+cd frontend && npx vitest run           # frontend tests
 ```
 
 `.kiro/steering/project-conventions.md` records the quality bar a generated
