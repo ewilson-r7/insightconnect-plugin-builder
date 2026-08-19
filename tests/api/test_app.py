@@ -25,7 +25,9 @@ import asyncio
 from contextlib import suppress
 from pathlib import Path
 
+from icplugin_builder.api import app as app_module
 from icplugin_builder.api.app import (
+    _default_ui_dir,
     _serialize_export_plan,
     _WebsocketProgress,
     create_app,
@@ -559,3 +561,63 @@ class TestProgressReporting:
         reporter = _WebsocketProgress(Broken())
         reporter.report("implementing 1 action(s) with the agent")
         asyncio.run(reporter.drain())
+
+
+class TestTheBuiltInterfaceIsFound:
+    """Where the web interface is served from, and what happens when it is absent.
+
+    Untested until now, and it is the resolution that decides whether a fresh
+    install shows an application or a bare 404 at "/". The wheel carries the
+    interface at ``icplugin_builder/ui`` (staged by ``make ui``); a source checkout
+    serves ``frontend/dist``.
+    """
+
+    def test_an_explicit_override_is_used(self, tmp_path, monkeypatch):
+        bundle = tmp_path / "somewhere" / "bundle"
+        bundle.mkdir(parents=True)
+        monkeypatch.setenv("ICPLUGIN_BUILDER_UI_DIR", str(bundle))
+
+        assert _default_ui_dir() == bundle
+
+    def test_an_override_naming_nothing_does_not_fall_back(self, tmp_path, monkeypatch):
+        """Deliberate, and worth pinning because it surprises.
+
+        An operator who points the variable somewhere wrong is told the interface is
+        missing rather than quietly served a different bundle than the one they
+        named. Falling through would make a typo look like it worked.
+        """
+        monkeypatch.setenv("ICPLUGIN_BUILDER_UI_DIR", str(tmp_path / "absent"))
+
+        assert _default_ui_dir() is None
+
+    def test_the_in_package_interface_is_preferred_over_the_checkout(self, monkeypatch):
+        """A wheel's own copy wins over whatever a neighbouring checkout built."""
+        monkeypatch.delenv("ICPLUGIN_BUILDER_UI_DIR", raising=False)
+        package_ui = Path(app_module.__file__).resolve().parent.parent / "ui"
+
+        resolved = _default_ui_dir()
+
+        if package_ui.is_dir():
+            assert resolved == package_ui
+        else:
+            # Staged by `make ui` and removed by `make clean`, so a checkout that has
+            # not run it falls through to the Vite output or to nothing. Both are
+            # correct; what must not happen is resolving somewhere else entirely.
+            assert resolved is None or resolved.name == "dist"
+
+
+class TestTheWheelCarriesTheInterface:
+    """The packaging declaration the previous class depends on.
+
+    Asserted against `pyproject.toml` rather than by building a wheel: the build is
+    slow and the thing that silently breaks is the declaration, not setuptools.
+    """
+
+    def test_pyproject_ships_the_ui_directory(self):
+        root = Path(app_module.__file__).resolve().parent.parent.parent
+        pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+        assert '"icplugin_builder" = ["ui/**/*"]' in pyproject, (
+            "pyproject.toml no longer ships icplugin_builder/ui, so an installed wheel "
+            "would serve the API with nothing at '/'"
+        )
