@@ -7,13 +7,18 @@ exist. Each check below corresponds to one of those, or to a rule in the plugin
 steering that the toolchain enforces.
 """
 
+import pytest
+
 from icplugin_builder.core.spec_completeness import (
     REQUIRED_TOP_LEVEL,
+    VALID_CREDENTIAL_TYPES,
     Severity,
     check_completeness,
     with_sdk_version,
 )
 from icplugin_builder.core.spec_model import FieldSchema, PluginSpec, SemVer
+
+from tests.toolchain import toolchain_credential_types
 
 
 def complete_mapping(**overrides):
@@ -135,11 +140,16 @@ class TestOutputExamples:
 
 class TestCredentialTypes:
     def test_a_nonexistent_credential_type_is_reported(self):
-        # credential_token is not a platform type; a plugin using it cannot bind
-        # its credential at runtime. The deleted hand-written prompts told the
-        # model to use exactly this.
+        """A type the platform does not define cannot bind its credential at runtime.
+
+        The example used to be ``credential_token``, on the belief that the platform
+        did not define it -- a belief inherited from the hand-written prompts this
+        tool deleted. The toolchain has defined it all along, so the example is now a
+        type that genuinely does not exist. The check itself is unchanged: what moved
+        is which types it accepts.
+        """
         mapping = complete_mapping(
-            connection={"api_key": {"title": "API Key", "type": "credential_token", "required": True}}
+            connection={"api_key": {"title": "API Key", "type": "credential_teapot", "required": True}}
         )
         report = check_completeness(mapping)
         finding = next(f for f in report.findings if f.code == "invalid_credential_type")
@@ -147,7 +157,7 @@ class TestCredentialTypes:
         assert "credential_secret_key" in finding.message
 
     def test_valid_credential_types_pass(self):
-        for valid in ("credential_secret_key", "credential_username_password", "credential_asymmetric_key"):
+        for valid in VALID_CREDENTIAL_TYPES:
             mapping = complete_mapping(connection={"cred": {"title": "C", "type": valid, "required": True}})
             assert not any(f.code == "invalid_credential_type" for f in check_completeness(mapping).findings)
 
@@ -246,3 +256,55 @@ class TestWithSdkVersion:
         result = with_sdk_version(self._spec(), "6.6.0")
         paths = {f.path for f in check_completeness(result).findings}
         assert not any(path.startswith("sdk.") for path in paths)
+
+
+class TestCredentialTypesComeFromTheToolchain:
+    """The valid set is the installed toolchain's, not this repository's taste.
+
+    ``VALID_CREDENTIAL_TYPES`` listed three types and offered ``credential_token``
+    as its example of one "the platform does not define". The toolchain has defined
+    it all along, so a spec the toolchain would accept was reported as a defect --
+    one of the sixteen findings a real run raised against a plugin whose every
+    endpoint had been verified by hand.
+    """
+
+    def test_the_valid_set_matches_the_installed_schema(self):
+        """Property 74: the tuple is cross-checked, so it cannot drift again in silence.
+
+        Skipped only when no interpreter available to the test has the toolchain --
+        including the one this tool *resolves* for it, which is the case that makes a
+        naive import check useless here.
+        """
+        types = toolchain_credential_types()
+        if types is None:
+            pytest.skip(
+                "no interpreter available to this test has insight_plugin installed, so the toolchain's "
+                "own credential schema cannot be read; a hardcoded expectation here would be the very "
+                "thing this cross-check exists to catch"
+            )
+        toolchain = tuple(sorted(types))
+        missing = tuple(name for name in toolchain if name not in VALID_CREDENTIAL_TYPES)
+        invented = tuple(name for name in VALID_CREDENTIAL_TYPES if name not in toolchain)
+        assert not missing and not invented, (
+            f"the toolchain defines {toolchain} and this repository accepts "
+            f"{tuple(sorted(VALID_CREDENTIAL_TYPES))}. Defined but rejected: {missing}. Accepted but not "
+            f"defined: {invented}"
+        )
+
+    def test_credential_token_reports_no_finding(self):
+        report = check_completeness(complete_mapping(connection={"api_key": {"type": "credential_token"}}))
+        assert not [finding for finding in report.findings if finding.code == "invalid_credential_type"]
+
+    def test_an_invented_credential_type_is_still_reported(self):
+        """The check still bites: widening the set is not the same as removing it."""
+        report = check_completeness(complete_mapping(connection={"api_key": {"type": "credential_teapot"}}))
+        invalid = [finding for finding in report.findings if finding.code == "invalid_credential_type"]
+        assert invalid, report.findings
+        assert "credential_teapot" in invalid[0].message
+
+    def test_every_accepted_type_reports_no_finding(self):
+        for name in VALID_CREDENTIAL_TYPES:
+            report = check_completeness(complete_mapping(connection={"api_key": {"type": name}}))
+            assert not [
+                finding for finding in report.findings if finding.code == "invalid_credential_type"
+            ], f"{name} is in the accepted set yet reports a finding"

@@ -79,13 +79,23 @@ REQUIRED_SDK_KEYS: Tuple[str, ...] = ("type", "version", "user")
 #: Keys required inside ``resources``.
 REQUIRED_RESOURCE_KEYS: Tuple[str, ...] = ("source_url", "license_url")
 
-#: The credential field types the platform defines. A plugin using anything else
-#: (``credential_token``, say) will not bind its credential at runtime.
+#: The credential field types the platform defines, and therefore the ones a plugin
+#: may declare. A type outside this set will not bind its credential at runtime.
+#: This tuple is the installed toolchain's own ``SchemaUtil.BASE_TYPES``, and a test
+#: cross-checks it against that schema so the two cannot drift in silence.
 VALID_CREDENTIAL_TYPES: Tuple[str, ...] = (
     "credential_secret_key",
     "credential_username_password",
     "credential_asymmetric_key",
+    "credential_token",
 )
+# Why the cross-check exists rather than trust: this tuple listed only the first
+# three and its own comment offered the fourth as the example of a type "the platform
+# does not define". The toolchain had defined it all along -- a required
+# password-formatted `token` and an optional `domain` -- so a spec the toolchain
+# would have accepted was reported as a defect, and it was one of sixteen findings a
+# real run raised against a plugin whose every endpoint had been verified by hand.
+# The set is read from the schema now, not maintained by taste.
 
 #: Component sections whose outputs the toolchain expects examples on.
 _COMPONENT_SECTIONS: Tuple[str, ...] = ("actions", "triggers", "tasks")

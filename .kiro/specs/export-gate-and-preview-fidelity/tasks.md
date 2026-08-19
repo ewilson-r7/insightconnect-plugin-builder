@@ -500,7 +500,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - The code change is chosen only after the diagnosis, not before
     - _Requirements: 2.21_
 
-  - [ ] 11.6 Credential types come from the toolchain's own schema
+  - [x] 11.6 Credential types come from the toolchain's own schema
     - `credential_token` is defined by the installed toolchain — `insight_plugin/features/common/schema_util.py:109`, a required `token` (password-formatted) and an optional `domain`. Verified directly in the installed 1.9.20 package
     - `VALID_CREDENTIAL_TYPES` in `core/spec_completeness.py` gains it, and the comment above it — which currently offers `credential_token` as the example of a type the platform does *not* define — is corrected
     - A test cross-checks the tuple against the installed schema and **skips when `insight_plugin` is not importable**, so the two cannot drift silently
