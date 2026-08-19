@@ -41,7 +41,7 @@ To start the tool and work on a spec:
 | Python 3.11+ | `python3 --version` |
 | Node 18+ and npm | only to build the web interface, i.e. `make setup` / `make ui` |
 | [Kiro CLI](https://kiro.dev), authenticated | `kiro-cli whoami` |
-| The InsightConnect plugin skills and steering at `~/.kiro/skills` and `~/.kiro/steering` | see [Agent rulebook](#agent-rulebook) |
+| *(the agent's plugin rulebook ships with the tool -- nothing to install)* | see [Agent rulebook](#agent-rulebook) |
 
 To build, validate and package a plugin, additionally:
 
@@ -88,21 +88,31 @@ interpreter rather than into another.
 
 ## Agent rulebook
 
-The tool does not encode plugin conventions. The agent's rulebook is the
-InsightConnect plugin skills and steering installed under `~/.kiro/` --
-`plugin-dev`, `create-new-plugin`, `implementation`, `common-mistakes`,
-`plugin-spec`, `testing`, `structure`, `exceptions`, `prospector` and the rest.
-Editing one of those files changes how the tool builds plugins, with no second
-copy in this codebase to keep in sync.
+The tool does not encode plugin conventions. The agent's rulebook is a set of
+InsightConnect plugin skills and steering files -- `plugin-dev`,
+`create-new-plugin`, `implementation`, `common-mistakes`, `plugin-spec`, `testing`,
+`structure`, `exceptions`, `prospector` and the rest. They are what tell the agent
+how a plugin is structured, what the spec must contain, and what the linter
+enforces.
 
-Eleven specific files are referenced (`DEFAULT_SKILL_RESOURCES` in
-`icplugin_builder/integrations/agent_config.py`). If any are absent the tool starts
-and warns that the agent will run with reduced guidance -- it does not fail, but the
-plugins it writes will be worse.
+**Nothing to install.** Eleven of them ship with this package, so a new user gets a
+complete rulebook with no setup. They are listed in `RULEBOOK_FILES` in
+`icplugin_builder/integrations/agent_config.py` and bundled at
+`icplugin_builder/rulebook/`.
 
-> **Where to get them:** they live in the InsightConnect plugins repository's
-> `.kiro/` directory. Clone that repository and symlink or copy its `.kiro/skills`
-> and `.kiro/steering` contents into `~/.kiro/`.
+**To change how the tool builds plugins, edit the rulebook.** A file at
+`~/.kiro/<skills|steering>/<name>.md` takes precedence over the bundled copy, per
+file, so you can override one and leave the rest alone:
+
+```bash
+mkdir -p ~/.kiro/steering
+cp icplugin_builder/rulebook/steering/testing.md ~/.kiro/steering/
+# edit it; the agent now follows yours
+```
+
+`$KIRO_HOME` moves that directory if you keep Kiro's config elsewhere.
+`icplugin_builder/rulebook/PROVENANCE.md` records where the bundled files came from
+and what still needs simplifying.
 
 ## How it works
 

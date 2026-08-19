@@ -617,7 +617,11 @@ class TestTheWheelCarriesTheInterface:
         root = Path(app_module.__file__).resolve().parent.parent.parent
         pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
 
-        assert '"icplugin_builder" = ["ui/**/*"]' in pyproject, (
+        assert '"ui/**/*"' in pyproject, (
             "pyproject.toml no longer ships icplugin_builder/ui, so an installed wheel "
             "would serve the API with nothing at '/'"
+        )
+        assert '"rulebook/**/*.md"' in pyproject, (
+            "pyproject.toml no longer ships the agent's rulebook, so an installed wheel "
+            "would fall back to whatever the operator happens to have in ~/.kiro"
         )

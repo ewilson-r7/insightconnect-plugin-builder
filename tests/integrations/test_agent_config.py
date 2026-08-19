@@ -8,8 +8,12 @@ rather than at a paraphrase of them, so the resource wiring is asserted directly
 
 import json
 
+from pathlib import Path
+
 from icplugin_builder.integrations.agent_config import (
     AGENT_NAME,
+    BUNDLED_RULEBOOK_DIR,
+    RULEBOOK_FILES,
     DEFAULT_TOOLS,
     GENERATED_MARKER,
     AgentConfig,
@@ -51,13 +55,57 @@ class TestRendering:
         config = AgentConfig(resources=("~/.kiro/skills/plugin-dev.md",))
         assert config.to_dict()["resources"] == ["file://~/.kiro/skills/plugin-dev.md"]
 
-    def test_default_resources_reference_the_operators_skills_not_a_copy(self):
-        # The rulebook must be the operator's real files: editing a steering file
-        # has to change the agent's behavior, which a vendored copy would not do.
+    def test_default_resources_prefer_the_operators_skills_over_the_bundled_copy(self, tmp_path, monkeypatch):
+        """The operator's own rulebook wins wherever they have one.
+
+        This asserted ``resource.startswith("~/.kiro/")`` for every entry, when
+        ``~/.kiro`` was the only place a rulebook could come from and a user without
+        one simply got a degraded agent. A copy now ships with the package, because
+        those files are in no public repository and a new user had no way to obtain
+        them. The claim it was really making -- that editing a steering file changes
+        the agent's behaviour, which a copy the operator cannot see would not --
+        still holds, and is what is asserted here: the operator's file wins.
+        """
+        monkeypatch.setenv("KIRO_HOME", str(tmp_path))
+        (tmp_path / "steering").mkdir(parents=True)
+        mine = tmp_path / "steering" / "common-mistakes.md"
+        mine.write_text("# my own rules\n", encoding="utf-8")
+
         resources = default_agent_config().resources
+
+        assert str(mine) in resources, "the operator's own steering file was not preferred"
         assert any("plugin-dev" in resource for resource in resources)
-        assert any("common-mistakes" in resource for resource in resources)
-        assert all(resource.startswith("~/.kiro/") for resource in resources)
+        assert all(Path(resource).is_absolute() for resource in resources)
+
+    def test_a_user_with_no_rulebook_gets_the_bundled_one(self, tmp_path, monkeypatch):
+        """The whole point of bundling: no setup, and no degraded agent.
+
+        Before this, the eleven files had to be obtained from a repository that does
+        not publish them, so the realistic new-user outcome was an agent running with
+        reduced guidance and no way to fix it.
+        """
+        monkeypatch.setenv("KIRO_HOME", str(tmp_path / "empty-home"))
+
+        resources = default_agent_config().resources
+
+        assert len(resources) == len(RULEBOOK_FILES)
+        assert all(str(BUNDLED_RULEBOOK_DIR) in resource for resource in resources)
+        assert missing_resources() == (), "a bundled rulebook must leave nothing missing"
+
+    def test_every_named_rulebook_file_is_actually_bundled(self):
+        """The package must carry all eleven, or the fallback is partial in silence."""
+        absent = [name for name in RULEBOOK_FILES if not (BUNDLED_RULEBOOK_DIR / name).is_file()]
+        assert absent == [], f"named in RULEBOOK_FILES but not bundled: {absent}"
+
+    def test_a_file_in_neither_place_is_dropped_rather_than_breaking_the_run(self, tmp_path, monkeypatch):
+        """An incomplete rulebook degrades the agent; it does not stop it."""
+        monkeypatch.setenv("KIRO_HOME", str(tmp_path))
+        monkeypatch.setattr("icplugin_builder.integrations.agent_config.BUNDLED_RULEBOOK_DIR", tmp_path / "no-bundle")
+
+        resources = default_agent_config().resources
+
+        assert resources == ()
+        assert len(missing_resources()) == 0, "nothing is claimed missing when nothing is referenced"
 
     def test_json_round_trips(self):
         parsed = json.loads(default_agent_config().to_json())
