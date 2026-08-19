@@ -159,6 +159,13 @@ export interface WsErrorFrame {
 export interface WsStatusFrame {
   type: "status";
   message: string;
+  /**
+   * True when this re-states the phase already announced rather than reporting a
+   * new one (clause 2.19). A phase starting happens once and belongs in the
+   * transcript; a re-statement is the same phase still running, and the backend
+   * emits one every second, so appending them accumulates hundreds of entries.
+   */
+  progress?: boolean;
 }
 
 /** Every inbound frame the session channel can deliver. */
@@ -230,7 +237,45 @@ export interface ExportPlan {
   /** "<previous> -> <new>" when the version changed; empty when unchanged. */
   version_display: string;
   spec_errors: SpecError[];
-  failed_stages: string[];
+  /**
+   * The stages that failed, each with what it printed (clause 2.16). Serialized by
+   * `_serialize_failed_stages`. A stage name alone is not actionable -- "lint
+   * failed" does not say which finding in which file -- so each entry carries the
+   * stage's message and its output under the same truncated-plus-full rule the
+   * build/export failure path uses (Req 19.5).
+   *
+   * Only `name` is guaranteed: when a spec never reached the code stages there is
+   * no pipeline report, and the backend falls back to the gate decision's names.
+   */
+  failed_stages: FailedStage[];
+  /** Which linter profile and width judged this plugin (clause 2.8). */
+  lint_bar?: LintBar | null;
+}
+
+/** One failing validation stage and what it printed (clause 2.16). */
+export interface FailedStage {
+  /** The stage's name: "lint", "build", "test" or "validate". */
+  name: string;
+  status?: string;
+  returncode?: number | null;
+  /** Why the stage failed, in one line. */
+  message?: string;
+  /** The stage's output, bounded to the first 10,000 characters (Req 19.5). */
+  displayed_output?: string;
+  /** The complete output, retained however long it is (Req 19.5). */
+  full_output?: string;
+  truncated?: boolean;
+}
+
+/**
+ * The bar the lint stage applied (clause 2.8). Two operators with different
+ * `insightconnect-plugins` checkouts can be held to different profiles, so the
+ * preview says which one judged this plugin and at what width.
+ */
+export interface LintBar {
+  profile_path: string | null;
+  line_length: number | null;
+  profile_is_authoritative?: boolean;
 }
 
 /** Whether a failure came from the build or the export phase (Req 19.4). */

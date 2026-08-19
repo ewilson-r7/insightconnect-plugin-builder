@@ -804,12 +804,24 @@ class _WebsocketProgress:
             await self.drain()
             if self._step is not None:
                 elapsed = time.monotonic() - self._started_at
-                await self._send(f"{self._step} ({elapsed:.0f}s)")
+                # Marked as a re-statement, not an event. A phase starting is
+                # something that happened once and belongs in the transcript; this
+                # is the same phase still running, and a client that appends it
+                # accumulates one entry per second. Task 14's review found that a
+                # 13-minute run put ~780 of these into a polite live region, which
+                # floods a screen reader with near-identical announcements it
+                # cannot skip. Additive field: a client that ignores it behaves as
+                # before.
+                await self._send(f"{self._step} ({elapsed:.0f}s)", progress=True)
 
-    async def _send(self, message: str) -> None:
-        """Send one status frame, ignoring a socket the client has already closed."""
+    async def _send(self, message: str, *, progress: bool = False) -> None:
+        """Send one status frame, ignoring a socket the client has already closed.
+
+        ``progress`` marks a re-statement of the phase already announced, so a
+        client can replace the previous one instead of appending another entry.
+        """
         with suppress(Exception):
-            await self._websocket.send_json({"type": "status", "message": message})
+            await self._websocket.send_json({"type": "status", "message": message, "progress": progress})
 
 
 def _lookup_session(orchestrator: Orchestrator, session_id: str) -> SessionState:

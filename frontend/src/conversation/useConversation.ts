@@ -34,6 +34,12 @@ export interface UseConversationResult {
    * with every applied turn; a second socket would never see per-turn frames.
    */
   visualization: VisualizationPayload;
+  /**
+   * The phase currently running, or `null` when no turn is in flight (clause 2.19).
+   * Separate from `messages` because it is state that is replaced, not a sequence
+   * of events to accumulate.
+   */
+  progress: string | null;
   /** Submit a message; returns the client-side validation result. */
   submit: (text: string) => { accepted: boolean; reason?: string };
 }
@@ -48,6 +54,9 @@ export function useConversation({
     session.private_source_notice,
   );
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
+  //: The phase currently running, or null when no turn is in flight. Held apart
+  //: from the transcript because it is state that changes, not events that happened.
+  const [progress, setProgress] = useState<string | null>(null);
   const [visualization, setVisualization] = useState<VisualizationPayload>(
     session.visualization,
   );
@@ -65,15 +74,27 @@ export function useConversation({
       case "turn":
         setMessages((prev) => [...prev, turnResultToMessage(frame.result)]);
         setTokenTotal(frame.result.token_total);
+        setProgress(null);
         break;
       case "tokens":
         setTokenTotal(frame.token_total);
         break;
       case "error":
         setMessages((prev) => [...prev, systemMessage(frame.detail, "error")]);
+        setProgress(null);
         break;
       case "status":
-        setMessages((prev) => [...prev, systemMessage(frame.message, "info")]);
+        // A re-statement replaces the last one instead of joining the transcript.
+        // Appending each tick put one entry per second into a polite live region,
+        // which a screen reader announces one after another and cannot skip; a
+        // 13-minute delegated run produced roughly 780 of them (task 14's review).
+        // Progress is state, so it is held as state and rendered in one region.
+        if (frame.progress) {
+          setProgress(frame.message);
+        } else {
+          setProgress(frame.message);
+          setMessages((prev) => [...prev, systemMessage(frame.message, "info")]);
+        }
         break;
       case "visualization":
         // The payload was already folded above; the Visualization_View
@@ -125,7 +146,7 @@ export function useConversation({
   );
 
   return useMemo(
-    () => ({ messages, tokenTotal, privateSourceNotice, connection, visualization, submit }),
-    [messages, tokenTotal, privateSourceNotice, connection, visualization, submit],
+    () => ({ messages, tokenTotal, privateSourceNotice, connection, visualization, progress, submit }),
+    [messages, tokenTotal, privateSourceNotice, connection, visualization, progress, submit],
   );
 }

@@ -25,6 +25,7 @@ import type {
   ExportTarget,
 } from "../../types";
 import { DiffView } from "./DiffView";
+import { ErrorOutput } from "./ErrorOutput";
 import { FailureIndicator } from "./FailureIndicator";
 import { FileList } from "./FileList";
 import { SpecPreview } from "./SpecPreview";
@@ -377,9 +378,20 @@ function DefinitionOfDoneNotice({ plan }: { plan: ExportPlan }): JSX.Element | n
   const unmet = plan.done_conditions.filter((c) => c.status === "unmet");
   const unverified = plan.done_conditions.filter((c) => c.status === "unverified");
   return (
-    <section role="alert" data-testid="done-outstanding">
-      <h4>Definition of done: not met</h4>
-      <p>
+    // A labelled region rather than `role="alert"`. An alert is assertive and
+    // atomic, so this section -- a heading, a summary, and up to two nested lists
+    // of conditions -- was announced as one uninterruptible blob with its
+    // structure flattened, and it interrupted whatever the operator was reading.
+    // The short summary is what warrants announcing; the detail is what warrants
+    // being navigable by heading and list, which a region gives and an alert
+    // takes away.
+    <section
+      role="region"
+      aria-labelledby="done-outstanding-heading"
+      data-testid="done-outstanding"
+    >
+      <h4 id="done-outstanding-heading">Definition of done: not met</h4>
+      <p role="status">
         This plugin is not finished. Exporting it now ships it in this state.
       </p>
       {unmet.length > 0 ? (
@@ -424,9 +436,18 @@ function BlockedNotice({
   onForceExport: () => void;
 }): JSX.Element {
   return (
-    <section role="alert" data-testid="export-blocked">
-      <h3>Export blocked</h3>
-      <p>{plan.summary || "This draft cannot be exported yet."}</p>
+    // Same reasoning as the outstanding-conditions region, and more pressing here:
+    // this section now carries each failing stage's output, which the backend
+    // bounds at 10,000 characters. An assertive atomic region would read all of it
+    // before the operator could do anything, so the summary is the announcement and
+    // the stages are navigable structure.
+    <section
+      role="region"
+      aria-labelledby="export-blocked-heading"
+      data-testid="export-blocked"
+    >
+      <h3 id="export-blocked-heading">Export blocked</h3>
+      <p role="status">{plan.summary || "This draft cannot be exported yet."}</p>
       {plan.spec_errors.length > 0 ? (
         <div data-testid="blocked-spec-errors">
           <h4>Spec validation errors</h4>
@@ -442,9 +463,25 @@ function BlockedNotice({
       {plan.failed_stages.length > 0 ? (
         <div data-testid="blocked-failed-stages">
           <h4>Failed validation stages</h4>
+          {/* A stage name alone sends the operator back to a terminal to find out
+              what happened. Each entry carries the stage's own message and the
+              output it printed, under the same truncated-plus-full rule the
+              build/export failure path uses (clause 2.16, Req 19.5). */}
           <ul>
             {plan.failed_stages.map((stage) => (
-              <li key={stage}>{stage}</li>
+              <li key={stage.name} data-testid={`failed-stage-${stage.name}`}>
+                <strong>{stage.name}</strong>
+                {stage.message ? <> &mdash; {stage.message}</> : null}
+                {stage.displayed_output ? (
+                  <ErrorOutput
+                    failure={{
+                      displayed_output: stage.displayed_output,
+                      full_output: stage.full_output ?? stage.displayed_output,
+                      truncated: stage.truncated ?? false,
+                    }}
+                  />
+                ) : null}
+              </li>
             ))}
           </ul>
         </div>

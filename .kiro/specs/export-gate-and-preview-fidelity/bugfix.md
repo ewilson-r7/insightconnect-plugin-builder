@@ -593,3 +593,102 @@ single pyenv 3.13.3 interpreter now satisfies both imports, so the split-host ca
 that motivated clause 2.3 is no longer reproducible here. Task 12.3 covers it with
 stand-in interpreters for that reason, rather than depending on a host condition
 that has since gone away.
+
+### Accessibility review of the new preview surface (task 14)
+
+Performed 2026-08-19 in a real Chromium against the built UI and a live backend, on
+the JumpCloud session. Browser Mode was off for the entire originating run, so this
+is the first time any part of the export preview has been observed rather than
+inferred from payloads and timings.
+
+**What the review found first was not an accessibility defect.** The export panel
+blanked the entire application whenever a validation stage failed:
+
+```
+Error: Minified React error #31; args[]=object with keys
+{name, status, returncode, message, displayed_output, full_output, truncated}
+```
+
+Those are exactly the keys `_serialize_failed_stages` emits. Clause 2.16 changed
+`failed_stages` from an array of names to an array of objects; `BlockedNotice` still
+rendered each entry directly as a React child and `types.ts` still declared
+`failed_stages: string[]`. React error #31 is "Objects are not valid as a React
+child", there is no error boundary, and the whole tree unmounted --
+`document.body.innerText.length` measured **0**, taking the conversation with it.
+
+The failure mode is worth recording precisely, because every gate in this repository
+passed while it was live. The Python suite tested the serializer, `tsc` checked the
+frontend against a declaration that was wrong, and the panel's own test constructed
+`failed_stages: ["lint", "test"]` -- so the fixture and the type agreed with each
+other and both disagreed with the backend. Nothing in a green suite could see it. It
+is also precisely inverted from the bug this work set out to fix: the gate learned to
+report failures in detail, and the operator saw a blank page.
+
+Two accessibility defects, one of them also introduced by this bugfix.
+
+- **The progress ticker flooded a polite live region.** `_WebsocketProgress` re-states
+  the running phase every second (clause 2.19) and `useConversation` appended each
+  frame to the transcript, which is `<ol aria-live="polite">`. A 13-minute delegated
+  run therefore queued roughly **780 near-identical announcements** that a screen
+  reader cannot skip, arriving minutes stale, while the transcript filled with ticks.
+  This plan's own task text predicted it: "a frame that re-announces every few seconds
+  is a live-region decision, not a default." Fixed by marking a re-statement as such
+  on the wire (additive field) and rendering it in one `role="status"` region whose
+  text is replaced. Phase *starts* still join the transcript, because those are events
+  that happened once.
+- **`role="alert"` wrapped both large notices.** An alert is assertive and atomic, so
+  the outstanding-conditions section -- a heading, a summary, and up to two nested
+  condition lists -- was announced as one uninterruptible blob with its structure
+  flattened, interrupting whatever the operator was reading. The blocked notice was
+  worse after clause 2.16, since it now carries each stage's output, bounded at
+  10,000 characters. Both are now labelled regions with a short polite summary: the
+  summary is what warrants announcing, the detail is what warrants being navigable.
+
+**Verified after the fix, against a payload produced by the real serializer** (not a
+hand-written mock, so nothing about the shape is assumed): the app stays mounted, the
+conversation survives, both stages render with their message and output, focus order
+runs prepare -> Dismiss -> Force Export with a visible indicator and no trap, the
+blocked notice is `role="region"` labelled by its heading, and no `role="alert"`
+remains on the surface. The outstanding-conditions region exposes a 69-character
+polite summary out of 500 characters of navigable detail, with "Unmet" and "Could not
+be checked" as headings over lists of 3 and 1.
+
+#### Still outstanding, and why
+
+- **No screen reader was driven.** The review measured roles, names, live-region
+  semantics, heading structure, list structure, focus order and focus visibility from
+  the accessibility tree. Whether VoiceOver or NVDA *actually* announces the repaired
+  regions usefully -- and whether one replaced status region reads well at a
+  one-second cadence -- needs a human with assistive technology. The task says as
+  much: full validation requires manual testing and expert review, and this is that
+  testing, not a substitute for it.
+- **The progress region's replacement behaviour was verified in jsdom, not the
+  browser.** Two tests assert that ticks replace rather than accumulate and that the
+  phase clears when the turn ends. Observing it live needs a real delegated run,
+  which is a paid model call.
+
+#### Surfaced, not fixed (pre-existing, outside what task 14 scoped)
+
+Each is a genuine defect; none is on the three regions this task named, so per
+SCOPE-1 they are reported rather than repaired.
+
+- `<div aria-label="Export controls">` has no role, and `aria-label` on a generic
+  element is ignored by assistive technology. It should be a `section`/`role="region"`.
+  The export panel is therefore not reachable as a landmark at all.
+- The session view's headings start at `h3` with no `h1` or `h2`, so the export
+  preview's structure hangs off nothing.
+- Activating "Review before export" disables the button, which **drops focus to
+  `<body>`** and announces nothing, for what is now a two-minute operation. Measured
+  directly. It wants `aria-disabled` with `aria-busy`, or a live region, so a keyboard
+  user keeps their place and hears that work started.
+- "Force Export (skip validation)" carries its explanation only in `title`, which is
+  not reliably announced and is unreachable without a pointer, and shipping an
+  unvalidated plugin has no confirmation step.
+- The plugin-name field on the iterate screen is labelled only by its placeholder,
+  which disappears on input.
+- `FailureIndicator` has the same `role="alert"`-wrapping-`ErrorOutput` problem fixed
+  here twice, on the build/export failure path (Req 19).
+- **`completeness_findings` is serialized but never rendered.** No component reads it,
+  so the findings Requirement 16.1 requires "alongside the preview" reach the client
+  and are dropped. Zero findings on JumpCloud made this invisible to the checkpoint;
+  a spec with findings would report them nowhere.

@@ -549,7 +549,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - Update it again when the work lands, rather than leaving it stale
   - _Requirements: 2.5, 2.10, 2.14_
 
-- [ ] 14. Accessibility review of the new preview surface
+- [x] 14. Accessibility review of the new preview surface
   - **This work creates the surface, so the review belongs to it.** `failed_stages` is a new region in the export preview and 11.2 adds new status frames; neither has been checked
   - Review keyboard operation, focus order, and screen-reader announcement for the `failed_stages` region, the outstanding-conditions presentation beside a permitted preview, and the periodic status frames — a frame that re-announces every few seconds is a live-region decision, not a default
   - **Full validation requires manual testing with assistive technologies and expert accessibility review**; this task is that testing, not a substitute for it

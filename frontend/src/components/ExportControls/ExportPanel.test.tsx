@@ -100,7 +100,14 @@ describe("ExportPanel preview/diff/confirm (Req 16)", () => {
         permitted: false,
         summary: "Spec invalid",
         spec_errors: [{ path: "connection.host", message: "required" }],
-        failed_stages: ["lint", "test"],
+        // Objects, as `_serialize_failed_stages` sends them. This case previously
+        // passed strings, which is why the mismatch survived to task 14's browser
+        // review: the fixture agreed with the type declaration and both disagreed
+        // with the backend, so the whole panel unmounted on a real failed stage.
+        failed_stages: [
+          { name: "lint", status: "failed", returncode: 1, message: "2 findings" },
+          { name: "test", status: "failed", returncode: 1, message: "1 test failed" },
+        ],
       }),
     );
     render(<ExportPanel sessionId="s1" client={client} />);
@@ -111,6 +118,56 @@ describe("ExportPanel preview/diff/confirm (Req 16)", () => {
     expect(screen.queryByTestId("confirm-controls")).not.toBeInTheDocument();
     expect(screen.getByTestId("blocked-spec-errors")).toHaveTextContent("connection.host");
     expect(screen.getByTestId("blocked-failed-stages")).toHaveTextContent("lint");
+  });
+
+  it("shows each failing stage's message and output, not just its name (clause 2.16)", async () => {
+    const user = userEvent.setup();
+    const client = makeClient(
+      makePlan({
+        permitted: false,
+        summary: "Two stages failed.",
+        failed_stages: [
+          {
+            name: "lint",
+            status: "failed",
+            returncode: 1,
+            message: "2 lint finding(s) in hand-written code",
+            displayed_output: "util/api.py:16: undefined-variable: Undefined variable 'requests'",
+            full_output: "util/api.py:16: undefined-variable: Undefined variable 'requests'",
+            truncated: false,
+          },
+        ],
+      }),
+    );
+    render(<ExportPanel sessionId="s1" client={client} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("export-blocked")).toBeInTheDocument());
+
+    const stage = screen.getByTestId("failed-stage-lint");
+    expect(stage).toHaveTextContent("2 lint finding(s) in hand-written code");
+    expect(stage).toHaveTextContent("undefined-variable");
+  });
+
+  it("presents the blocked notice as a navigable region, not an assertive alert", async () => {
+    const user = userEvent.setup();
+    const client = makeClient(
+      makePlan({
+        permitted: false,
+        summary: "Two stages failed.",
+        failed_stages: [{ name: "lint", message: "2 findings" }],
+      }),
+    );
+    render(<ExportPanel sessionId="s1" client={client} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("export-blocked")).toBeInTheDocument());
+
+    // An alert is assertive and atomic, so the stage output -- up to 10,000
+    // characters -- would be read in full before the operator could act.
+    const blocked = screen.getByTestId("export-blocked");
+    expect(blocked).toHaveAttribute("role", "region");
+    expect(blocked).toHaveAccessibleName("Export blocked");
   });
 
   it("names the outstanding conditions even when export is permitted (Req 27.2, 27.3)", async () => {

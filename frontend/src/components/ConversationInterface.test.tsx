@@ -102,7 +102,7 @@ describe("ConversationInterface header (Req 24.1, 3.6)", () => {
   it("reflects the open connection status once connected", () => {
     render(<ConversationInterface session={makeSession()} />);
     // The fake socket opens on connect().
-    expect(screen.getByRole("status")).toHaveTextContent("Connected");
+    expect(screen.getByTestId("connection-badge")).toHaveTextContent("Connected");
   });
 });
 
@@ -143,7 +143,7 @@ describe("ConversationInterface private-source notice (Req 25.6)", () => {
 
   it("surfaces the private-source notice delivered on the state frame", async () => {
     const session = makeSession({ entry_mode: "enhance_production" });
-    render(<ConversationInterface session={session} />);
+    render(<ConversationInterface session={makeSession()} />);
     controller.emit(
       stateFrame({
         ...session,
@@ -220,6 +220,63 @@ describe("ConversationInterface message submission (Req 1.1, 1.6)", () => {
     // Simulate a dropped connection.
     controller.setStatus("closed");
     expect(screen.getByTestId("send-button")).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("Disconnected");
+    expect(screen.getByTestId("connection-badge")).toHaveTextContent("Disconnected");
+  });
+});
+
+describe("ConversationInterface turn progress (clause 2.19, task 14)", () => {
+  it("re-states the running phase in one region instead of one entry per tick", async () => {
+    render(<ConversationInterface session={makeSession()} />);
+    act(() => controller.setStatus("open"));
+
+    // A phase starting: an event, so it joins the transcript.
+    act(() => controller.emit({ type: "status", message: "implementing the plugin" }));
+    // Then the backend's ticker, once a second for as long as the run takes.
+    for (const seconds of [1, 2, 3, 4, 5]) {
+      act(() =>
+        controller.emit({
+          type: "status",
+          message: `implementing the plugin (${seconds}s)`,
+          progress: true,
+        }),
+      );
+    }
+
+    // The region shows the latest, and only the latest.
+    const region = screen.getByTestId("turn-progress");
+    expect(region).toHaveTextContent("implementing the plugin (5s)");
+    expect(region).not.toHaveTextContent("(4s)");
+    expect(region).toHaveAttribute("aria-atomic", "true");
+
+    // The transcript gained the phase once, not once per tick. Before this the
+    // ticks were appended to a polite live region, so a 13-minute run queued
+    // roughly 780 near-identical announcements a screen reader could not skip.
+    const items = screen.getAllByRole("listitem");
+    const ticks = items.filter((item) => /\(\ds\)/.test(item.textContent ?? ""));
+    expect(ticks).toHaveLength(0);
+    expect(items.filter((i) => i.textContent === "implementing the plugin")).toHaveLength(1);
+  });
+
+  it("clears the phase when the turn ends, so a finished run does not read as running", async () => {
+    render(<ConversationInterface session={makeSession()} />);
+    act(() => controller.setStatus("open"));
+    act(() =>
+      controller.emit({ type: "status", message: "generating logic (3s)", progress: true }),
+    );
+    expect(screen.getByTestId("turn-progress")).toHaveTextContent("generating logic");
+
+    act(() =>
+      controller.emit({
+        type: "turn",
+        result: {
+          status: "applied",
+          message: "Added the action.",
+          token_total: 10,
+          spec: null,
+        } as never,
+      }),
+    );
+
+    expect(screen.getByTestId("turn-progress")).toHaveTextContent("");
   });
 });

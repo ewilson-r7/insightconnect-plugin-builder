@@ -37,7 +37,7 @@ export function ConversationInterface({
   passphrase,
   onVisualization,
 }: ConversationInterfaceProps) {
-  const { messages, tokenTotal, privateSourceNotice, connection, visualization, submit } =
+  const { messages, tokenTotal, privateSourceNotice, connection, visualization, progress, submit } =
     useConversation({
       session,
       passphrase,
@@ -66,8 +66,31 @@ export function ConversationInterface({
 
       <MessageList messages={messages} />
 
+      <ProgressStatus phase={progress} />
+
       <MessageInput onSubmit={submit} disabled={connection !== "open"} />
     </section>
+  );
+}
+
+/**
+ * The phase currently running, in one region whose text is replaced (clause 2.19).
+ *
+ * `role="status"` is polite and, because a status region is atomic, each update
+ * replaces the previous announcement rather than queueing behind it -- which is
+ * what makes a per-second re-statement usable rather than a flood. Rendered
+ * outside the transcript so a finished run leaves no trail of ticks behind it.
+ */
+function ProgressStatus({ phase }: { phase: string | null }) {
+  return (
+    <div
+      className="conversation__progress"
+      role="status"
+      aria-atomic="true"
+      data-testid="turn-progress"
+    >
+      {phase ?? ""}
+    </div>
   );
 }
 
@@ -75,7 +98,11 @@ function ConnectionBadge({ status }: { status: string }) {
   const label =
     status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : "Disconnected";
   return (
-    <span className={`conversation__connection conversation__connection--${status}`} role="status">
+    <span
+      className={`conversation__connection conversation__connection--${status}`}
+      role="status"
+      data-testid="connection-badge"
+    >
       {label}
     </span>
   );
