@@ -59,6 +59,9 @@ __all__ = [
     "AppConfig",
     "ProbeResult",
     "load_config",
+    "ensure_config_file",
+    "DEFAULT_CONFIG_TEMPLATE",
+    "DEFAULT_KIRO_CLI_PATH",
     "probe_kiro_cli",
     "probe_docker",
 ]
@@ -97,6 +100,80 @@ _KIRO_REMEDIATION = (
 #: Remediation shown when the Docker engine is unavailable. Docker is optional at
 #: startup and only required to build a plugin.
 _DOCKER_REMEDIATION = "Install Docker and ensure the Docker daemon is running to build plugins."
+
+#: The Kiro CLI executable written into a generated config. A bare name rather than
+#: an absolute path, so it resolves on the operator's ``PATH`` wherever the CLI is
+#: installed; :func:`probe_kiro_cli` reports it clearly when it is not found, and
+#: ``llm.kiro_cli_path`` takes an absolute path for an install that is not on ``PATH``.
+DEFAULT_KIRO_CLI_PATH = "kiro-cli"
+
+#: The configuration a first start writes when no file exists.
+#:
+#: Only the settings without a default are written -- the ``llm`` section, which is
+#: the one thing :func:`load_config` requires. Everything else is commented out at
+#: the value the code already defaults to, so the file documents what can be changed
+#: without silently pinning a default that later moves. Startup previously failed
+#: with ``config_file: configuration file not found``, which told a first-time
+#: operator what was missing but not what to write.
+DEFAULT_CONFIG_TEMPLATE = f"""\
+# InsightConnect Plugin Builder configuration.
+#
+# Written automatically on first start. Edit freely -- this file is never
+# overwritten once it exists.
+
+llm:
+  provider: {KIRO_CLI_PROVIDER}
+  # The Kiro CLI executable. A bare name is resolved on PATH; use an absolute
+  # path if yours is installed somewhere else.
+  kiro_cli_path: {DEFAULT_KIRO_CLI_PATH}
+
+# cost:
+#   token_budget: {DEFAULT_TOKEN_BUDGET}          # per-session token budget
+#   rate_limit_per_min: {DEFAULT_RATE_LIMIT_PER_MIN}
+
+# network:
+#   bind_address: {DEFAULT_BIND_ADDRESS}     # loopback: the tool is local-only by default
+#   port: {DEFAULT_PORT}
+
+# paths:
+#   config_root: {DEFAULT_CONFIG_ROOT}
+#   projects_root: {DEFAULT_PROJECTS_ROOT}
+"""
+
+
+def ensure_config_file(path: Union[str, os.PathLike[str]]) -> bool:
+    """Write :data:`DEFAULT_CONFIG_TEMPLATE` to ``path`` if nothing is there yet.
+
+    A first start had no way to succeed: ``load_config`` requires an ``llm``
+    section and ``llm.kiro_cli_path`` has no default, so an absent file halted
+    startup and the operator had to discover the required shape from the source or
+    the specification. Writing a working file is the smaller surprise.
+
+    An existing file is left exactly as it is, including one that is empty or
+    invalid -- the same rule the generated agent config follows (Req 20.7's
+    "a config you wrote yourself is never overwritten"). Reporting the invalid
+    setting is ``load_config``'s job and it does it better than a guess here would.
+
+    Args:
+        path: where the configuration file belongs.
+
+    Returns:
+        ``True`` if a file was written, ``False`` if one was already present.
+
+    Raises:
+        ConfigError: if the file cannot be written, naming the path -- startup
+            cannot continue without a configuration and a silent failure here
+            would resurface as the "not found" error this exists to prevent.
+    """
+    resolved = Path(path).expanduser()
+    if resolved.exists():
+        return False
+    try:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
+    except OSError as error:
+        raise ConfigError("config_file", f"could not write a default configuration to {resolved}: {error}")
+    return True
 
 
 class ConfigError(ValueError):

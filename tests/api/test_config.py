@@ -19,7 +19,10 @@ from icplugin_builder.api.config import (
     DEFAULT_PORT,
     DEFAULT_RATE_LIMIT_PER_MIN,
     DEFAULT_TOKEN_BUDGET,
+    DEFAULT_CONFIG_TEMPLATE,
+    DEFAULT_KIRO_CLI_PATH,
     ProbeResult,
+    ensure_config_file,
     load_config,
     probe_docker,
     probe_kiro_cli,
@@ -266,3 +269,77 @@ class TestProbeDocker:
         result = probe_docker()
         assert result.available is True
         assert result.remediation is None
+
+
+class TestEnsureConfigFile:
+    """A first start has to be able to succeed.
+
+    ``load_config`` requires an ``llm`` section and ``llm.kiro_cli_path`` has no
+    default, so an absent file used to halt startup with "configuration file not
+    found" -- accurate, and no help to anyone who had never seen the file's shape.
+    """
+
+    def test_a_first_start_writes_a_config_that_loads(self, tmp_path):
+        target = tmp_path / "config.yaml"
+
+        assert ensure_config_file(target) is True
+        assert target.is_file()
+
+        # The point is not that a file appeared but that startup can proceed.
+        config = load_config(target)
+        assert config.llm.kiro_cli_path == DEFAULT_KIRO_CLI_PATH
+        assert config.network.bind_address == DEFAULT_BIND_ADDRESS
+        assert config.network.port == DEFAULT_PORT
+
+    def test_missing_parent_directories_are_created(self, tmp_path):
+        """The default path is under ``~/.icplugin-builder``, which may not exist."""
+        target = tmp_path / "absent" / "nested" / "config.yaml"
+        assert ensure_config_file(target) is True
+        assert load_config(target).llm.provider == "kiro_cli"
+
+    def test_an_existing_config_is_never_overwritten(self, tmp_path):
+        """The operator's own settings survive every later start (Req 20.7)."""
+        target = tmp_path / "config.yaml"
+        target.write_text("llm:\n  provider: kiro_cli\n  kiro_cli_path: /opt/custom/kiro\n", encoding="utf-8")
+
+        assert ensure_config_file(target) is False
+        assert load_config(target).llm.kiro_cli_path == "/opt/custom/kiro"
+
+    def test_an_empty_file_is_left_for_the_loader_to_report(self, tmp_path):
+        """Present but unusable is not the same as absent.
+
+        Overwriting an empty file would discard whatever the operator was part-way
+        through writing, and ``load_config`` already names the missing section more
+        precisely than a guess here could.
+        """
+        target = tmp_path / "config.yaml"
+        target.write_text("", encoding="utf-8")
+
+        assert ensure_config_file(target) is False
+        with pytest.raises(ConfigError) as caught:
+            load_config(target)
+        assert caught.value.setting == "llm"
+
+    def test_the_commented_defaults_match_the_code(self, tmp_path):
+        """The template documents defaults, so it must not drift from them.
+
+        A commented value that no longer matches is worse than no comment: it reads
+        as documentation while misinforming.
+        """
+        for value in (
+            str(DEFAULT_TOKEN_BUDGET),
+            str(DEFAULT_RATE_LIMIT_PER_MIN),
+            DEFAULT_BIND_ADDRESS,
+            str(DEFAULT_PORT),
+        ):
+            assert value in DEFAULT_CONFIG_TEMPLATE, f"the template does not mention {value}"
+
+    def test_a_path_that_cannot_be_written_names_itself(self, tmp_path):
+        """Startup cannot continue without a config, so this fails loudly."""
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("", encoding="utf-8")
+
+        with pytest.raises(ConfigError) as caught:
+            ensure_config_file(blocker / "config.yaml")
+        assert caught.value.setting == "config_file"
+        assert "config.yaml" in str(caught.value)

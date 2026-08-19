@@ -68,7 +68,7 @@ from ..orchestrator.orchestrator import (
 )
 from ..orchestrator.session import ExportPlan, ExportOutcome, SessionState, TurnResult
 from ..security.access_controller import AccessController
-from .config import AppConfig, load_config
+from .config import AppConfig, ensure_config_file, load_config
 
 __all__ = [
     "create_app",
@@ -1049,7 +1049,17 @@ def main() -> None:
     """
     import uvicorn
 
-    config = load_config(_default_config_path())
+    config_path = _default_config_path()
+    if ensure_config_file(config_path):
+        # A first start used to halt here with "configuration file not found".
+        # Say what was written and where, so the operator can change it knowingly
+        # rather than discovering the file later and wondering what wrote it.
+        print(
+            f"icplugin-builder: wrote a default configuration to {config_path}\n"
+            "                  Edit it to point at your Kiro CLI if it is not on PATH.",
+            flush=True,
+        )
+    config = load_config(config_path)
 
     ui_dir = _default_ui_dir()
     if ui_dir is None:
