@@ -18,9 +18,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+from ..core.cost_controller import CostController
 from ..core.draft import ComponentKind
 from ..core.generation import ArtifactKind, GenerationRequest
 from ..core.spec_model import Component, FieldSchema, PluginSpec
+from ..integrations.llm_generator import estimate_tokens
 from .operations import (
     AddComponent,
     DraftOperation,
@@ -190,15 +192,79 @@ class InterpreterError(Exception):
 # ---------------------------------------------------------------------------
 
 
+#: How much of one attachment reaches the interpreter's prompt. The cap itself is
+#: unchanged by clause 2.20 -- what changes is that exceeding it is disclosed.
+MAX_ATTACHMENT_CHARS = 60_000
+
+
+@dataclass(frozen=True)
+class TruncationNotice:
+    """One attachment the interpreter could not read in full.
+
+    Attributes:
+        name: the attachment as the user named it.
+        full_chars: its whole size.
+        included_chars: how much of it reached the prompt.
+
+    The distinction this exists to draw: "the interpreter saw less of your spec" is
+    not "your plugin was built from less of your spec". The delegated agent receives
+    the whole file, because attachments are written verbatim into
+    ``.builder/reference/`` -- so a truncated interpretation can still produce a
+    plugin built against the complete document, and the operator should be told which
+    of the two happened.
+    """
+
+    name: str
+    full_chars: int
+    included_chars: int
+    detail: str
+
+    @classmethod
+    def for_attachment(cls, name: str, full_chars: int, included_chars: int) -> "TruncationNotice":
+        """Build a notice, rendering the disclosure as part of the data.
+
+        The rendered sentence is a *field* rather than a method, so it travels with
+        the notice wherever the notice goes. A serializer that forgot to call a
+        method would drop the half of the disclosure that makes it actionable.
+        """
+        dropped = full_chars - included_chars
+        return cls(
+            name=name,
+            full_chars=full_chars,
+            included_chars=included_chars,
+            detail=(
+                f"{name}: {dropped:,} of {full_chars:,} characters were not shown to the interpreter "
+                f"({included_chars:,} included). The delegated agent receives the whole file, so this "
+                "limits how the request was understood rather than what the plugin was built from."
+            ),
+        )
+
+    @property
+    def dropped_chars(self) -> int:
+        """How much of the attachment the interpreter did not see."""
+        return self.full_chars - self.included_chars
+
+    def message(self) -> str:
+        """The disclosure as the operator reads it."""
+        return self.detail
+
+
 @dataclass
 class Interpreter:
     """Interprets user messages into TurnPlans via the Kiro CLI.
 
     Attributes:
         executable: the Kiro CLI command prefix (binary name or path).
+        cost_controller: the controller a paid interpretation is recorded against.
+            Optional so a caller that only wants a parsed plan need not supply one,
+            but the API wires it: an interpretation runs a subprocess against the
+            model and is paid for, and parent Property 9 already required every paid
+            invocation be counted -- the interpreter was simply outside it, which is
+            why a session total sat at zero and then jumped after the agent run.
     """
 
     executable: Union[str, Sequence[str]] = "kiro"
+    cost_controller: Optional[CostController] = None
 
     @property
     def _command_prefix(self) -> List[str]:
@@ -212,6 +278,8 @@ class Interpreter:
         spec: Optional[PluginSpec],
         *,
         attachments: Optional[List[Dict[str, str]]] = None,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> TurnPlan:
         """Convert a user's natural-language message into a TurnPlan.
 
@@ -221,6 +289,17 @@ class Interpreter:
             attachments: optional list of file attachments (each with "name" and
                 "content" keys), e.g. API specs the user uploaded for the LLM
                 to digest when building the plugin.
+            session_id: the session this interpretation is charged to. Usage is
+                recorded when it is supplied and a controller is configured;
+                omitting it leaves the call uncounted, which is what a caller
+                outside a session wants.
+            user_id: carried for symmetry with the other paid invocations.
+
+        Note:
+            Gating the interpreter through :meth:`CostController.authorize` is
+            deliberately **not** done here. A budget-exhausted session that cannot
+            parse its own message is a different decision from one that cannot
+            generate, and it is recorded as out of scope rather than taken silently.
 
         Returns:
             A :class:`TurnPlan` ready for the orchestrator's ``submit_message``.
@@ -236,15 +315,26 @@ class Interpreter:
         # Append attached API specs / reference files to the prompt so the LLM
         # can use them to derive actions, fields, and types.
         # Large files are truncated to avoid exceeding context limits.
+        notices: List[TruncationNotice] = []
         if attachments:
             prompt += "\n\n## Attached reference files\n\n"
             for att in attachments:
                 name = att.get("name", "unnamed")
                 content = att.get("content", "")
-                # Truncate large attachments to ~60KB to stay within context.
-                max_attachment_chars = 60_000
-                if len(content) > max_attachment_chars:
-                    content = content[:max_attachment_chars] + "\n\n... (truncated, file too large to include fully)"
+                # Clause 2.20: the cap is unchanged; what changes is that exceeding it
+                # is disclosed. A 206KB OpenAPI document had its `/systemusers` paths
+                # at roughly byte 65,000 -- outside the interpreter's view -- and
+                # nothing told the operator, so a request understood from two thirds
+                # of a spec looked identical to one understood from all of it.
+                if len(content) > MAX_ATTACHMENT_CHARS:
+                    notices.append(
+                        TruncationNotice.for_attachment(
+                            name=name,
+                            full_chars=len(content),
+                            included_chars=MAX_ATTACHMENT_CHARS,
+                        )
+                    )
+                    content = content[:MAX_ATTACHMENT_CHARS] + "\n\n... (truncated, file too large to include fully)"
                 prompt += f"### {name}\n\n```\n{content}\n```\n\n"
 
         command = [*self._command_prefix, "chat", "--no-interactive"]
@@ -252,18 +342,37 @@ class Interpreter:
         try:
             returncode, stdout, stderr = await self._invoke(command, prompt)
         except FileNotFoundError as error:
+            self._record(session_id, prompt, succeeded=False)
             raise InterpreterError(
                 f"Kiro CLI not found at {self._command_prefix[0]!r}; " "ensure it is installed and on PATH.",
             ) from error
 
         if returncode != 0:
+            # Clause 2.18 and parent Req 3.7: a failed invocation is excluded from
+            # the total, exactly as LLMGenerator and PluginAgent exclude theirs.
+            self._record(session_id, prompt, succeeded=False)
             raise InterpreterError(
                 f"Kiro CLI interpretation failed (exit {returncode}): {stderr[:500]}",
                 stdout=stdout,
                 stderr=stderr,
             )
 
-        return self._parse_response(stdout)
+        self._record(session_id, prompt + stdout, succeeded=True)
+        plan = self._parse_response(stdout)
+        plan.truncation_notices = tuple(notices)
+        return plan
+
+    def _record(self, session_id: Optional[str], billed_text: str, *, succeeded: bool) -> None:
+        """Record this interpretation's usage against ``session_id``.
+
+        A lower bound rather than a measurement, like the agent's: it covers the
+        prompt and the response, and cannot see what the model did in between. That
+        is still the difference between a session total that accounts for every paid
+        call and one that reports zero until the agent runs.
+        """
+        if self.cost_controller is None or session_id is None:
+            return
+        self.cost_controller.record_usage(session_id, estimate_tokens(billed_text), succeeded=succeeded)
 
     def _parse_response(self, stdout: str) -> TurnPlan:
         """Parse the LLM's JSON response into a TurnPlan."""

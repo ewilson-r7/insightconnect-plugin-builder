@@ -702,9 +702,16 @@ def create_app(
                             state.reference_urls.append(url.strip())
                 if interpreter is not None:
                     try:
-                        current_spec = orchestrator.session(session_id).spec
+                        session_state = orchestrator.session(session_id)
+                        current_spec = session_state.spec
                         await websocket.send_json({"type": "status", "message": "Interpreting your request..."})
-                        plan = await interpreter.interpret(text, current_spec, attachments=attachments)
+                        plan = await interpreter.interpret(
+                            text,
+                            current_spec,
+                            attachments=attachments,
+                            session_id=session_id,
+                            user_id=session_state.user_id,
+                        )
                     except Exception as interpret_err:
                         # Interpretation failure: surface as an error frame but
                         # don't crash the connection; fall through with plan=None
@@ -869,7 +876,10 @@ def create_app_from_config(config: AppConfig, *, static_dir: Optional[Any] = Non
     export_manager = ExportManager(build_engine=build_engine)
 
     # NL interpretation layer
-    interpreter = Interpreter(executable=config.llm.kiro_cli_path)
+    # Clause 2.18: the interpreter is a paid invocation, so it is charged to the
+    # same controller the generator and the agent are. Parent Property 9 already
+    # required every paid call be counted; this one was outside it.
+    interpreter = Interpreter(executable=config.llm.kiro_cli_path, cost_controller=cost_controller)
 
     # Orchestrator with all collaborators
     orchestrator = Orchestrator(

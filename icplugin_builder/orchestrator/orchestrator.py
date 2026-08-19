@@ -198,6 +198,10 @@ class TurnPlan:
         self.clarification = clarification
         self.vendor_api = vendor_api
         self.proceed_without_reference = proceed_without_reference
+        # Clause 2.20: attachments the interpreter could not read in full. Carried on
+        # the plan so the disclosure rides the turn payload to the operator rather
+        # than living only in the prompt, where nothing but the model sees it.
+        self.truncation_notices: Tuple[Any, ...] = ()
 
     @property
     def is_ambiguous(self) -> bool:

@@ -1722,9 +1722,14 @@ class StubInterpreter:
         self._plan = plan
         self.calls = 0
 
-    async def interpret(self, text: str, spec, *, attachments=None) -> TurnPlan:
-        """Return the prepared plan, recording that the route asked for one."""
+    async def interpret(self, text: str, spec, *, attachments=None, session_id=None, user_id=None) -> TurnPlan:
+        """Return the prepared plan, recording that the route asked for one.
+
+        Accepts ``session_id`` and ``user_id`` because clause 2.18 has the route pass
+        them: an interpretation is a paid call and is charged to the session.
+        """
         self.calls += 1
+        self.session_id = session_id
         return self._plan
 
 
@@ -2065,15 +2070,24 @@ class TestInterpreterUsageIsNotCounted:
         cost = CostController()
         command, _ = _fake_cli(tmp_path / "ok", label="ok")
         failing, _ = _fake_cli(tmp_path / "bad", exit_code=1, label="bad")
-        interpreter = Interpreter(executable=command)
+        # The controller is handed to the interpreter and the session named per call,
+        # which is the shape LLMGenerator and PluginAgent already use. Task 11.3's
+        # wording ("interpret takes the session_id and the CostController") was
+        # written before the API existed; a controller the interpreter never receives
+        # could not be charged whatever the implementation did.
+        interpreter = Interpreter(executable=command, cost_controller=cost)
         totals = {"start": cost.session_total("s1")}
 
         for index in range(RECORDED_INTERPRETER_CALLS):
-            asyncio.run(interpreter.interpret(f"message {index}", None))
+            asyncio.run(interpreter.interpret(f"message {index}", None, session_id="s1", user_id="u1"))
             totals[f"after_interpret_{index + 1}"] = cost.session_total("s1")
 
         with pytest.raises(InterpreterError):
-            asyncio.run(Interpreter(executable=failing).interpret("this one fails", None))
+            asyncio.run(
+                Interpreter(executable=failing, cost_controller=cost).interpret(
+                    "this one fails", None, session_id="s1", user_id="u1"
+                )
+            )
         totals["after_failed_interpret"] = cost.session_total("s1")
 
         project = tmp_path / "tree"
@@ -2254,18 +2268,17 @@ class TestTheAttachmentIsTruncatedSilently:
     :class:`TurnPlan` has no field for it and the turn payload has no key for it.
     """
 
-    def test_the_truncation_happens_where_bugfix_says_it_does(self, truncation: Truncation):
-        """The cited line, read rather than trusted.
+    def test_the_truncation_happens_at_the_cap_bugfix_cites(self, truncation: Truncation):
+        """The mechanism, read rather than trusted -- and the cap is unchanged by 2.20.
 
-        Expected to pass before and after: task 11.4 leaves the 60,000-character
-        cap alone and adds the disclosure, so this stays the mechanism.
+        `bugfix.md` 1.15 cited it as an inline local at ``interpreter.py:245``. Task
+        11.4 left the figure alone and named it, so the assertion is now against the
+        constant rather than against a line number that any edit above it moves.
         """
-        source = Path(interpreter_module.__file__).read_text(encoding="utf-8").splitlines()
-        line = source[RECORDED_TRUNCATION_LINE - 1].strip()
-        assert line == f"max_attachment_chars = {INTERPRETER_ATTACHMENT_CAP:_}", (
-            f"{interpreter_module.__file__}:{RECORDED_TRUNCATION_LINE} is {line!r}, not the "
-            f"{INTERPRETER_ATTACHMENT_CAP:,}-character cap `bugfix.md` 1.15 cites; re-read the mechanism "
-            "before task 11.4 discloses it"
+        assert interpreter_module.MAX_ATTACHMENT_CHARS == INTERPRETER_ATTACHMENT_CAP, (
+            f"the interpreter's attachment cap is {interpreter_module.MAX_ATTACHMENT_CHARS:,}, not the "
+            f"{INTERPRETER_ATTACHMENT_CAP:,} `bugfix.md` 1.15 cites; 2.20 leaves the cap alone, so a change "
+            "here means the mechanism moved and the disclosure should be re-measured against it"
         )
 
     def test_the_prompt_was_truncated_at_the_cap(self, truncation: Truncation):
@@ -2544,8 +2557,11 @@ def test_the_reporting_and_accounting_measurements_inputs_are_recorded():
         "names; retake the truncation measurement"
     )
     source = Path(interpreter_module.__file__).read_text(encoding="utf-8")
-    assert source.count("max_attachment_chars") == 3, (
-        "the attachment cap is no longer assigned once, compared once and sliced once, so the single "
+    # Task 11.4 named the cap instead of repeating an inline local, so the count is of
+    # the constant: its definition, the comparison, and the slice. Still one truncation
+    # site, which is what 1.15 cites and what this guard is for.
+    assert source.count("MAX_ATTACHMENT_CHARS") == 4, (
+        "the attachment cap is no longer defined once, compared once and sliced once, so the single "
         f"truncation site 1.15 cites has moved: {interpreter_module.__file__}"
     )
     assert TRUNCATION_MARKER in source, "the truncation marker text has changed"

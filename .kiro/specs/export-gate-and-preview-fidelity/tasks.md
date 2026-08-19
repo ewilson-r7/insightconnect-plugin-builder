@@ -480,14 +480,14 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
     - **One implementation, one caller — not speculative generality but the only shape that lets the orchestrator report without importing the API layer** (SCOPE-9)
     - _Requirements: 2.17, 2.19_
 
-  - [ ] 11.3 Interpreter usage is counted
+  - [x] 11.3 Interpreter usage is counted
     - `Interpreter.interpret` takes the `session_id` and the `CostController` and calls `record_usage(..., succeeded=True/False)` exactly as `LLMGenerator` does, so a paid call is counted where it happens
     - Parent Property 9 already required this; the interpreter was simply outside it
     - **Gating the interpreter through `authorize()` is NOT in scope** — a budget-exhausted session that cannot parse a message is a different decision — and is recorded here so the omission is visible rather than silent
     - Unit test: usage recorded on success, excluded on failure
     - _Requirements: 2.18_
 
-  - [ ] 11.4 Truncation is disclosed
+  - [x] 11.4 Truncation is disclosed
     - `interpret` records, per truncated attachment, the file name, its full size, the size included, and that the delegated agent receives the whole file — it does, since attachments are written verbatim into `.builder/reference/`
     - The notices ride the turn payload. **The 60,000-character cap itself is unchanged**
     - Unit test: notice content
