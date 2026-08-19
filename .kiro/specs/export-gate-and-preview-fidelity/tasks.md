@@ -466,7 +466,7 @@ Property-based tests use Hypothesis at a minimum of 100 examples, tagged
   - Each of these is small and lands **on its own commit** (SCOPE-7); they are grouped only for reading
   - _Requirements: 2.16, 2.17, 2.18, 2.19, 2.20, 2.21, 2.22_
 
-  - [ ] 11.1 Blocked-export detail
+  - [x] 11.1 Blocked-export detail
     - `api/app.py`'s `_serialize_export_plan` gains `failed_stages: [{name, status, returncode, message, displayed_output, full_output, truncated}]`, built from `plan.pipeline_report.failed_stages` through the existing `core/truncation.truncate_error_output` (`MAX_DISPLAY_CHARS` = 10,000, full text retained — parent Req 19.5)
     - **Every failing stage, not just the first**, which is where `classify_build_failure` stops
     - No new dataclass: the data is already on the report. The preview UI renders the new field

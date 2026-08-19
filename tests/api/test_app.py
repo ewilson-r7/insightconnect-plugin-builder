@@ -21,8 +21,11 @@ Covered here (basic endpoint + startup coverage; deeper coverage is task 22.2):
 
 from fastapi.testclient import TestClient
 
-from icplugin_builder.api.app import create_app, create_app_from_config
+from pathlib import Path
+
+from icplugin_builder.api.app import _serialize_export_plan, create_app, create_app_from_config
 from icplugin_builder.api.config import load_config
+from icplugin_builder.core.truncation import MAX_DISPLAY_CHARS
 from icplugin_builder.core.spec_model import PluginSpec, SemVer
 from icplugin_builder.integrations.code_validator import (
     PipelineReport,
@@ -252,7 +255,12 @@ class TestExportRoutes:
         client, registry = self._client(tmp_path, code_validator=FakeBlockingCodeValidator())
         plan = client.post("/api/session/s1/export/prepare").json()
         assert plan["permitted"] is False
-        assert set(plan["failed_stages"]) == {"lint", "test"}
+        # Clause 2.16: each failing stage is an entry carrying its own output, not a
+        # bare name -- so the operator does not have to reproduce the pipeline to
+        # learn what failed. The names are still present, which is what 3.5 keeps.
+        assert {entry["name"] for entry in plan["failed_stages"]} == {"lint", "test"}
+        for entry in plan["failed_stages"]:
+            assert set(entry) >= {"name", "status", "returncode", "message", "displayed_output", "full_output"}
 
         out_dir = tmp_path / "out"
         confirm = client.post(
@@ -369,3 +377,94 @@ class TestStartupFromConfig:
         assert health["bind_address"] == "127.0.0.1"
         # Registry-backed list route responds even with no plugins yet.
         assert client.get("/api/plugins").json() == {"plugins": []}
+
+
+class TestBlockedExportDetail:
+    """Clause 2.16 -- a blocked export reports what failed, not only that it did.
+
+    The payload used to carry `failed_stages` as a list of names, so every stage's
+    stdout, stderr, returncode and message was discarded at the boundary even though
+    the report held all four. An operator's only route to the reason was to re-run
+    the four-stage pipeline by hand.
+    """
+
+    @staticmethod
+    def _plan(*failures, spec_valid=True):
+        """An ExportPlan whose pipeline failed the named stages with the given output.
+
+        Assembled through the production types so what is serialized is the shape
+        ``prepare_export`` produces rather than a hand-built stand-in.
+        """
+        from icplugin_builder.core.diff import diff_file_trees
+        from icplugin_builder.core.spec_validator import SpecValidationError, ValidationReport
+        from icplugin_builder.core.version_bump import bump_version
+        from icplugin_builder.integrations.code_validator import PipelineReport, StageResult, StageStatus
+        from icplugin_builder.integrations.export_gate import decide_export
+        from icplugin_builder.orchestrator.session import ExportPlan
+
+        stages = tuple(
+            StageResult(
+                name=name,
+                status=StageStatus.FAILED,
+                returncode=1,
+                stdout=output,
+                stderr="",
+                duration_seconds=0.0,
+                message=f"{name} stage failed",
+            )
+            for name, output in failures
+        )
+        report = PipelineReport(project_dir=Path("/tmp/x"), stages=stages, docker_available=True) if stages else None
+        errors = () if spec_valid else (SpecValidationError(path="name", message="required"),)
+        spec_report = ValidationReport(errors=errors)
+        spec = PluginSpec(
+            name="acme_widget",
+            title="Acme",
+            description="A spec for the blocked-export payload.",
+            version=SemVer(1, 0, 0),
+            vendor="acme",
+        )
+        return ExportPlan(
+            decision=decide_export(spec_report, report),
+            spec_preview=spec,
+            file_list=("plugin.spec.yaml",),
+            diff=diff_file_trees(None, {"plugin.spec.yaml": "x"}),
+            version_bump=bump_version(spec.version, [], is_breaking=False),
+            spec_report=spec_report,
+            pipeline_report=report,
+        )
+
+    def test_every_failing_stage_is_reported_not_only_the_first(self):
+        payload = _serialize_export_plan(self._plan(("lint", "E501 too long"), ("test", "FAILED test_x")))
+        entries = {entry["name"]: entry for entry in payload["failed_stages"]}
+        assert set(entries) == {"lint", "test"}
+        assert "E501 too long" in entries["lint"]["displayed_output"]
+        assert "FAILED test_x" in entries["test"]["displayed_output"]
+
+    def test_each_entry_carries_the_status_returncode_and_message(self):
+        payload = _serialize_export_plan(self._plan(("lint", "boom")))
+        entry = payload["failed_stages"][0]
+        assert entry["status"] == "failed"
+        assert entry["returncode"] == 1
+        assert entry["message"] == "lint stage failed"
+
+    def test_overlong_output_is_bounded_and_retained_in_full(self):
+        """Req 19.5's rule: display the first 10,000 characters, keep the whole text."""
+        overlong = "x" * (MAX_DISPLAY_CHARS + 500)
+        payload = _serialize_export_plan(self._plan(("lint", overlong)))
+        entry = payload["failed_stages"][0]
+        assert entry["truncated"] is True
+        assert len(entry["displayed_output"]) == MAX_DISPLAY_CHARS
+        assert len(entry["full_output"]) == len(overlong)
+
+    def test_output_within_the_bound_is_not_marked_truncated(self):
+        payload = _serialize_export_plan(self._plan(("lint", "short")))
+        entry = payload["failed_stages"][0]
+        assert entry["truncated"] is False
+        assert entry["displayed_output"] == entry["full_output"] == "short"
+
+    def test_a_spec_blocked_before_the_stages_still_names_the_block(self):
+        """No pipeline report at all -- the payload must not simply go quiet."""
+        payload = _serialize_export_plan(self._plan(spec_valid=False))
+        assert payload["permitted"] is False
+        assert isinstance(payload["failed_stages"], list)

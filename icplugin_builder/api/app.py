@@ -51,6 +51,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, W
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from ..core.truncation import truncate_error_output
 from ..core.visualization import render_visualization
 from ..integrations.code_validator import StageName
 from ..integrations.definition_of_done import DoneReport
@@ -234,13 +235,51 @@ def _serialize_export_plan(plan: ExportPlan) -> Dict[str, Any]:
             }
             for finding in (plan.completeness.findings if plan.completeness else ())
         ],
-        "failed_stages": [stage.name for stage in plan.decision.failed_stages],
+        # Clause 2.16: every stage that did not pass, with its output, so the
+        # operator can act without reproducing the pipeline by hand. Built from the
+        # pipeline report rather than the gate decision because the decision carries
+        # names only, and `classify_build_failure` -- the other path from a report to
+        # an operator-facing failure -- stops at the first failing stage.
+        "failed_stages": _serialize_failed_stages(plan),
         # Clause 2.8: a finding is attributable to the bar that produced it. Two
         # operators with different plugins checkouts can still be held to
         # different profiles; what the payload adds is that the preview says which
         # one judged this plugin, and at what width.
         "lint_bar": _serialize_lint_bar(plan),
     }
+
+
+def _serialize_failed_stages(plan: ExportPlan) -> List[Dict[str, Any]]:
+    """Serialize each failing stage with its bounded output and full text.
+
+    The display is bounded by the existing truncation-with-full-access rule (Req
+    19.5): the first :data:`MAX_DISPLAY_CHARS` characters are shown and the whole
+    text is retained, so a pathological failure cannot flood the client and nothing
+    is lost either.
+
+    Falls back to the gate decision's names when no pipeline report exists -- a spec
+    that never reached the code stages still has to say the export was blocked.
+    """
+    report = plan.pipeline_report
+    if report is None:
+        return [{"name": stage.name} for stage in plan.decision.failed_stages]
+
+    entries: List[Dict[str, Any]] = []
+    for stage in report.failed_stages:
+        output = stage.stdout.strip() or stage.stderr.strip()
+        bounded = truncate_error_output(output)
+        entries.append(
+            {
+                "name": stage.name,
+                "status": stage.status.value,
+                "returncode": stage.returncode,
+                "message": stage.message,
+                "displayed_output": bounded.displayed,
+                "full_output": bounded.full,
+                "truncated": bounded.truncated,
+            }
+        )
+    return entries
 
 
 def _serialize_lint_bar(plan: ExportPlan) -> Optional[Dict[str, Any]]:
