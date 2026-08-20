@@ -32,3 +32,11 @@ coverage/
 Thumbs.db
 
 # NOTE: do not ignore the .kiro/ directory — specs are versioned with the code.
+.kiro/settings
+.playwright-mcp/
+
+# ---- Generated, staged into the package so it ships in the wheel ----
+# `make ui` copies frontend/dist here; `make clean` removes it. The source of truth
+# is frontend/. Ignored rather than committed so a stale build cannot be published
+# from someone else's checkout.
+icplugin_builder/ui/
