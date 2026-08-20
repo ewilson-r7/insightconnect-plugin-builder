@@ -24,27 +24,56 @@ bundled files.
 
 ## Provenance
 
-Vendored from `~/.kiro/{skills,steering}/`, whose files are maintained in a
-separate `plugins` repository. That repository is the source of truth today, and
-these copies were taken verbatim -- byte-identical, hashes checked at copy time.
+Vendored from `~/.kiro/{skills,steering}/`, whose files are maintained in a separate
+`plugins` repository. They were copied verbatim first -- byte-identical, hashes
+checked -- and then simplified for this tool in a second commit, so that diff reads
+against a known-good base.
 
-They are **not** yet simplified for this tool. As vendored they still carry
-material that only applies to their original home, notably:
+### What the simplification removed
 
-- prod-versus-dev repository routing and absolute `~/Documents/GitHub/...` paths
-  (`plugin-dev.md`, `plugin-build-prep.md`, `create-plugin-action.md`);
-- references to files that were **not** vendored, so the links dangle -- chiefly
-  `repos.md`, referenced by three of them;
-- reading the current SDK version from a hardcoded local clone of the SDK
-  repository rather than from anywhere this tool can reach;
-- release-process steps for the plugins monorepo (updating a README table, a
-  `docs/<plugin>.html` page) that a generated plugin has no equivalent of.
+The vendored files were written for a plugins monorepo driven by hand from a
+developer's own machine. This tool hands the agent one plugin directory and runs the
+toolchain itself, so the following was material the agent could not act on:
 
-Simplifying them is a separate change, kept separate so its diff can be read
-against a known-good verbatim base rather than against nothing.
+- **Repository routing.** `plugin-dev.md` opened with a mandatory "prod or dev?"
+  decision and absolute `~/Documents/GitHub/...` paths for each. There is one
+  directory here and the agent is already in it.
+- **Git and release flow.** Branch strategy, commit conventions, push targets, PR
+  creation. The agent leaves the plugin finished in place; nothing is committed.
+- **Dangling references.** Three files pointed at `repos.md`, and `plugin-dev.md`
+  listed nine skills and two steering files that were not vendored and do not apply.
+- **SDK version lookup.** All four skills instructed reading the latest release from
+  the `## Changelog` of a local clone of the SDK repository at a hardcoded path. The
+  tool resolves it from the package index and stamps it into the spec before the
+  agent runs.
+- **`PYENV_VERSION=3.13.x` prefixes** on every command. The tool chooses the
+  interpreter.
+- **Monorepo release steps** -- updating a `docs/<plugin>.html` page and a README
+  plugin table -- which a generated plugin has no equivalent of.
+- **Kiro IDE front-matter.** These files are passed as explicit agent resources, so
+  `inclusion:` decides nothing, and `fileMatchPattern: "plugins/**/*.py"` never
+  matched a tree whose root *is* the plugin.
+- **One vendor's API quirks.** `implementation.md` carried a Microsoft Graph section;
+  a generic rulebook is the wrong place for it.
+
+### What it corrected
+
+`testing.md` said to run tests from inside `unit_test/`, with
+`sys.path.append(os.path.abspath("../"))` at the top of every test file. The tool runs
+`python -m pytest unit_test -q` from the plugin root, where `python -m` puts the root
+on `sys.path` and the append line is inert. Measured against the JumpCloud tree: 33
+tests pass under the tool's own invocation. The guidance now matches it.
+
+`prospector.md` framed the linter as a CI job gating a merge. It is the export gate,
+and it judges hand-written code only -- findings in generated files are ignored, which
+matters because the agent is forbidden to edit those files and so could never resolve
+them.
+
+Net effect: 56,101 bytes to 52,522, and nothing left that points outside the plugin
+directory.
 
 ## Keeping them current
 
-`make sync-rulebook` re-copies from `~/.kiro`. Once these files have been
-simplified, that target overwrites the simplification, so treat it as a way to
-*see* what changed upstream (via `git diff`) rather than a routine step.
+`make sync-rulebook` re-copies from `~/.kiro`, which **overwrites the simplification
+above**. Use it to see what moved upstream -- run it, read `git diff`, then re-apply
+by hand or discard -- rather than as a routine step.

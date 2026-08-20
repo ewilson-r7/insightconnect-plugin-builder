@@ -1,9 +1,9 @@
----
-inclusion: manual
----
 # Prospector & Code Quality Rules
 
-Prospector runs in CI on every PR. All issues must be resolved before merge.
+Prospector is the linter the builder's quality gate runs, under the plugins
+repository's own profile. A finding against hand-written code blocks the export,
+so all of them must be resolved. Findings in generated files are ignored -- do not
+edit a generated file to silence one.
 
 ## Tools Enabled
 - **pylint** — static analysis
@@ -164,8 +164,8 @@ prospector icon_plugin_name/
 prospector icon_plugin_name/ --without-tool pyflakes --ignore-paths unit_test
 ```
 
-## Pre-commit Checklist
-Before pushing, verify:
+## Checklist before declaring the work done
+Verify:
 - [ ] No mccabe complexity > 10 (break up large methods)
 - [ ] No bandit findings (no hardcoded secrets, no `# nosec` without justification)
 - [ ] No unused imports

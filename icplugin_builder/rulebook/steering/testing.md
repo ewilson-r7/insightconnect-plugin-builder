@@ -1,7 +1,3 @@
----
-inclusion: fileMatch
-fileMatchPattern: "**/unit_test/**"
----
 # Unit Testing Patterns
 
 ## Requirements
@@ -122,11 +118,14 @@ from jsonschema import validate
 validate(self.action.run(params), GetItemOutput.schema)
 ```
 
-## Running Tests
+## How the builder runs these tests
 ```bash
-# Run from inside unit_test/ directory (repo convention)
-cd unit_test && python -m pytest . --cov=icon_<name> --cov-report=term-missing
+# from the plugin root, which is the working directory
+python -m pytest unit_test -q
 ```
 
-## Important: No conftest.py
-This repo does NOT use `conftest.py` for path manipulation. Each test file includes `sys.path.append(os.path.abspath("../"))` at the top and tests are invoked from the `unit_test/` directory. Do not add a `conftest.py`.
+Run them the same way yourself. `python -m` puts the plugin root on `sys.path`, so
+`from icon_<name>.actions... import ...` resolves with no path manipulation --
+neither a `conftest.py` nor a `sys.path.append` line is needed. Older plugins carry
+`sys.path.append(os.path.abspath("../"))` at the top of each test file; it is inert
+when invoked this way, so do not add it to new tests.

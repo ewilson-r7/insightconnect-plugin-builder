@@ -1,12 +1,12 @@
----
-inclusion: fileMatch
-fileMatchPattern: "plugins/**"
----
 # Project Structure
 
-## Repository Layout
+## Plugin Layout
+
+The plugin's own directory is the working directory -- there is no enclosing
+monorepo, so paths below are relative to it.
+
 ```
-plugins/<plugin_name>/
+<plugin_root>/
 ├── plugin.spec.yaml        # SOURCE OF TRUTH
 ├── Dockerfile              # [GENERATED]
 ├── Makefile                # [GENERATED]
@@ -32,11 +32,10 @@ plugins/<plugin_name>/
 - Plugin directories: **snake_case**
 - Package prefix: `icon_` (current) or `komand_` (legacy)
 - Each action/trigger/task in its own subdirectory with `schema.py` (generated)
-- One plugin per PR; PRs target `master`
 - Unit tests mock HTTP calls; no live API calls
 
 ## Workflow: New Plugin
-1. Write `plugin.spec.yaml` → 2. `insight-plugin create` (from parent dir) → 3. Implement hand-written files → 4. Write tests → 5. `insight-plugin validate`
+1. Write `plugin.spec.yaml` → 2. the builder scaffolds the tree → 3. Implement hand-written files → 4. Write tests → 5. `insight-plugin validate`
 
 ## Workflow: Add New Action/Trigger/Task
 1. Edit `plugin.spec.yaml` — add the action definition, bump version (semver), bump SDK version to latest, add `version_history` entry

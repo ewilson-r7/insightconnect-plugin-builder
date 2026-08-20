@@ -1,6 +1,3 @@
----
-inclusion: auto
----
 # Common Mistakes & Checklist
 
 ## Mistakes to Avoid
@@ -43,7 +40,7 @@ inclusion: auto
 37. **Using `conftest.py` for sys.path manipulation** — this repo's convention is `sys.path.append(os.path.abspath("../"))` at the top of each test file with tests run from the `unit_test/` directory. Don't add a `conftest.py`.
 38. **Using `object` or `[]object` as output types** — define proper shared types in `plugin.spec.yaml` for structured API responses. Reuse types across actions that return the same entities (e.g., a `firewallRule` type shared by list/get/create/update actions).
 
-## Updating Existing Plugins Checklist
+## Updating an Existing Plugin -- Checklist
 - [ ] Read current `plugin.spec.yaml` first
 - [ ] Determine correct semver bump
 - [ ] Edit `plugin.spec.yaml` for schema changes
@@ -51,8 +48,6 @@ inclusion: auto
 - [ ] Update hand-written implementation files only
 - [ ] Update/add unit tests (≥80% coverage)
 - [ ] Update `version_history` in `plugin.spec.yaml`
-- [ ] Run `prospector` on modified files (fix all issues before pushing)
+- [ ] Run `prospector` on the package and fix every finding
 - [ ] Run `insight-plugin validate`
 - [ ] Verify no `[0]` access without empty-list guards
-- [ ] Update `docs/<plugin_name>.html` with new/changed actions, inputs, outputs, and version number
-- [ ] Update README plugin table with new version and latest change description

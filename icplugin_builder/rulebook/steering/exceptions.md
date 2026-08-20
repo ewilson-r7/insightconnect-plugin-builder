@@ -1,11 +1,7 @@
----
-inclusion: fileMatch
-fileMatchPattern: "plugins/**/*.py"
----
 # PluginException & Error Handling
 
 ## Available Presets (verify against the installed SDK)
-<!-- The latest SDK version is the top entry of komand-plugin-sdk-python/README.md `## Changelog`. Do not hardcode. -->
+<!-- The builder resolves the SDK version and stamps it into plugin.spec.yaml. Check presets against the SDK that is installed, not against a version in a document. -->
 `NOT_FOUND`, `UNAUTHORIZED`, `INVALID_CREDENTIALS`, `RATE_LIMIT`, `SERVER_ERROR`,
 `SERVICE_UNAVAILABLE`, `TIMEOUT`, `INVALID_JSON`, `BAD_REQUEST`, `CONNECTION_ERROR`,
 `API_KEY`, `USERNAME_PASSWORD`, `CONFLICT`, `METHOD_NOT_ALLOWED`, `REDIRECT_ERROR`, `UNKNOWN`

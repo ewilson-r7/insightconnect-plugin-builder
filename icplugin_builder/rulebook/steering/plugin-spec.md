@@ -1,7 +1,3 @@
----
-inclusion: fileMatch
-fileMatchPattern: "**/plugin.spec.yaml"
----
 # plugin.spec.yaml — Reference
 
 `plugin.spec.yaml` is the **source of truth**. All auto-generated files derive from it.

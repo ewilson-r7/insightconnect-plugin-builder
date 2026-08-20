@@ -10,8 +10,14 @@ Step-by-step workflow for building a brand new InsightConnect plugin from scratc
 
 ## Steps
 
-### 0. Build Prep (required first)
-Confirm the target is **dev** or **prod** (never infer from the working directory) and run the `plugin-build-prep` skill: verify tooling is installed/current and read the latest SDK version from the top of `komand-plugin-sdk-python/README.md` changelog. Use that version for `sdk.version` below. See `repos.md` for repo paths.
+### 0. Read what you were given
+The plugin's directory is your working directory. Read `plugin.spec.yaml` if one is
+already there -- it may be complete, partial, or invalid -- and read any vendor
+documentation supplied under `.builder/reference/`. Endpoint paths, methods, payload
+shapes, auth and pagination come from that documentation, never from memory.
+
+The builder resolves `sdk.version` and stamps it into the spec, so you do not need to
+look it up.
 
 ### 1. Research the Vendor API
 - Identify the authentication model (API key, OAuth2 client_credentials, OAuth2 auth code, basic auth)
@@ -27,7 +33,7 @@ Confirm the target is **dev** or **prod** (never infer from the working director
 - Identify shared constants (base URL, timeout, error map)
 
 ### 3. Write plugin.spec.yaml
-Create `plugins/<plugin_name>/plugin.spec.yaml` with:
+Write `plugin.spec.yaml` at the plugin root with:
 
 ```yaml
 plugin_spec_version: v2
@@ -45,7 +51,7 @@ status: []
 cloud_ready: true
 sdk:
   type: slim
-  version: <latest>   # from top of komand-plugin-sdk-python/README.md changelog (see plugin-build-prep)
+  version: <latest>   # the builder resolves and stamps this
   user: nobody
 key_features:
 - Feature one
@@ -76,12 +82,13 @@ Add connection, types, and actions sections. Key rules:
 - Add `enum` for fixed value sets
 - Add `order` to control input display sequence
 
-### 4. Scaffold the Plugin
+### 4. Regenerate Derived Files
+The builder scaffolds the tree from your spec. After any further spec edit, bring the
+derived files back into line:
 ```bash
-cd plugins/
-PYENV_VERSION=3.13.x insight-plugin create
+insight-plugin refresh
 ```
-This generates the full directory structure from your spec. (`3.13.x` = the installed pyenv 3.13 version resolved in `plugin-build-prep` via `pyenv versions`.)
+Never hand-edit what it generates.
 
 ### 5. Create requirements.txt
 ```
@@ -251,18 +258,14 @@ class TestGetDevice(TestCase):
 - `icon.png` — plugin icon (vendor logo, square, transparent background)
 - `extension.png` — extension icon (same or variant)
 
-### 12. Validate
+### 12. Verify Your Own Work
 ```bash
-PYENV_VERSION=3.13.x prospector icon_<plugin_name>/ --without-tool pyflakes
-PYENV_VERSION=3.13.x insight-plugin validate
-find . -name "*.py" -perm 600 -exec chmod 644 {} \;
+prospector icon_<plugin_name>/ --without-tool pyflakes
+python -m pytest unit_test -q
+insight-plugin validate
 ```
-
-### 13. Integration Test
-```bash
-# Create a test JSON in tests/ directory
-PYENV_VERSION=3.13.x insight-plugin run tests/<action_name>.json
-```
+Read the failures and fix them. Do not stop at the first plausible draft, and never
+report success with a known failure open.
 
 ## Version Rules for New Plugins
 - Keep at `1.0.0` throughout development
@@ -275,9 +278,7 @@ PYENV_VERSION=3.13.x insight-plugin run tests/<action_name>.json
 - [ ] API client with proper error handling and domain methods
 - [ ] Constants file with TIMEOUT and HTTP_ERROR_MAP
 - [ ] Unit tests for every action (≥80% coverage)
-- [ ] Prospector clean (0 issues)
+- [ ] Prospector clean (0 issues) against hand-written code
 - [ ] `insight-plugin validate` passes
-- [ ] File permissions correct (644 on all .py files)
 - [ ] No hardcoded credentials in test files
-- [ ] Icon files present
 - [ ] requirements.txt exists (even if empty)

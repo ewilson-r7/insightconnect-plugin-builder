@@ -1,7 +1,3 @@
----
-inclusion: fileMatch
-fileMatchPattern: "plugins/**/*.py"
----
 # Implementation Patterns
 
 ## Connection Rules
@@ -148,8 +144,3 @@ Add the `search` input as optional in the spec. Document that it's a client-side
 - `TIMEOUT = 60`
 - `HTTP_ERROR_MAP` dict mapping status codes to `{cause, assistance}` pairs
 - Cover at minimum: 400, 401, 403, 404, 429, 500, 503
-
-## Microsoft Graph API Notes
-- Some properties (e.g., `signInActivity`) require the user to be referenced by GUID, not UPN. When these properties are requested via `$select`, resolve the UPN to a GUID first with a `?$select=id` call.
-- When using `$select`, the API only returns the explicitly listed properties — it drops the defaults (displayName, mail, id, etc.). Always merge user-requested properties with the default set to avoid losing standard fields.
-- The `manager` navigation property cannot go in `$select` — it must use `$expand=manager`. Filter it out of any user-supplied select list.

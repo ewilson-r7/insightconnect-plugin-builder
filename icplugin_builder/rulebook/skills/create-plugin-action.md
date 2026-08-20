@@ -3,14 +3,11 @@
 Step-by-step workflow for adding a new action to an existing InsightConnect plugin.
 
 ## Prerequisites
-- Identify the plugin directory under `plugins/`
-- Have the vendor API documentation ready
-- Know the endpoint, HTTP method, required/optional parameters, and response schema
+- The plugin's directory is your working directory
+- Vendor API documentation for the endpoint, supplied under `.builder/reference/`
+- The endpoint, HTTP method, required/optional parameters, and response schema
 
 ## Steps
-
-### 0. Build Prep (required first)
-Confirm the target is **dev** or **prod** (never infer from the working directory) and run the `plugin-build-prep` skill: verify tooling and read the latest SDK version from `komand-plugin-sdk-python/README.md`. Bump `sdk.version` to that latest version as part of the spec edit. See `repos.md` for repo paths.
 
 ### 1. Read Current State
 - Read `plugin.spec.yaml` to understand existing actions, types, and connection
@@ -26,9 +23,8 @@ Confirm the target is **dev** or **prod** (never infer from the working director
 
 ### 3. Generate Scaffolding
 ```bash
-PYENV_VERSION=3.13.x insight-plugin refresh
+insight-plugin refresh
 ```
-(`3.13.x` = the installed pyenv 3.13 version resolved in `plugin-build-prep`.)
 
 ### 4. Implement the Action
 - Create `action.py` in the generated folder
@@ -52,17 +48,17 @@ PYENV_VERSION=3.13.x insight-plugin refresh
 
 ### 7. Validate
 ```bash
-PYENV_VERSION=3.13.x prospector icon_<plugin_name>/ --without-tool pyflakes
-PYENV_VERSION=3.13.x insight-plugin validate
+prospector icon_<plugin_name>/ --without-tool pyflakes
+python -m pytest unit_test -q
+insight-plugin validate
 ```
 
 ### 8. Fix Any Issues
 - mccabe > 10: break into helper methods
 - bandit: no hardcoded secrets
 - pylint: no unused imports, no imports inside functions
-- Ensure all `.py` files have 644 permissions
 
-## Quality Checks Before Committing
+## Quality Checks Before Declaring Done
 - [ ] All tests pass
 - [ ] Prospector clean
 - [ ] Plugin validates

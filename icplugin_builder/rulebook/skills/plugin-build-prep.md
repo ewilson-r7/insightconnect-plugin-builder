@@ -1,65 +1,59 @@
-# Plugin Build Prep (Pre-Build Readiness)
+# Build Prep — Before and After
 
-Run this **before** any build/update/enhance work. It ensures tooling is installed and current and that you build against the latest SDK.
+The environment is already prepared for you: the toolchain is installed, the SDK
+version is resolved and stamped into `plugin.spec.yaml`, and the plugin's directory
+is your working directory. What is left for you is to confirm what you are working
+with before you start, and to verify your own output before you report done.
 
-## When to Use
-- Before `insight-plugin create` (new plugin)
-- Before `insight-plugin refresh` (new action/trigger/task or spec change)
-- Any time you're about to write plugin code
+## Before you start
 
-Skip for review/question (read-only) work.
+1. **Read `plugin.spec.yaml`.** It may be complete, partial, or invalid. It is the
+   source of truth for what to build, and correcting it is part of the job — not a
+   reason to stop.
+2. **Read the vendor documentation** under `.builder/reference/`. That is where the
+   endpoints, payload shapes, auth model, pagination and error formats come from. You
+   have no web access, and an inferred endpoint is a wrong endpoint.
+3. **Look at what already exists.** A partly-built plugin is common. Read
+   `util/api.py`, `connection/connection.py` and the existing actions before adding
+   to them, so you extend the established pattern rather than introducing a second one.
 
-## Steps
+Do not check tool versions or look up the SDK release. Both are settled before you
+are invoked, and `sdk.version` in the spec is already correct.
 
-### 1. Confirm target repo
-Confirm the build intent and the explicit **prod or dev** choice (never infer from the working directory):
-- **prod** → `~/Documents/GitHub/insightconnect-plugins/plugins/<name>`
-- **dev** → `~/Documents/GitHub/plugins/plugins/<name>`
+## After you write code — verify it
 
-See `repos.md` for the full routing table.
+Run all three from the plugin root. They are the same checks the export gate applies,
+so a plugin that passes here is a plugin that can ship.
 
-### 2. Verify tooling is installed and current
 ```bash
-insight-plugin --version     # install/upgrade via pipx or pip if missing
-prospector --version
-black --version
-docker --version             # required for insight-plugin validate (DockerValidator)
-pyenv versions               # confirm the SDK's target Python is installed
-```
-If `insight-plugin` is missing or outdated:
-```bash
-pipx upgrade insight-plugin || pipx install insight-plugin
-# or: pip install --upgrade insight-plugin
-```
-Offer to install/upgrade anything missing before proceeding.
-
-### 3. Resolve the latest SDK version from the SDK README
-The latest `insightconnect-plugin-runtime` version is the **top entry** under `## Changelog` in:
-```
-~/Documents/GitHub/komand-plugin-sdk-python/README.md
-```
-Read that file, take the highest/newest version at the top of the changelog list, and use it for `sdk.version` in `plugin.spec.yaml`. The same README states the target Python version (currently 3.13.x).
-
-**Do not hardcode SDK or Python versions** — always read them fresh from this README at build time, since it is updated with each SDK release.
-
-### 4. Set the Python version for tooling
-Resolve the installed 3.13.x pyenv version with `pyenv versions` (do not hardcode) and use it for all commands. Below, `3.13.x` stands in for that resolved version:
-```bash
-PYENV_VERSION=3.13.x insight-plugin refresh
-PYENV_VERSION=3.13.x insight-plugin validate
-PYENV_VERSION=3.13.x prospector icon_<plugin_name>/
-```
-If the SDK README targets a newer 3.13.x than what's installed, offer:
-```bash
-pyenv install 3.13.<x>
+prospector icon_<plugin_name>/          # hand-written code must be clean
+python -m pytest unit_test -q           # the tests must pass, not merely exist
+insight-plugin validate                 # the spec and tree must validate
 ```
 
-### 5. Proceed
-Only after tooling is confirmed and the latest SDK version is known, continue to `create-new-plugin` or `create-plugin-action`.
+`python -m` puts the plugin root on `sys.path`, which is how
+`from icon_<name>... import ...` resolves inside a test. No `conftest.py` and no
+`sys.path` manipulation is needed.
 
-## Checklist
-- [ ] Prod vs dev confirmed explicitly (not inferred from cwd)
-- [ ] `insight-plugin`, `prospector`, `black`, `docker` present and current
-- [ ] Target Python (3.13.x) installed via pyenv
-- [ ] Latest SDK version read from `komand-plugin-sdk-python/README.md` changelog
-- [ ] `sdk.version` in the spec set to that latest version
+## What "done" means
+
+All of the following, together:
+
+- `insight-plugin validate` passes.
+- `prospector` reports nothing against hand-written code. Findings in generated files
+  are ignored by the gate — do not edit a generated file to silence one.
+- Every hand-written Python file parses and is `black`-formatted at 120 columns.
+- `util/api.py` exists with a central `_make_request`, an `HTTP_ERROR_MAP`, and one
+  domain method per action. Actions call those methods; they never import an HTTP
+  library or build URLs.
+- `connection.py` has a real `connect()` (state only) and a real `test()`. A `pass`
+  or a `# TODO` in `test()` means not done.
+- Unit tests exist per action against a mocked client **and pass**. A
+  `self.fail("Unimplemented Test Case")` stub means not done.
+- Statement coverage of the plugin package is at least 80%.
+- `plugin.spec.yaml` is complete: every field `insight-plugin validate` needs, plus
+  `version_history` and an `example` on every output.
+- `requirements.txt` exists with exact pins, even if it has no dependencies.
+
+If you cannot reach that bar, say so and name exactly what is failing. A report of
+success with a known failure open is worse than no report.
