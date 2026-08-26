@@ -9,8 +9,8 @@ that makes them true, never ahead of it.
 
 ## Tasks
 
-- [ ] 1. Prove the defect, and pin what must not change
-  - [ ] 1.1 Test: the produced artifact is an image archive, not a source tree
+- [x] 1. Prove the defect, and pin what must not change
+  - [x] 1.1 Test: the produced artifact is an image archive, not a source tree
     - Assert `oci-layout` and `index.json` are present at the root and that
       `manifest.json` carries `RepoTags == ["<vendor>/<name>:<version>"]`
     - **Expected to FAIL now**: the current artifact's root members are `Dockerfile`,
@@ -19,22 +19,26 @@ that makes them true, never ahead of it.
       imported, rather than against an idea of the format
     - _Requirements: 9.1, 9.2_
 
-  - [ ] 1.2 Test: the artifact is named `<vendor>_<name>_<version>.plg`
+  - [x] 1.2 Test: the artifact is named `<vendor>_<name>_<version>.plg`
     - Currently `<name>-<version>.plg`. Expected to FAIL
     - _Requirements: 9.3_
 
-  - [ ] 1.3 Preservation: capture what the export path does today
+  - [x] 1.3 Preservation: capture what the export path does today
     - Registry recording, audit entries, the tenant upload call shape, the failure
       indications, and the `permitted`/blocked gate decision must all survive
     - Compare **verdicts**, never message text, following the preservation approach in
       `.kiro/specs/export-gate-and-preview-fidelity/`
     - _Requirements: 9.3, 9.4, 9.5, 10.1-10.4_
 
-  - [ ] 1.4 Measure what a tenant actually requires
+  - [x] 1.4 Measure what a tenant actually requires
     - The import contract is inferred from one successful import. Before designing to
       it, record what is known and what is assumed: image archive **yes**, `RepoTags`
       identity **very likely**, filename **unverified**
     - A nil outcome is legitimate — the point is to stop assuming
+    - Recorded as a confidence table in `bugfix.md` 1.8: two rows observed, one very
+      likely, one unverified, one inferred. The weak rows are handled by matching the
+      toolchain rather than guessing, and must not be mistaken for discovered
+      requirements later
     - _Requirements: 9.2_
 
 - [x] 2. Decide route A or route B for producing the image (`bugfix.md` 2.2)

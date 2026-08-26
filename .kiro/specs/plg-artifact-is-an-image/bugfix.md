@@ -120,7 +120,30 @@ failure it does not cause.
 against the SDK's 81,305,076, the same four top-level members and the same
 `RepoTags`. Both routes reach the same artifact; they differ only in robustness.
 
-### 1.8 A correction to an earlier check of mine
+### 1.8 What a tenant actually requires, and how confident that is
+
+The import contract is inferred from **one** successful import, so it is worth being
+explicit about which parts are observed and which are assumed. Designing to an
+assumption while believing it observed is how the original defect happened.
+
+| Claim | Confidence | Basis |
+|---|---|---|
+| The artifact is a gzipped image archive, not a source tree | **observed** | the source tarball was rejected; the image archive imported |
+| It carries `oci-layout`, `index.json`, `manifest.json`, `blobs/` | **observed** | read out of the archive that imported |
+| `RepoTags` is `<vendor>/<name>:<version>` with the `_custom` vendor | **very likely** | present in the archive that imported, and it is the only place the plugin's identity appears; not proven to be *read* on import |
+| The filename is `<vendor>_<name>_<version>.plg` | **unverified** | what the toolchain writes; no evidence a tenant parses it |
+| `plugin.spec.yaml` is read from inside the image layers | **inferred** | it appears nowhere else in the archive, so it can come from nowhere else |
+
+The two weakest rows are handled by matching the toolchain rather than by guessing:
+there is no cost to naming the file as `insight-plugin export` does, and no cost to
+tagging as it tags. Where this matters is that neither should be treated as a
+*discovered requirement* later on.
+
+`docker load` accepting the artifact is the strongest check available without a tenant,
+and it is what task 7 asserts. It proves the archive is a well-formed image with the
+identity we intended; it does not prove InsightConnect is satisfied.
+
+### 1.9 A correction to an earlier check of mine
 
 On 2026-08-17 I ran a leak check over `jumpcloud-1.0.0.plg` and recorded it as
 **PASS**: 39 entries, no `.builder/`, no vendor swagger, no provenance. That check was
