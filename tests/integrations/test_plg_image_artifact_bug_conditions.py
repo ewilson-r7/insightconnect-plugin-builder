@@ -117,6 +117,7 @@ def _repo_tags(archive: Path) -> list:
     return list(entries[0].get("RepoTags", [])) if entries else []
 
 
+@pytest.mark.builds_a_real_image
 @requires_docker
 class TestTheArtifactIsNotAnImageArchive:
     """`bugfix.md` 1.1. **Expected to FAIL now.**
@@ -169,6 +170,7 @@ class TestTheArtifactIsNotAnImageArchive:
         )
 
 
+@pytest.mark.builds_a_real_image
 @requires_docker
 class TestTheArtifactIsMisnamed:
     """`bugfix.md` 1.2. **Expected to FAIL now.**

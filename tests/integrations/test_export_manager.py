@@ -17,7 +17,12 @@ from typing import List, Optional
 
 import pytest
 
-from icplugin_builder.integrations.build_engine import PLG_SUFFIX, PlgArtifact
+# Packaging drives `docker build` and `docker save` now, and none of these tests are
+# about Docker. The stub answers both from a real executable, so the production argv
+# and file handling are still exercised -- only the daemon is absent.
+from tests.docker_stub import stub_docker  # noqa: E402
+
+from icplugin_builder.integrations.build_engine import PLG_SUFFIX, BuildEngine, PlgArtifact
 from icplugin_builder.integrations.export_manager import (
     ArtifactNotBuiltError,
     ExportManager,
@@ -31,7 +36,7 @@ from icplugin_builder.integrations.export_manager import (
 def make_project(root: Path) -> dict:
     """Create a small plugin working tree under ``root`` and return its files."""
     files = {
-        "plugin.spec.yaml": "plugin_spec_version: v2\nname: my_plugin\nversion: 1.0.0\n",
+        "plugin.spec.yaml": "plugin_spec_version: v2\nname: my_plugin\nversion: 1.0.0\nvendor: rapid7\n",
         "icon_my_plugin/actions/run/action.py": "def run():\n    return 1\n",
         "help.md": "# My Plugin\n",
         "Dockerfile": "FROM python:3.11\n",
@@ -69,7 +74,9 @@ def _package(source: Path, out: Path) -> PlgArtifact:
     from icplugin_builder.integrations.build_engine import BuildEngine
 
     make_project(source)
-    return BuildEngine().package(source, validation_passed=True, output_dir=out)
+    return BuildEngine(docker_executable=stub_docker(out.parent)).package(
+        source, validation_passed=True, output_dir=out
+    )
 
 
 class TestExportLocal:
@@ -78,7 +85,8 @@ class TestExportLocal:
         make_project(source)
         out = tmp_path / "downloads"
 
-        path = ExportManager().export_local(source, output_dir=out)
+        manager = ExportManager(build_engine=BuildEngine(docker_executable=stub_docker(tmp_path)))
+        path = manager.export_local(source, output_dir=out)
 
         assert path.suffix == PLG_SUFFIX
         assert path.parent == out.resolve()
@@ -96,7 +104,8 @@ class TestExportLocal:
         workdir.mkdir()
         monkeypatch.chdir(workdir)
 
-        path = ExportManager().export_local(source)
+        manager = ExportManager(build_engine=BuildEngine(docker_executable=stub_docker(tmp_path)))
+        path = manager.export_local(source)
 
         assert path.parent == workdir.resolve()
         assert path.is_file()

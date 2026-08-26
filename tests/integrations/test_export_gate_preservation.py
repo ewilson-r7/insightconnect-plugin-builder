@@ -74,11 +74,12 @@ import contextlib
 import os
 import shutil
 import sys
-import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import pytest
+
+from tests.image_archive import assert_is_image_archive
 
 from icplugin_builder.core.spec_completeness import CompletenessReport, check_completeness
 from icplugin_builder.core.spec_model import Component, FieldSchema, PluginSpec, SemVer
@@ -1086,8 +1087,14 @@ def packaged_recorded_tree(tmp_path_factory) -> PackagedObservation:
     shutil.copytree(source, root, symlinks=True)
     listed = tuple(list_plugin_files(root))
     artifact = BuildEngine().package(root, validation_passed=True, output_dir=work / "artifacts")
-    with tarfile.open(artifact.path, "r:gz") as archive:
-        members = tuple(sorted(member.name for member in archive.getmembers() if member.isfile()))
+    # The `.plg` is now a gzipped `docker save`, so its own members are `oci-layout`,
+    # `index.json` and layer blobs -- reading them would measure the archive's envelope
+    # rather than the plugin. The image is built from a staged copy of exactly the
+    # reported file set (`plg-artifact-is-an-image/bugfix.md` 2.4), so that list is what
+    # ships, and `test_plg_image_contents.py` proves the correspondence against a real
+    # image. Asserted here too so this cannot pass over a source tarball.
+    assert_is_image_archive(artifact.path, expected_tag=artifact.image_tag)
+    members = tuple(sorted(artifact.files))
     return PackagedObservation(root, listed, members)
 
 

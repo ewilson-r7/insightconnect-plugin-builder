@@ -234,7 +234,7 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 **User Story:** As a plugin author, I want to build my plugin into a `.plg` file, so that I can import it into an InsightConnect tenant offline.
 #### Acceptance Criteria
 1. WHEN the user requests a local build and validation has passed, THE Build_Engine SHALL package the plugin into a single PLG_Artifact.
-2. THE Build_Engine SHALL produce a PLG_Artifact that is a gzipped tarball containing the built plugin.
+2. THE Build_Engine SHALL produce a PLG_Artifact that is a gzipped `docker save` of the plugin's container image, tagged `<vendor>/<name>:<version>` with the Custom_Vendor_Suffix applied, and named `<vendor>_<name>_<version>.plg`; THE Build_Engine SHALL build that image from a staged copy of exactly the files it reports as packaged.
 3. WHEN a PLG_Artifact is produced, THE Export_Manager SHALL place the PLG_Artifact in a user-accessible output location and display the location of the PLG_Artifact to the user.
 4. IF the user requests a local build and validation has not passed, THEN THE Build_Engine SHALL not produce a PLG_Artifact and SHALL present an error indicating that validation failed.
 5. IF packaging fails after validation has passed, THEN THE Build_Engine SHALL not produce a partial PLG_Artifact, SHALL leave the source plugin files unchanged, and SHALL present an error indicating that packaging failed.
@@ -293,7 +293,7 @@ The tool stores each plugin's work in a per-plugin project folder on the local f
 **User Story:** As a plugin author, I want to review a preview and a diff of changes before export, so that I can confirm the plugin is correct before it leaves the tool.
 #### Acceptance Criteria
 1. WHEN the user requests an export, THE Plugin_Builder SHALL display a preview of the Plugin_Spec that would be packaged before performing the export; WHERE a Project_Folder exists, that spec is the one stored in the Project_Folder rather than the in-session draft, and the completeness findings reported alongside the preview SHALL be those of that spec.
-2. WHEN the user requests an export, THE Plugin_Builder SHALL display the list of files that will be included in the PLG_Artifact before performing the export.
+2. WHEN the user requests an export, THE Plugin_Builder SHALL display, before performing the export, the plugin files the PLG_Artifact's image will be built from, and the image tag the artifact will declare. Those files are the build context; the plugin's own `.dockerignore` may exclude some of them from the image itself -- the unit tests, for instance -- so the list is what is packaged rather than a manifest of the artifact's members.
 3. WHERE a prior version of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL display a diff between the prior version and the current draft that identifies added, removed, and modified files.
 4. WHERE no prior version of the plugin exists in the Plugin_Registry, THE Plugin_Builder SHALL indicate that the current draft is the first version and SHALL present all files as additions.
 5. THE Plugin_Builder SHALL require explicit user confirmation of the preview before performing an export.

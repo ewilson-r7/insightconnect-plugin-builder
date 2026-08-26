@@ -58,7 +58,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -67,6 +66,8 @@ from typing import Any, Dict, NamedTuple, Optional, Tuple
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+from tests.image_archive import assert_is_image_archive
 
 # Task 1.10 reads the operator-facing export payload, which is built here. The
 # claim under test (`bugfix.md` 1.11) is about what reaches the operator, and this
@@ -3840,29 +3841,32 @@ def _copy_of_the_tree(label: str) -> Path:
     return root
 
 
-def _archive_members(artifact: Path) -> Tuple[str, ...]:
-    """The member names inside a produced ``.plg``, read out of the archive itself.
-
-    Mirrors task 1.7's technique against ``tests/orchestrator`` rather than
-    importing it: the ``.plg`` is a gzipped tarball (Req 9.1), so the members are
-    read with :mod:`tarfile`. Reading them from the archive rather than from
-    :attr:`PlgArtifact.files` is the point -- the returned tuple is
-    ``list_plugin_files``'s own output, so trusting it would leave the archive
-    itself unmeasured.
-    """
-    with tarfile.open(artifact, "r:gz") as archive:
-        return tuple(sorted(member.name for member in archive.getmembers() if member.isfile()))
-
-
 def _package_copy(root: Path) -> Tuple[str, ...]:
-    """Package ``root`` into a ``.plg`` outside the tree; return its real members.
+    """Package ``root`` and return the plugin files the image was built from.
+
+    This read the member names out of the archive, and said so pointedly: trusting
+    :attr:`PlgArtifact.files` would leave the archive itself unmeasured, because that
+    tuple is ``list_plugin_files``'s own output. Correct while the ``.plg`` was a tarball
+    of the tree.
+
+    The ``.plg`` is now a gzipped ``docker save``, whose members are ``oci-layout``,
+    ``index.json`` and layer blobs. The plugin's files are inside the layers, and reading
+    those needs a real image -- which these measurements deliberately do not build.
+
+    So the reported list is what is measured here, and what makes that honest rather than
+    circular is elsewhere: the image is built from a staged copy of exactly this list
+    (`bugfix.md` 2.4), and `test_plg_image_contents.py` proves against a real image that
+    the list and the image agree. Trusting the list here rests on that proof, not on
+    nothing.
 
     The artifact is written outside the working tree rather than to the default
-    ``.builder/artifacts/``, so that "the archive does not contain itself" is a
-    property of the output directory and not of the exclusion under test.
+    ``.builder/artifacts/``, so that "the archive does not contain itself" is a property
+    of the output directory and not of the exclusion under test.
     """
     artifact = BuildEngine().package(root, validation_passed=True, output_dir=root.parent / "artifacts")
-    return _archive_members(artifact.path)
+    # Still an image archive: this cannot quietly start passing over a source tarball.
+    assert_is_image_archive(artifact.path, expected_tag=artifact.image_tag)
+    return tuple(sorted(artifact.files))
 
 
 class ByproductRun(NamedTuple):

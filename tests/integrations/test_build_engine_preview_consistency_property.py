@@ -31,13 +31,17 @@ synthesized directly on disk.
 **Validates: Requirements 16.1, 16.2**
 """
 
-import tarfile
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+# Packaging drives `docker build` and `docker save` now, and none of these tests are
+# about Docker. The stub answers both from a real executable, so the production argv
+# and file handling are still exercised -- only the daemon is absent.
+from tests.image_archive import assert_is_image_archive  # noqa: E402
 
 from icplugin_builder.integrations.build_engine import (
     BuildEngine,
@@ -146,6 +150,14 @@ def _materialize(tree: Dict[str, bytes], root: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
 
+    # A plugin tree always carries a spec, and packaging now reads the published
+    # identity out of it -- vendor, name and version become the image tag. A generated
+    # tree without one is not a plugin tree, so every draw gets it.
+    (root / "plugin.spec.yaml").write_text(
+        "plugin_spec_version: v2\n" f"name: {root.name}\n" "version: 1.0.0\n" "vendor: rapid7\n",
+        encoding="utf-8",
+    )
+
 
 @settings(max_examples=100, deadline=None)
 @given(trees=plugin_trees_with_noise())
@@ -176,17 +188,27 @@ def test_preview_file_list_matches_packaged_contents(trees):
         # source tree so it cannot perturb the tree being enumerated.
         artifact = BuildEngine().package(source, validation_passed=True, output_dir=base / "out")
 
-        # The actual members inside the produced ``.plg``.
-        with tarfile.open(artifact.path, mode="r:gz") as archive:
-            packaged_files = set(archive.getnames())
+        # The core property was `preview_files == packaged_files`: the previewed list
+        # equalled the archive's members. That held while the artifact was a tarball of
+        # the tree. The artifact is now an image archive, whose members are `oci-layout`,
+        # `index.json` and layer blobs, so the two sets are no longer comparable.
+        #
+        # What the property was protecting is that the preview and the packager agree,
+        # computed from one source rather than two -- and that survives exactly, because
+        # `PlgArtifact.files` is still what the packager built from.
+        assert preview_files == set(
+            artifact.files
+        ), "the preview and the artifact disagree about which plugin files went in"
 
-        # Core property: the preview equals the actual packaged contents.
-        assert preview_files == packaged_files
-
-        # That shared set is exactly the non-excluded files that were written...
-        assert preview_files == set(included)
+        # The materializer writes a `plugin.spec.yaml` into every generated tree,
+        # because packaging reads the published identity out of it. It is a packaged
+        # plugin file like any other, so the expected sets include it.
+        assert preview_files == set(included) | {"plugin.spec.yaml"}
         # ...and the seeded excluded-directory noise leaks into neither view.
         for noise_path in excluded:
             assert noise_path not in preview_files
-            assert noise_path not in packaged_files
-        assert not any(part in _EXCLUDED_SET for member in packaged_files for part in member.split("/"))
+            assert noise_path not in set(artifact.files)
+        assert not any(part in _EXCLUDED_SET for member in artifact.files for part in member.split("/"))
+
+        # And the artifact really is an image, so this cannot pass over a source tarball.
+        assert_is_image_archive(artifact.path, expected_tag=artifact.image_tag)

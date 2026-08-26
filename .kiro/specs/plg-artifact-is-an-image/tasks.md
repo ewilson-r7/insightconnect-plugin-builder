@@ -52,7 +52,7 @@ that makes them true, never ahead of it.
     thing that can be wrong where the toolchain would have got it right for free
   - _Requirements: 9.1, 9.2_
 
-- [ ] 3. Tag the plugin image with its published identity
+- [x] 3. Tag the plugin image with its published identity
   - The build stage tags `icplugin-validate/<name>:latest` for its own use. Add the
     published tag `<vendor>/<name>:<version>` with the `_custom`-suffixed vendor
   - Keep the validate tag: the validate stage depends on it, and the two tags have
@@ -61,7 +61,7 @@ that makes them true, never ahead of it.
     is not doubled, and the version comes from the spec on disk
   - _Requirements: 9.2, 11.1, 11.2_
 
-- [ ] 4. Produce the artifact as a gzipped image archive
+- [x] 4. Produce the artifact as a gzipped image archive
   - `BuildEngine.package` writes a gzipped `docker save` of the published tag, named
     `<vendor>_<name>_<version>.plg`
   - Preserve the atomic-write behaviour that already exists: a failure leaves no
@@ -89,7 +89,7 @@ that makes them true, never ahead of it.
   - Fail closed: no artifact, no registry entry, no partial file
   - _Requirements: 9.4, 9.5, 19.1, 19.5_
 
-- [ ] 7. Integration test over the real export
+- [x] 7. Integration test over the real export
   - Against `~/.icplugin-builder/projects/jumpcloud/`, with Docker up: produce a
     `.plg`, assert it is an image archive with the right `RepoTags`, and assert
     `docker load` accepts it

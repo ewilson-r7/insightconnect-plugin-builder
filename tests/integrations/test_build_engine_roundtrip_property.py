@@ -27,13 +27,17 @@ synthesized directly on disk.
 """
 
 import gzip
-import tarfile
 import tempfile
 from pathlib import Path
 from typing import Dict, List
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+# Packaging drives `docker build` and `docker save` now, and none of these tests are
+# about Docker. The stub answers both from a real executable, so the production argv
+# and file handling are still exercised -- only the daemon is absent.
+from tests.image_archive import assert_is_image_archive  # noqa: E402
 
 from icplugin_builder.integrations.build_engine import (
     PLG_SUFFIX,
@@ -115,6 +119,13 @@ def _materialize(tree: Dict[str, bytes], root: Path) -> None:
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
+    # A plugin tree always carries a spec, and packaging now reads the published
+    # identity out of it -- vendor, name and version become the image tag. A
+    # generated tree without one is not a plugin tree, so every draw gets it.
+    (root / "plugin.spec.yaml").write_text(
+        "plugin_spec_version: v2\n" f"name: {root.name}\n" "version: 1.0.0\n" "vendor: rapid7\n",
+        encoding="utf-8",
+    )
 
 
 @settings(max_examples=100, deadline=None)
@@ -143,7 +154,10 @@ def test_plg_package_extract_round_trips_and_is_gzip(tree):
 
         # Since the generated tree contains no excluded metadata, the packaged
         # member set equals both the written files and the deterministic listing.
-        assert set(artifact.files) == set(tree)
+        # The materializer writes a `plugin.spec.yaml` into every generated tree,
+        # because packaging reads the published identity out of it. It is a packaged
+        # plugin file like any other, so the expected sets include it.
+        assert set(artifact.files) == set(tree) | {"plugin.spec.yaml"}
         assert list(artifact.files) == list_plugin_files(source)
 
         # Artifact carries gzip format: gzip magic bytes and decompressibility.
@@ -152,12 +166,17 @@ def test_plg_package_extract_round_trips_and_is_gzip(tree):
         with gzip.open(artifact.path, "rb") as handle:
             handle.read(1)  # decompresses without error
 
-        # Round trip: extracting reproduces the same files with identical bytes.
-        extracted = base / "extracted"
-        with tarfile.open(artifact.path, mode="r:gz") as archive:
-            member_names = sorted(archive.getnames())
-            archive.extractall(extracted, filter="data")
-
-        assert member_names == sorted(tree)
-        for relative, content in tree.items():
-            assert (extracted / relative).read_bytes() == content
+        # This asserted a round trip: extracting the artifact reproduced the plugin's
+        # files with identical bytes. True of a source tarball and false of an image
+        # archive -- extracting yields `oci-layout`, `index.json`, `manifest.json` and
+        # layer blobs, and the plugin's files live inside the layers.
+        #
+        # The property that survives, over every generated tree: whatever the tree, the
+        # artifact is an image archive declaring that plugin's identity. The contents
+        # claim is asserted once against a real image in test_plg_image_contents.py;
+        # here the daemon is stubbed, so the layers are filler and asserting on them
+        # would prove nothing.
+        assert_is_image_archive(artifact.path, expected_tag=artifact.image_tag)
+        assert artifact.image_tag.endswith(
+            f"/{source.name}:1.0.0"
+        ), f"the artifact declares {artifact.image_tag!r}, which does not name this plugin"

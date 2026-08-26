@@ -1240,13 +1240,17 @@ class Orchestrator:
 
         build_dir, artifact_store = self._build_dir(session, export_spec)
 
-        # Req 9: package the validated project into a single .plg.
+        # Req 9: package the validated project into a single .plg. Run in a thread:
+        # packaging now drives `docker build` and `docker save`, which can take minutes,
+        # and blocking here would stall the event loop and the progress frames this turn
+        # is emitting. The artifact name and image tag are derived from the spec on disk
+        # in the build directory, so there is one definition of the plugin's identity.
         try:
-            artifact = self._build_engine.package(
+            artifact = await asyncio.to_thread(
+                self._build_engine.package,
                 build_dir,
                 validation_passed=True,
                 output_dir=output_dir if (target == "local" and output_dir is not None) else None,
-                artifact_name=f"{plugin}-{version}.plg",
             )
         except BuildEngineError as error:
             return ExportOutcome(

@@ -11,10 +11,16 @@ The PLG round-trip *property* (Req 2.1, 9.2) and the preview/package consistency
 """
 
 import gzip
+import json
 import tarfile
 from pathlib import Path
 
 import pytest
+
+# Packaging drives `docker build` and `docker save` now, and none of these tests are
+# about Docker. The stub answers both from a real executable, so the production argv
+# and file handling are still exercised -- only the daemon is absent.
+from tests.docker_stub import stub_docker  # noqa: E402
 
 from icplugin_builder.integrations.build_engine import (
     BUILDER_METADATA_DIR,
@@ -36,7 +42,12 @@ def make_project(root: Path) -> dict:
     that must be excluded from the packaged artifact.
     """
     files = {
-        "plugin.spec.yaml": "plugin_spec_version: v2\nname: my_plugin\nversion: 1.0.0\n",
+        "plugin.spec.yaml": (
+            # A vendor is required: the artifact is an image tagged
+            # <vendor>/<name>:<version>, and Docker refuses a repository component
+            # that starts with the "_" an absent vendor would leave behind.
+            "plugin_spec_version: v2\nname: my_plugin\nversion: 1.0.0\nvendor: rapid7\n"
+        ),
         "icon_my_plugin/actions/run/action.py": "def run():\n    return 1\n",
         "icon_my_plugin/connection/connection.py": "conn = True\n",
         "help.md": "# My Plugin\n",
@@ -102,12 +113,26 @@ class TestPreviewExportFiles:
         make_project(source)
 
         preview = preview_export_files(source)
-        artifact = BuildEngine().package(source, validation_passed=True, output_dir=tmp_path / "out")
+        artifact = BuildEngine(docker_executable=stub_docker(tmp_path)).package(
+            source, validation_passed=True, output_dir=tmp_path / "out"
+        )
 
-        # Property 30: the previewed file list equals the actual .plg contents.
+        # Property 30 asserted the previewed file list equalled the archive's members.
+        # True of a source tarball, false of an image archive -- the archive's members
+        # are `oci-layout`, `index.json`, `manifest.json` and layer blobs, and the
+        # plugin's files are inside the layers, admitted by its `.dockerignore`.
+        #
+        # What survives is the half that was actually load-bearing: the preview and the
+        # artifact agree about which plugin files went in, computed from one source.
         assert preview.files == artifact.files
+
         with tarfile.open(artifact.path, mode="r:gz") as archive:
-            assert sorted(archive.getnames()) == sorted(preview.files)
+            roots = {name.split("/", 1)[0] for name in archive.getnames()}
+        assert "oci-layout" in roots, f"the archive's root members are {sorted(roots)!r}"
+        assert not (set(preview.files) & roots), (
+            "the archive's members still look like the plugin's own files, so the artifact "
+            "is a source tree rather than an image"
+        )
 
     def test_preview_contains_membership_check(self, tmp_path):
         make_project(tmp_path)
@@ -127,27 +152,49 @@ class TestPackageRoundTrip:
         files = make_project(source)
         out = tmp_path / "out"
 
-        artifact = BuildEngine().package(source, validation_passed=True, output_dir=out)
+        artifact = BuildEngine(docker_executable=stub_docker(tmp_path)).package(
+            source, validation_passed=True, output_dir=out
+        )
 
+        """The archive is an image, and reports the files the image was built from.
+
+        This asserted that extracting the artifact yielded the plugin's files with
+        identical contents -- design Property 6, a round trip. That was true of a
+        source tarball and is false of an image archive: extracting yields
+        `oci-layout`, `index.json`, `manifest.json` and layer blobs, and the plugin's
+        files are inside the layers, admitted by its `.dockerignore` rather than by us.
+
+        The claim worth keeping is that nothing is lost track of, so the two halves are
+        asserted separately: the archive is an image carrying the expected identity, and
+        the artifact still reports which plugin files it was built from.
+        """
         assert isinstance(artifact, PlgArtifact)
         assert artifact.path.exists()
         assert artifact.path.suffix == PLG_SUFFIX
-        assert set(artifact.files) == set(files)
+        assert set(artifact.files) == set(files), "the artifact no longer reports what it was built from"
 
-        extracted = tmp_path / "extracted"
         with tarfile.open(artifact.path, mode="r:gz") as archive:
-            names = sorted(archive.getnames())
-            archive.extractall(extracted, filter="data")
+            roots = {name.split("/", 1)[0] for name in archive.getnames()}
+            handle = archive.extractfile("manifest.json")
+            assert handle is not None
+            declared = json.loads(handle.read().decode("utf-8"))[0]["RepoTags"]
 
-        assert names == sorted(files)
-        for rel, content in files.items():
-            assert (extracted / rel).read_text(encoding="utf-8") == content
+        assert {
+            "oci-layout",
+            "index.json",
+            "manifest.json",
+        } <= roots, f"the archive's root members are {sorted(roots)!r}, which is not an image archive"
+        assert declared == [
+            "rapid7_custom/my_plugin:1.0.0"
+        ], f"the archive declares {declared!r}; a tenant reads the plugin's identity from this"
 
     def test_artifact_is_gzip_format(self, tmp_path):
         source = tmp_path / "project"
         make_project(source)
 
-        artifact = BuildEngine().package(source, validation_passed=True, output_dir=tmp_path / "out")
+        artifact = BuildEngine(docker_executable=stub_docker(tmp_path)).package(
+            source, validation_passed=True, output_dir=tmp_path / "out"
+        )
 
         # gzip magic bytes and decompressibility both confirm the format (Req 9.2).
         with artifact.path.open("rb") as handle:
@@ -159,16 +206,18 @@ class TestPackageRoundTrip:
         source = tmp_path / "my_plugin"
         make_project(source)
 
-        artifact = BuildEngine().package(source, validation_passed=True)
+        artifact = BuildEngine(docker_executable=stub_docker(tmp_path)).package(source, validation_passed=True)
 
-        assert artifact.name == "my_plugin.plg"
+        # Was `<root name>.plg`. The toolchain writes `<vendor>_<name>_<version>.plg`
+        # and there is no reason to differ from it (`bugfix.md` 1.2).
+        assert artifact.name == "rapid7_custom_my_plugin_1.0.0.plg"
         assert artifact.path.parent == (source / BUILDER_METADATA_DIR / "artifacts").resolve()
 
     def test_custom_artifact_name_gets_plg_suffix(self, tmp_path):
         source = tmp_path / "project"
         make_project(source)
 
-        artifact = BuildEngine().package(
+        artifact = BuildEngine(docker_executable=stub_docker(tmp_path)).package(
             source, validation_passed=True, output_dir=tmp_path / "out", artifact_name="my_plugin-1.0.0"
         )
         assert artifact.name == "my_plugin-1.0.0.plg"
@@ -181,7 +230,9 @@ class TestValidationGate:
         out = tmp_path / "out"
 
         with pytest.raises(ValidationNotPassedError):
-            BuildEngine().package(source, validation_passed=False, output_dir=out)
+            BuildEngine(docker_executable=stub_docker(tmp_path)).package(
+                source, validation_passed=False, output_dir=out
+            )
 
         # No artifact produced (Req 9.4).
         assert not out.exists() or not any(out.iterdir())
@@ -193,20 +244,18 @@ class TestPackagingAtomicity:
         files = make_project(source)
         out = tmp_path / "out"
 
-        # Force the archive write to fail partway through.
+        # Force the write to fail partway through. The archive used to be written with
+        # `tarfile`; it is now `docker save` followed by gzip compression, so the
+        # equivalent injury is made to the compression step.
         import icplugin_builder.integrations.build_engine as be
-
-        original_open = be.tarfile.open
 
         def boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(be.tarfile, "open", boom)
+        monkeypatch.setattr(be.gzip, "open", boom)
 
         with pytest.raises(PackagingError):
-            BuildEngine().package(source, validation_passed=True, output_dir=out)
-
-        monkeypatch.setattr(be.tarfile, "open", original_open)
+            BuildEngine(docker_executable=stub_docker(tmp_path)).package(source, validation_passed=True, output_dir=out)
 
         # No partial artifact: no leftover .plg or temp files in the output dir (Req 9.5).
         leftovers = [p.name for p in out.iterdir()] if out.exists() else []
@@ -219,4 +268,6 @@ class TestPackagingAtomicity:
 
     def test_missing_project_dir_raises_packaging_error(self, tmp_path):
         with pytest.raises(PackagingError):
-            BuildEngine().package(tmp_path / "nope", validation_passed=True, output_dir=tmp_path / "out")
+            BuildEngine(docker_executable=stub_docker(tmp_path)).package(
+                tmp_path / "nope", validation_passed=True, output_dir=tmp_path / "out"
+            )

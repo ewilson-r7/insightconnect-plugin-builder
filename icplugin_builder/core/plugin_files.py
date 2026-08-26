@@ -45,6 +45,7 @@ __all__ = [
     "PACKAGING_EXCLUDED_DIR_SUFFIX",
     "PACKAGING_EXCLUDED_FILE_SUFFIXES",
     "COVERAGE_DATA_FILE",
+    "PACKAGING_EXCLUDED_FILE_NAMES",
     "UNIT_TEST_DIR",
     "is_generated",
     "is_lint_excluded",
@@ -84,10 +85,20 @@ PACKAGING_EXCLUDED_DIR_SUFFIX = ".egg-info"
 #: prefix has to be matched as well as the bare name.
 COVERAGE_DATA_FILE = ".coverage"
 
+#: Byproduct *files* by exact name, not suffix. ``.DS_Store`` is a macOS Finder
+#: artifact that appears in any directory the operator has opened, and it was
+#: reaching the packaged set -- so it would be staged into the build context and
+#: copied into a customer-facing image. Found because a byproduct measurement over
+#: the real plugin tree refused to be worked around when its file count moved.
+PACKAGING_EXCLUDED_FILE_NAMES = frozenset({COVERAGE_DATA_FILE, ".DS_Store"})
+
 #: File suffixes that are always a build or test byproduct: compiled bytecode
 #: sitting beside its source rather than under ``__pycache__``, and the archive the
 #: generated Makefile's ``tarball`` target writes at the plugin root.
-PACKAGING_EXCLUDED_FILE_SUFFIXES = (".pyc", ".pyo", ".tar.gz", ".tgz")
+#: ``.plg`` joins these because an artifact is never part of a plugin's source. A
+#: previous release sitting in the plugin directory would otherwise be staged into
+#: the build context and copied inside the new image.
+PACKAGING_EXCLUDED_FILE_SUFFIXES = (".pyc", ".pyo", ".tar.gz", ".tgz", ".plg")
 
 #: Where a plugin's unit tests live.
 UNIT_TEST_DIR = "unit_test"
@@ -160,7 +171,7 @@ def is_packaging_excluded(relative_path: Union[str, PurePosixPath]) -> bool:
         if part == PACKAGING_EXCLUDED_BUILD_DIR or part.endswith(PACKAGING_EXCLUDED_DIR_SUFFIX):
             return True
     name = parts[-1]
-    if name == COVERAGE_DATA_FILE or name.startswith(f"{COVERAGE_DATA_FILE}."):
+    if name in PACKAGING_EXCLUDED_FILE_NAMES or name.startswith(f"{COVERAGE_DATA_FILE}."):
         return True
     return name.endswith(PACKAGING_EXCLUDED_FILE_SUFFIXES)
 

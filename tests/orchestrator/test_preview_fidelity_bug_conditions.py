@@ -92,7 +92,6 @@ import json
 import os
 import shutil
 import sys
-import tarfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
@@ -117,6 +116,9 @@ from icplugin_builder.core.spec_completeness import (
 from icplugin_builder.core.spec_model import Component, FieldSchema, PluginSpec
 from icplugin_builder.core.vendor import apply_custom_vendor_suffix
 from icplugin_builder.core.yaml_codec import dump_plugin_spec, load_plugin_spec
+from tests.image_archive import image_file_names, image_member_text
+
+from icplugin_builder.integrations.build_engine import BuildEngine
 from icplugin_builder.integrations.build_prep import resolve_target_python
 from icplugin_builder.integrations.code_validator import CodeValidator
 from icplugin_builder.integrations.definition_of_done import (
@@ -415,6 +417,12 @@ def _orchestrator(
 ) -> Tuple[Orchestrator, RecordedAgent]:
     """Wire an orchestrator over ``tree``, mirroring ``api/app.py``'s own wiring.
 
+    The build engine is given the **real** ``docker``, overriding the suite-wide stub in
+    ``tests/conftest.py``. These claims are about what the exported artifact carries --
+    the agent's spec rather than a stale draft -- and that can only be read out of a real
+    image's layers. It is one module building one image per export fixture, which is the
+    price of not weakening what Bug 4 proved.
+
     ``graded`` selects whether the real four-stage :class:`CodeValidator` and
     :class:`QualityGate` are attached. They are needed only for the
     definition-of-done contrast: ``spec_preview`` and the completeness findings
@@ -438,6 +446,9 @@ def _orchestrator(
             projects_root=tree.parent,
             registry=registry,
             audit_log=audit_log,
+            # The real docker, overriding the suite-wide stub: see this function's
+            # docstring. These claims read what the image carries.
+            build_engine=BuildEngine(docker_executable="docker"),
             # Mirrors api/app.py: one gate, the resolved target interpreter.
             quality_gate=QualityGate(python_executable=target_python) if graded else None,
             code_validator=(
@@ -1019,8 +1030,10 @@ POST_OPEN_SENTINEL = "\n# a change made after the draft was read\n"
 
 def _archive_members(artifact_path: Path) -> Tuple[str, ...]:
     """Every member name in the produced ``.plg`` (a gzipped tarball, Req 9.1)."""
-    with tarfile.open(artifact_path, mode="r:gz") as archive:
-        return tuple(archive.getnames())
+    # The .plg is a gzipped `docker save`, so its own members are `oci-layout`,
+    # `index.json` and layer blobs. The plugin's files are inside the layers, which is
+    # what these claims are about, so the layers are what is read.
+    return tuple(sorted(image_file_names(artifact_path)))
 
 
 def _member_text(artifact_path: Path, member: str) -> str:
@@ -1029,14 +1042,10 @@ def _member_text(artifact_path: Path, member: str) -> str:
     This is the whole point of the task: the assertion is about what the artifact
     carries, so the artifact is opened rather than the tree it was built from.
     """
-    with tarfile.open(artifact_path, mode="r:gz") as archive:
-        try:
-            extracted = archive.extractfile(member)
-        except KeyError:  # pragma: no cover - reported by the assertion below
-            extracted = None
-        assert extracted is not None, f"the .plg at {artifact_path} carries no {member!r} member"
-        with extracted:
-            return extracted.read().decode("utf-8")
+    # Read out of the image's layers rather than off the archive's root: what ships is
+    # what the image carries. `image_member_text` resolves the member under the image's
+    # working directory, since the plugin lives at /workspace inside the container.
+    return image_member_text(artifact_path, member)
 
 
 def _credential_type(spec: PluginSpec) -> Any:

@@ -31,6 +31,10 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+# Packaging drives `docker build` and `docker save` now, and none of these tests are
+# about Docker. The stub answers both from a real executable, so the production argv
+# and file handling are still exercised -- only the daemon is absent.
+
 from icplugin_builder.integrations.build_engine import BuildEngine, PlgArtifact
 from icplugin_builder.integrations.export_manager import (
     ExportManager,
@@ -78,7 +82,7 @@ def _built_artifact() -> PlgArtifact:
     workdir = Path(tempfile.mkdtemp(prefix="prop20_"))
     source = workdir / "project"
     files = {
-        "plugin.spec.yaml": "plugin_spec_version: v2\nname: my_plugin\nversion: 1.0.0\n",
+        "plugin.spec.yaml": "plugin_spec_version: v2\nname: my_plugin\nversion: 1.0.0\nvendor: rapid7\n",
         "icon_my_plugin/actions/run/action.py": "def run():\n    return 1\n",
         "help.md": "# My Plugin\n",
         "Dockerfile": "FROM python:3.11\n",

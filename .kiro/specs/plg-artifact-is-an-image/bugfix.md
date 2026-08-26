@@ -143,7 +143,34 @@ tagging as it tags. Where this matters is that neither should be treated as a
 and it is what task 7 asserts. It proves the archive is a well-formed image with the
 identity we intended; it does not prove InsightConnect is satisfied.
 
-### 1.9 A correction to an earlier check of mine
+### 1.10 Requirement 13.4 can describe a plugin that cannot be published
+
+Found while implementing the tag. Requirement 13.4 turns an absent, empty or null vendor
+into exactly `_custom`. The published image tag is `<vendor>/<name>:<version>`, and
+Docker refuses `_custom/my_plugin:1.0.0`:
+
+```
+invalid argument "_custom/my_plugin:1.0.0" for "-t, --tag" flag: invalid reference format
+```
+
+exit 125. A repository component may not begin with a separator. An uppercase vendor is
+refused for the same reason — Docker repository names are lowercase only.
+
+So a spec that is legal by Req 13.4 can describe a plugin that has no valid image tag,
+and therefore no `.plg`. Unreachable in practice, because `insight-plugin validate`
+requires a vendor and plugin vendors are conventionally lowercase — but it is a real
+tension between two requirements rather than a hypothetical.
+
+**Handled by refusing, with the reason named.** The alternative is to repair the tag by
+lowercasing or trimming, which would publish the plugin under an identity its author did
+not choose. Silently shipping under the wrong name is worse than stopping, and stopping
+with "vendor '_custom' cannot form a Docker image tag" is far better than surfacing
+Docker's exit 125.
+
+Not amending Req 13.4: the `_custom` rule is right for the vendor *field*, and the
+constraint belongs where the tag is formed.
+
+### 1.11 A correction to an earlier check of mine
 
 On 2026-08-17 I ran a leak check over `jumpcloud-1.0.0.plg` and recorded it as
 **PASS**: 39 entries, no `.builder/`, no vendor swagger, no provenance. That check was
@@ -206,12 +233,44 @@ plugin's `.dockerignore`, not by our packaging filters.
 Amendment required to Requirement 16.2, and Property 69 — which asserts the packaged
 member set *equals* the plugin's file set — no longer states anything true.
 
-### 2.4 A stale `.plg` in the plugin directory is removed before export
+### 2.4 The image is built from a staged copy of the packaged file set
 
-Not because it breaks the build (1.6 rules that out) but because it is a build-context
-artifact: `docker build` sends the whole directory as context, so an 81 MB archive
-from the previous version gets uploaded to the daemon for no reason, and two `.plg`
-files in one directory is ambiguous for anyone looking.
+**Rewritten twice, and the second correction matters more than the first.**
+
+Originally: delete a stale `.plg` from the plugin directory, for build-context tidiness.
+Then corrected, on finding that the generated `.dockerignore` excludes `**/*.tar` and
+`**/*.gz` but **not `*.plg`** while the generated Dockerfile does `ADD . /workspace` —
+so a previous artifact is copied *inside* the new image. That made it a correctness
+problem, and deleting was replaced by moving the file aside.
+
+Then the test migration surfaced the general case. Wave 14 excluded `.coverage`,
+`*.pyc`, `build/` and `*.egg-info` from the packaged set — and the `.dockerignore`
+excludes none of them either. Building from the plugin's directory meant **a coverage
+database, full of absolute paths from the build machine, was copied into a
+customer-facing image.** Wave 14's protection was bypassed entirely, silently, by the
+change of artifact kind. Measured: `.coverage` is not in the JumpCloud tree's
+`.dockerignore`.
+
+**Decision: build from a staging directory containing exactly `list_plugin_files()`.**
+Three properties follow, and each was previously broken or compromised:
+
+- the file list this tool reports *is* what the image contains, so the byproduct
+  exclusions are real again rather than decorative;
+- the engine is read-only with respect to the plugin's tree — nothing is added, moved or
+  deleted, which the move-aside had given up;
+- one list drives the preview, the artifact's `files`, and the build context, so what is
+  reported and what ships cannot drift.
+
+`.plg` is added to `PACKAGING_EXCLUDED_FILE_SUFFIXES`, because an artifact is never part
+of a plugin's source and a previous release must not be staged into the next one.
+
+Verified against a real build: a tree seeded with `.coverage` and a stale `.plg`
+produces an image containing neither, containing the plugin's code and spec, and leaves
+both seeded files where they were.
+
+The `.dockerignore` gap remains real but is now irrelevant to this tool — worth
+reporting upstream, since anyone running `insight-plugin export` by hand still ships
+their coverage database.
 
 ### 2.5 The export path is verified against a real import shape
 
