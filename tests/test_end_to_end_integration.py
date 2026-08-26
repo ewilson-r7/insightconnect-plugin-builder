@@ -35,10 +35,11 @@ use ``asyncio.run`` so no async test plugin is required.
 """
 
 import asyncio
-import tarfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+from tests.image_archive import assert_is_image_archive
 
 from icplugin_builder.api.app import create_app
 from icplugin_builder.core.cost_controller import CostController
@@ -384,11 +385,15 @@ class TestEndToEndCreateGenerateValidateBuildExport:
         assert local["version"] == "1.0.0"
         artifact_path = Path(local["artifact_path"])
         assert artifact_path.is_file()
-        # The produced artifact is a real gzipped tarball carrying the spec.
-        assert tarfile.is_tarfile(artifact_path)
-        with tarfile.open(artifact_path, "r:gz") as tar:
-            names = tar.getnames()
-        assert "plugin.spec.yaml" in names
+        # The produced artifact is an image archive a tenant can load, not an archive of
+        # source code. This asserted ``"plugin.spec.yaml" in tar.getnames()``, which was
+        # the source-tarball contract: true of every `.plg` this tool used to write, and
+        # the reason none of them could be imported. The spec still ships -- it travels
+        # *inside* the image's layers -- so it is deliberately not a top-level member.
+        #
+        # The stub docker here cannot show what reached the layers; that it really does is
+        # proven against real Docker in tests/integrations/test_plg_image_contents.py.
+        assert_is_image_archive(artifact_path, expected_tag="acme_custom/acme_widget:1.0.0")
         # The _custom vendor suffix was applied at export (Req 13.3).
         assert client.get("/api/session/s1").json()["spec"]["vendor"] == "acme_custom"
         # No tenant upload happened on the local path.

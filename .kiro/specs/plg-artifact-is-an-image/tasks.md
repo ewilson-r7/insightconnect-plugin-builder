@@ -108,7 +108,7 @@ that makes them true, never ahead of it.
     failures (unreachable daemon, an untaggable vendor or name)
   - _Requirements: none — documentation accuracy_
 
-- [ ] 9. Checkpoint
+- [x] 9. Checkpoint
   - Full suite. Confirm the three preservation axes from 1.3 hold over verdicts
   - Confirm against the JumpCloud tree that the produced artifact is byte-comparable
     in *structure* to `/tmp/icpb_backup_working.plg` — same top-level members, same
@@ -120,6 +120,31 @@ that makes them true, never ahead of it.
     shell's `PATH`. buildx is unavailable in the tool's shell — see `bugfix.md` 4
   - Ask the operator if questions arise; do not report a fix as complete with any
     failure open
+
+  **Result.** 1,589 passed, 15 skipped, 0 failed -- the whole 1,604-test suite, run in
+  serialized chunks because host memory was tight. All three preservation axes pass.
+
+  The structural comparison holds. Built through `BuildEngine.package` against the real
+  tree, into a temp directory so the operator's own artifact was untouched (confirmed
+  byte-identical by digest afterwards):
+
+  | | produced | reference (`insight-plugin export`) |
+  |---|---|---|
+  | top-level members | `oci-layout`, `index.json`, `manifest.json`, `blobs/` | identical |
+  | `RepoTags` | `rapid7_custom/jumpcloud:1.0.1` | identical |
+  | size | 81,201,124 B | 81,305,076 B |
+
+  The 103,952-byte difference is the point rather than a discrepancy: the staged build
+  context excludes the byproducts the plugin's own `.dockerignore` admits. Both `.coverage`
+  (53,248 B) and `.DS_Store` (8,196 B) are present in the tree and absent from the image.
+
+  **One real defect found by this checkpoint**, not tree drift:
+  `test_end_to_end_integration.py` still asserted `plugin.spec.yaml` was a *top-level
+  archive member* -- the source-tarball contract -- and task 5's migration missed it. It is
+  the one place the whole flow runs through the real FastAPI app, so it was the last test
+  still encoding the defect being fixed. Restated to assert an image archive with the
+  expected tag, with the spec's presence in the layers left to the real-Docker contents
+  test, which is the only thing that can prove it.
 
 ## Out of scope
 
