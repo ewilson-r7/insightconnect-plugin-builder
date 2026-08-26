@@ -140,27 +140,38 @@ artifact is named `<vendor>_<name>_<version>.plg`.
 Requirement 9.2 is amended to say so explicitly rather than leaving "containing the
 built plugin" to interpretation.
 
-### 2.2 How the image is produced and saved — **open, needs a decision**
+### 2.2 The image is built, tagged and saved by this tool
 
-Two routes reach the identical artifact (1.7). They are not equally safe.
+**Decision: route B.** The tool drives `docker build`, `docker tag` and `docker save`
+itself rather than calling `insight-plugin export`.
 
-**Route A — call `insight-plugin export`.** Matches this project's stated philosophy
-of wrapping the real toolchain rather than reimplementing it, and
-`InsightPluginCli` already has `create()` and `refresh()` with an obvious gap where
-`export()` belongs. **But** it inherits 1.5: it fails wherever `docker build` writes
-to stdout, which is any host without working buildx. The tool would have to force
-BuildKit in the child environment and would still be broken on hosts that cannot
-provide it — while reporting "Docker build command failed" about a plugin that built
-perfectly.
+Two routes reach an identical artifact (1.7); they differ only in robustness.
 
-**Route B — `docker build` + `docker tag` + `docker save` in the tool.** Depends only
-on Docker, which the build stage already drives, so it works under either builder. It
-duplicates a few lines of what the SDK does, against the "wrap the toolchain"
-convention.
+**Route A — call `insight-plugin export`.** Matches this project's stated philosophy of
+wrapping the real toolchain, and `InsightPluginCli` already has `create()` and
+`refresh()` with an obvious gap where `export()` belongs. **Rejected** because it
+inherits 1.5: it fails wherever `docker build` writes to stdout, which is any host
+without working buildx. The tool would have to force BuildKit in the child environment
+and would still break on hosts that cannot provide it — reporting "Docker build command
+failed" about a plugin that built perfectly. A failure that is silent, misleading and
+environmental is the worst kind for this tool to adopt, and the whole bugfix that
+preceded this one was about removing exactly that class of report.
 
-The operator chose Route A before 1.5 was known. Recording it as open because the
-finding changes the tradeoff materially: Route A's failure mode is silent, misleading,
-and environmental.
+**Route B — build, tag and save here. Chosen.** Depends only on Docker, which the build
+stage already drives, so it works under either builder.
+
+**The tradeoff is accepted and worth stating.** This is a deliberate departure from
+`project-conventions.md`'s "wrap the real toolchain rather than reimplement it", and the
+convention is right in general — a second implementation of someone else's behaviour
+drifts from it. What is being duplicated here is small and stable (`build`, `tag`,
+`save` with a computed tag), and the alternative is not "use the toolchain" but "use a
+toolchain command that cannot run on this host". If the SDK's stdout mis-detection is
+fixed upstream, route A becomes available again and this decision is worth revisiting;
+`bugfix.md` 1.5 records enough detail to reopen it.
+
+One consequence to design for: because the tool now owns the tag, the tag becomes a
+thing that can be wrong in a way `insight-plugin export` would have got right for free.
+Task 3 pins the vendor suffix, the double-suffix case, and the version source.
 
 ### 2.3 The export preview describes an image, not a file list
 

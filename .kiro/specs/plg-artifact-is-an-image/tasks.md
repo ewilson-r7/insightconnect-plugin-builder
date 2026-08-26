@@ -37,12 +37,15 @@ that makes them true, never ahead of it.
     - A nil outcome is legitimate — the point is to stop assuming
     - _Requirements: 9.2_
 
-- [ ] 2. Decide route A or route B for producing the image (`bugfix.md` 2.2)
-  - Blocked on the operator. Route A calls `insight-plugin export` and inherits the
-    stdout mis-detection in `bugfix.md` 1.5; route B drives `docker build`/`tag`/`save`
-    and depends only on Docker
-  - Whichever is chosen, record the tradeoff in `bugfix.md` as a decision with its
-    consequence, the way the host-run test decision was recorded in the previous bugfix
+- [x] 2. Decide route A or route B for producing the image (`bugfix.md` 2.2)
+  - **Decided: route B.** The tool drives `docker build`, `docker tag` and `docker save`
+    itself. Route A was rejected because `insight-plugin export` cannot succeed on a
+    host without working buildx (`bugfix.md` 1.5), and its failure there is silent,
+    misleading and environmental
+  - The departure from "wrap the real toolchain" is deliberate and recorded with its
+    tradeoff in `bugfix.md` 2.2, including what would make route A viable again
+  - Consequence carried into task 3: the tool now owns the image tag, so the tag is a
+    thing that can be wrong where the toolchain would have got it right for free
   - _Requirements: 9.1, 9.2_
 
 - [ ] 3. Tag the plugin image with its published identity
