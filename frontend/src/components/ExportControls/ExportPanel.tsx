@@ -24,6 +24,7 @@ import type {
   ExportPlan,
   ExportTarget,
 } from "../../types";
+import { ArtifactSummary } from "./ArtifactSummary";
 import { DiffView } from "./DiffView";
 import { ErrorOutput } from "./ErrorOutput";
 import { FailureIndicator } from "./FailureIndicator";
@@ -190,6 +191,9 @@ export function ExportPanel({
             spec={plan.spec_preview}
             versionDisplay={plan.version_display}
           />
+          {/* The image tag first: it is the identity a tenant reads, and the most
+              consequential line in the preview (Req 16.2). */}
+          <ArtifactSummary artifact={plan.artifact} />
           <FileList files={plan.file_list} />
           <DiffView diff={plan.diff} />
 

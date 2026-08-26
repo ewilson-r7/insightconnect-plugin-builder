@@ -70,7 +70,7 @@ from ..core.spec_validator import SpecValidator, ValidationReport
 from ..core.vendor import apply_custom_vendor_suffix
 from ..core.version_bump import apply_version_bump, bump_for_export
 from ..core.yaml_codec import dump_plugin_spec, load_plugin_spec
-from ..integrations.build_engine import BuildEngine, BuildEngineError
+from ..integrations.build_engine import BuildEngine, BuildEngineError, PluginIdentity
 from ..integrations.build_prep import resolve_sdk_version
 from ..integrations.build_export_failure import (
     classify_export_failure,
@@ -112,6 +112,7 @@ from .session import (
     ExportPlan,
     ExportStatus,
     GeneratedArtifact,
+    PlannedArtifact,
     SessionState,
     TurnResult,
     TurnStatus,
@@ -1170,10 +1171,14 @@ class Orchestrator:
         file_list = tuple(sorted(file_tree))
         diff = diff_file_trees(session.prior_file_tree, file_tree)
 
+        # What the export would actually produce. Derived from the same identity rule the
+        # packager applies, so the preview cannot promise a tag the artifact will not
+        # carry.
         return ExportPlan(
             decision=decision,
             spec_preview=export_spec,
             file_list=file_list,
+            artifact=_planned_artifact(export_spec),
             diff=diff,
             version_bump=bump,
             version_display=version_display,
@@ -1503,6 +1508,28 @@ def _record_credits(session: SessionState, run: Any) -> None:
         return
     session.credits_spent += float(credits)
     session.credits_reported = True
+
+
+def _planned_artifact(spec: PluginSpec) -> Optional[PlannedArtifact]:
+    """The image tag and filename an export of ``spec`` would produce.
+
+    Computed from :class:`PluginIdentity`, the same type the packager derives its tag
+    from, so the preview and the artifact cannot disagree about the plugin's identity.
+
+    Returns ``None`` rather than raising when the spec cannot form one -- an absent name
+    or version. The preview's job is to report; refusing to render one because a field is
+    missing would hide the completeness findings that name the missing field.
+    """
+    name = (getattr(spec, "name", "") or "").strip()
+    version = str(getattr(spec, "version", "") or "").strip()
+    if not name or not version:
+        return None
+    identity = PluginIdentity(
+        vendor=apply_custom_vendor_suffix(getattr(spec, "vendor", None)),
+        name=name,
+        version=version,
+    )
+    return PlannedArtifact(image_tag=identity.image_tag, filename=identity.artifact_name)
 
 
 def _sdk_block_present(spec: PluginSpec) -> bool:

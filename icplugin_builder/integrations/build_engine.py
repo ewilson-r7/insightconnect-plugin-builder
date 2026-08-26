@@ -106,6 +106,40 @@ VALIDATION_NOT_PASSED_MESSAGE = "validation has not passed; the plugin cannot be
 PathInput = Union[str, Path]
 
 
+#: How Docker says its daemon cannot be reached. Detected because it is the most common
+#: packaging failure and the one that says least about the plugin -- reporting it as
+#: "docker build failed" sends the operator to look at their code.
+_DAEMON_UNREACHABLE_PHRASES = (
+    "cannot connect to the docker daemon",
+    "is the docker daemon running",
+    "docker daemon is not running",
+    "error during connect",
+)
+
+
+def _explain_docker_failure(what: str, tag: str, returncode: int, output: str) -> str:
+    """Turn a failed docker command into something an operator can act on.
+
+    Three cases, because they call for three different actions and "packaging failed"
+    serves none of them: the daemon is not running, the command said nothing at all, or
+    the command explained itself and the explanation should be passed through.
+    """
+    lowered = output.lower()
+    if any(phrase in lowered for phrase in _DAEMON_UNREACHABLE_PHRASES):
+        return (
+            f"cannot {what} {tag}: the Docker daemon is not reachable. Packaging a plugin produces a "
+            "container image, so Docker must be running for export as well as for the build stage. "
+            "Start Docker and try again -- nothing about the plugin needs changing."
+        )
+    detail = _tail(output)
+    if not detail:
+        return (
+            f"docker {what} failed for {tag} (exit {returncode}) and printed nothing. Try the command "
+            f"by hand to see why: docker {what} {tag}"
+        )
+    return f"docker {what} failed for {tag} (exit {returncode}). {detail}"
+
+
 @dataclass(frozen=True)
 class PluginIdentity:
     """How a plugin identifies itself to a tenant.
@@ -521,8 +555,12 @@ class BuildEngine:
         )
         if completed.returncode != 0:
             raise PackagingError(
-                f"docker build failed for {identity.image_tag} (exit {completed.returncode}). "
-                f"{_tail(completed.stderr) or _tail(completed.stdout)}"
+                _explain_docker_failure(
+                    "build",
+                    identity.image_tag,
+                    completed.returncode,
+                    completed.stderr or completed.stdout or "",
+                )
             )
 
     def _save_image(self, identity: PluginIdentity, destination_dir: Path) -> Path:
@@ -546,8 +584,12 @@ class BuildEngine:
             )
             if completed.returncode != 0:
                 raise PackagingError(
-                    f"docker save failed for {identity.image_tag} (exit {completed.returncode}). "
-                    f"{_tail(completed.stderr) or _tail(completed.stdout)}"
+                    _explain_docker_failure(
+                        "save",
+                        identity.image_tag,
+                        completed.returncode,
+                        completed.stderr or completed.stdout or "",
+                    )
                 )
             with open(tar_path, "rb") as source, gzip.open(temp_path, "wb") as target:
                 shutil.copyfileobj(source, target)

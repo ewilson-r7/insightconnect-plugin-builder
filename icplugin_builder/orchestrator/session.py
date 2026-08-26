@@ -134,6 +134,25 @@ class TurnResult:
 
 
 @dataclass(frozen=True)
+class PlannedArtifact:
+    """The artifact an export would produce, named before it is produced.
+
+    A ``.plg`` is a container image, so the thing a tenant identifies the plugin by is
+    the image tag -- not the filename, and not the list of source files. Reporting it in
+    the preview is what lets an operator see they are about to publish
+    ``rapid7_custom/jumpcloud:1.0.1`` rather than having to work that out from a version
+    string and a vendor field.
+
+    Attributes:
+        image_tag: ``<vendor>/<name>:<version>``, the identity the archive declares.
+        filename: the ``.plg`` filename, matching what ``insight-plugin export`` writes.
+    """
+
+    image_tag: str
+    filename: str
+
+
+@dataclass(frozen=True)
 class ExportPlan:
     """The reviewable preview computed before an export is confirmed (Req 12, 16).
 
@@ -142,7 +161,13 @@ class ExportPlan:
             and all four code stages passed (Req 7.4, 8.6, 8.7).
         spec_preview: the vendor-suffixed, version-bumped spec that would be
             exported (Req 16.1).
-        file_list: the exact files that would be included in the ``.plg`` (Req 16.2).
+        file_list: the plugin files the artifact's image would be built from (Req 16.2).
+            The build *context*, not a manifest of the archive's members: a ``.plg`` is a
+            ``docker save`` of the image, and the plugin's own ``.dockerignore`` may keep
+            some of these out of it -- the unit tests, for instance.
+        artifact: what the export would produce -- the image tag and the filename -- so
+            the operator can see the identity a tenant will read rather than inferring it
+            from a file list (Req 16.2).
         diff: the added/removed/modified partition versus the prior exported
             version, or a first-version diff when none exists (Req 16.3, 16.4).
         version_bump: the version-bump decision (Req 12).
@@ -169,6 +194,7 @@ class ExportPlan:
     file_list: Tuple[str, ...]
     diff: FileTreeDiff
     version_bump: VersionBump
+    artifact: Optional["PlannedArtifact"] = None
     version_display: str = ""
     spec_report: Optional[ValidationReport] = None
     pipeline_report: Optional[PipelineReport] = None

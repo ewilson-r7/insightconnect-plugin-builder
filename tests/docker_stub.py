@@ -72,6 +72,7 @@ def stub_docker(directory: Path, *, build_exit: int = 0, save_exit: int = 0) -> 
         save_exit: exit status for ``docker save``.
     """
     script = directory / "docker"
+    script.parent.mkdir(parents=True, exist_ok=True)
     helper = Path(__file__).resolve()
     script.write_text(
         "#!/usr/bin/env python3\n"

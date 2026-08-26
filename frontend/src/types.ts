@@ -231,7 +231,14 @@ export interface ExportPlan {
   /** The vendor-suffixed, version-bumped spec that would be exported (Req 16.1). */
   spec_preview: Record<string, unknown> | null;
   /** The exact files that would be included in the `.plg` (Req 16.2). */
+  /**
+   * The plugin files the artifact's image will be built from (Req 16.2). The build
+   * context, not a manifest of the archive's members: a `.plg` is a `docker save` of the
+   * image, and the plugin's own `.dockerignore` may keep some of these out of it.
+   */
   file_list: string[];
+  /** What the export would produce, or `null` when the spec cannot yet form an identity. */
+  artifact: PlannedArtifact | null;
   /** The prior-version diff, or a first-version diff (Req 16.3, 16.4). */
   diff: FileTreeDiff;
   /** "<previous> -> <new>" when the version changed; empty when unchanged. */
@@ -276,6 +283,19 @@ export interface LintBar {
   profile_path: string | null;
   line_length: number | null;
   profile_is_authoritative?: boolean;
+}
+
+/**
+ * What an export would produce (Req 16.2).
+ *
+ * A `.plg` is a gzipped `docker save` of the plugin's image, so the identity a tenant
+ * reads is the image tag rather than the filename or the source file list.
+ */
+export interface PlannedArtifact {
+  /** `<vendor>/<name>:<version>`, with the `_custom` vendor suffix applied. */
+  image_tag: string;
+  /** `<vendor>_<name>_<version>.plg`, matching what `insight-plugin export` writes. */
+  filename: string;
 }
 
 /** Whether a failure came from the build or the export phase (Req 19.4). */

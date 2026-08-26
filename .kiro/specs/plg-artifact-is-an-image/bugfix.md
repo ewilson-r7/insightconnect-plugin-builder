@@ -283,7 +283,11 @@ with the right members.
 
 Recorded plainly, because it is a meaningful amount of recent work.
 
-- **Property 69** (packaged set equals plugin files) — tests the wrong claim entirely.
+- **Property 69** — *predicted wrongly*. It states that the packaged file set excludes
+  byproducts and contains every other file in the tree, which is a claim about
+  `list_plugin_files` rather than about the archive, so it survived untouched. Staging the
+  build context from that same list gives it *more* force than before: the set it
+  constrains is now what the image is built from.
 - **Wave 14's byproduct exclusions** (`.coverage`, `.pyc`, `build/`, `.egg-info`) —
   irrelevant to an image archive, whose contents come from `.dockerignore`. The
   predicates in `core/plugin_files.py` keep their other callers.

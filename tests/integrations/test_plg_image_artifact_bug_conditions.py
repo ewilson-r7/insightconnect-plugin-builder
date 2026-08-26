@@ -33,6 +33,7 @@ import pytest
 from icplugin_builder.core.vendor import apply_custom_vendor_suffix
 from icplugin_builder.integrations.build_engine import (
     BuildEngine,
+    PackagingError,
     ValidationNotPassedError,
 )
 
@@ -235,3 +236,101 @@ class TestWhatMustKeepWorking:
             BuildEngine().package(root, validation_passed=True, output_dir=blocked / "inner")
 
         assert not (blocked / "inner").exists()
+
+
+class TestAFailedImageBuildSaysWhatToDo:
+    """Task 6 -- packaging needs Docker, so its absence must not read as a plugin defect.
+
+    Every case here says nothing about the plugin's code. Reporting them as "packaging
+    failed" would send the operator to look at a plugin that is fine, which is precisely
+    the class of misdirection this whole bugfix exists to remove.
+    """
+
+    @staticmethod
+    def _tree(root: Path) -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "plugin.spec.yaml").write_text(
+            f"plugin_spec_version: v2\nname: {PLUGIN_NAME}\nversion: {VERSION}\nvendor: {VENDOR}\n",
+            encoding="utf-8",
+        )
+        (root / "Dockerfile").write_text("FROM alpine:3.19\n", encoding="utf-8")
+        return root
+
+    def test_an_absent_docker_names_itself_and_why_it_is_needed(self, tmp_path):
+        root = self._tree(tmp_path / PLUGIN_NAME)
+
+        with pytest.raises(PackagingError) as caught:
+            BuildEngine(docker_executable="/nonexistent/docker").package(root, validation_passed=True)
+
+        message = str(caught.value)
+        assert "/nonexistent/docker" in message, "the message does not name what it looked for"
+        assert "container image" in message, (
+            "the message does not say why Docker is needed. An operator who thinks packaging is "
+            "just archiving has no reason to expect a daemon."
+        )
+
+    def test_an_unreachable_daemon_is_distinguished_from_a_build_failure(self, tmp_path):
+        """The most common failure, and the one that says least about the plugin."""
+        root = self._tree(tmp_path / PLUGIN_NAME)
+        refusing = tmp_path / "refuse" / "docker"
+        refusing.parent.mkdir(parents=True, exist_ok=True)
+        refusing.write_text(
+            "#!/bin/sh\n" "echo 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' >&2\n" "exit 1\n",
+            encoding="utf-8",
+        )
+        refusing.chmod(0o755)
+
+        with pytest.raises(PackagingError) as caught:
+            BuildEngine(docker_executable=str(refusing)).package(root, validation_passed=True)
+
+        message = str(caught.value)
+        assert "daemon is not reachable" in message, f"reported as a generic build failure: {message}"
+        assert (
+            "nothing about the plugin needs changing" in message
+        ), "the message does not tell the operator their plugin is not the problem"
+
+    def test_a_silent_build_failure_says_how_to_see_why(self, tmp_path):
+        """Docker occasionally fails saying nothing. A bare exit code is not actionable."""
+        root = self._tree(tmp_path / PLUGIN_NAME)
+        silent = tmp_path / "silent" / "docker"
+        silent.parent.mkdir(parents=True, exist_ok=True)
+        silent.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+        silent.chmod(0o755)
+
+        with pytest.raises(PackagingError) as caught:
+            BuildEngine(docker_executable=str(silent)).package(root, validation_passed=True)
+
+        message = str(caught.value)
+        assert "printed nothing" in message, f"a silent failure was reported as if it explained itself: {message}"
+        assert "docker build" in message, "the message does not give the command to run by hand"
+
+    def test_a_failed_build_leaves_no_artifact_behind(self, tmp_path):
+        """Fail closed: no artifact, not even a partial one (Req 9.5)."""
+        root = self._tree(tmp_path / PLUGIN_NAME)
+        out = tmp_path / "out"
+        failing = tmp_path / "fail" / "docker"
+        failing.parent.mkdir(parents=True, exist_ok=True)
+        failing.write_text("#!/bin/sh\necho boom >&2\nexit 1\n", encoding="utf-8")
+        failing.chmod(0o755)
+
+        with pytest.raises(PackagingError):
+            BuildEngine(docker_executable=str(failing)).package(root, validation_passed=True, output_dir=out)
+
+        leftovers = sorted(path.name for path in out.iterdir()) if out.exists() else []
+        assert leftovers == [], f"a failed packaging left {leftovers} behind"
+
+    def test_a_failed_build_leaves_the_plugin_tree_untouched(self, tmp_path):
+        """The image is built from a staged copy, so nothing in the tree moves (Req 9.5)."""
+        root = self._tree(tmp_path / PLUGIN_NAME)
+        (root / "previous_1.0.0.plg").write_bytes(b"a previous release")
+        before = {path: path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
+        failing = tmp_path / "fail2" / "docker"
+        failing.parent.mkdir(parents=True, exist_ok=True)
+        failing.write_text("#!/bin/sh\necho boom >&2\nexit 1\n", encoding="utf-8")
+        failing.chmod(0o755)
+
+        with pytest.raises(PackagingError):
+            BuildEngine(docker_executable=str(failing)).package(root, validation_passed=True)
+
+        after = {path: path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
+        assert after == before, "packaging modified the plugin tree on its way to failing"

@@ -219,6 +219,14 @@ def _serialize_export_plan(plan: ExportPlan) -> Dict[str, Any]:
         "done_conditions": _serialize_done_conditions(plan.done_report),
         "spec_preview": _serialize_spec(plan.spec_preview),
         "file_list": list(plan.file_list),
+        # What the export will actually produce. A `.plg` is a container image, and a
+        # tenant identifies the plugin by the image tag -- so the tag is the thing worth
+        # showing before publishing, not just a count of source files (Req 16.2).
+        "artifact": (
+            None
+            if plan.artifact is None
+            else {"image_tag": plan.artifact.image_tag, "filename": plan.artifact.filename}
+        ),
         "diff": {
             "added": sorted(plan.diff.added),
             "removed": sorted(plan.diff.removed),

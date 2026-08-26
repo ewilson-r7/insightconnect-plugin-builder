@@ -10,6 +10,8 @@ function makePlan(overrides: Partial<ExportPlan> = {}): ExportPlan {
     summary: "Ready to export",
     spec_preview: { name: "acme", vendor: "rapid7_custom", version: "1.0.0" },
     file_list: ["plugin.spec.yaml", "help.md"],
+    // A `.plg` is a container image, so the fixture carries the identity a tenant reads.
+    artifact: { image_tag: "rapid7_custom/acme:1.0.1", filename: "rapid7_custom_acme_1.0.1.plg" },
     diff: { added: ["plugin.spec.yaml", "help.md"], removed: [], modified: [], first_version: true },
     version_display: "1.0.0 -> 1.0.1",
     spec_errors: [],
@@ -353,5 +355,42 @@ describe("ExportPanel build/export failure display (Req 19)", () => {
     await waitFor(() => expect(screen.getByTestId("request-error")).toBeInTheDocument());
     expect(screen.getByTestId("request-error")).toHaveTextContent("session not found");
     expect(client.confirmExport).not.toHaveBeenCalled();
+  });
+});
+
+describe("the artifact the export would produce (Req 16.2)", () => {
+  it("names the image tag, because that is what a tenant identifies the plugin by", async () => {
+    const user = userEvent.setup();
+    render(<ExportPanel sessionId="s1" client={makeClient(makePlan())} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("artifact-summary")).toBeInTheDocument());
+
+    expect(screen.getByTestId("artifact-image-tag")).toHaveTextContent("rapid7_custom/acme:1.0.1");
+    expect(screen.getByTestId("artifact-filename")).toHaveTextContent("rapid7_custom_acme_1.0.1.plg");
+  });
+
+  it("stays silent when the spec cannot yet form an identity", async () => {
+    // A missing name or version. The completeness findings beside the preview name the
+    // missing field, so a half-formed tag here would be worse than nothing.
+    const user = userEvent.setup();
+    render(<ExportPanel sessionId="s1" client={makeClient(makePlan({ artifact: null }))} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("export-preview")).toBeInTheDocument());
+
+    expect(screen.queryByTestId("artifact-summary")).not.toBeInTheDocument();
+  });
+
+  it("describes the file list as the build context, not the archive's members", async () => {
+    // The list used to be guaranteed equal to the .plg's members. It is now the build
+    // context: the plugin's own .dockerignore may keep some of it out of the image.
+    const user = userEvent.setup();
+    render(<ExportPanel sessionId="s1" client={makeClient(makePlan())} />);
+
+    await user.click(screen.getByTestId("prepare-export"));
+    await waitFor(() => expect(screen.getByTestId("file-list")).toBeInTheDocument());
+
+    expect(screen.getByTestId("file-list")).toHaveTextContent("Files the image is built from");
   });
 });

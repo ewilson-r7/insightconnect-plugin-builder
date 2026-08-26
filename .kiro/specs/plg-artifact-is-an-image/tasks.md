@@ -72,7 +72,7 @@ that makes them true, never ahead of it.
     gzipped `docker save` of the image tagged `<vendor>/<name>:<version>`
   - _Requirements: 9.1, 9.2, 9.5_
 
-- [ ] 5. Report what the operator is about to get
+- [x] 5. Report what the operator is about to get
   - The preview names the image tag, the version, the artifact filename and its size,
     in place of a list of source files that no longer describes the artifact
   - Amend **Requirement 16.2** in the same commit
@@ -82,7 +82,7 @@ that makes them true, never ahead of it.
     identity
   - _Requirements: 16.1, 16.2_
 
-- [ ] 6. Make the failure legible when the image cannot be produced
+- [x] 6. Make the failure legible when the image cannot be produced
   - Docker absent, daemon down, build failure, `docker save` failure, and — for route
     A — the SDK's stdout mis-detection all need to report what failed and what to do,
     not "packaging failed"
