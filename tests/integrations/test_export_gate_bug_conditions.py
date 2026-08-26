@@ -1377,14 +1377,26 @@ class TestWhereTheFiveFilesCameFrom:
             f"not a width artefact and their origin is still unaccounted for: {at_default}"
         )
 
-    def test_no_generated_file_reports_at_the_plugins_own_width(self):
-        """And at 120 they are clean, which is the half 1.5 leaves out."""
+    def test_no_generated_file_reaches_the_gates_format_verdict(self):
+        """The half 1.5 leaves out, stated as a claim about the gate.
+
+        This asserted that bare black at 120 columns reports no generated file, which was
+        1.5's reasoning for concluding the real finding was two *hand-written* files. That
+        step turns out to depend on which black is installed: 25.11.0 wants to split
+        ``json.loads(r\"\"\"...\"\"\")`` in a generated ``schema.py`` onto its own lines and
+        26.5.1 does not, so on this host bare black reports four generated files at 120.
+
+        The reasoning it supported is unaffected, because the gate does not consult bare
+        black's opinion of generated files -- it judges hand-written code only (change 7).
+        So that is what is asserted here, and unlike the original it holds whichever black
+        is on ``PATH``. The measured diff is recorded in ``bugfix.md`` 1.5.
+        """
         _require_named_tree("jumpcloud")
-        at_plugin_width = _bare_black_at_plugin_width("jumpcloud")
-        generated = tuple(path for path in at_plugin_width if _bucket(path) == BUCKET_GENERATED)
+        reported = tuple(finding.path for finding in _gate_format_findings("jumpcloud"))
+        generated = tuple(path for path in reported if _bucket(path) == BUCKET_GENERATED)
         assert not generated, (
-            f"generated files fail black even at the plugin's own line length of {PLUGIN_LINE_LENGTH}, so "
-            f"the width is not the explanation: {generated}\n{_format_summary('jumpcloud')}"
+            "the gate's format verdict names generated files, which their author is forbidden to edit "
+            f"and so can never resolve: {generated}\n{_format_summary('jumpcloud')}"
         )
 
     def test_setup_py_is_clean_at_the_plugins_own_width_in_every_tree(self):
@@ -1460,19 +1472,26 @@ class TestAFormatFindingInTheUnitTestsIsGenuine:
                 f"is_generated={is_generated(path)} is_lint_excluded={is_lint_excluded(path)}"
             )
 
-    def test_every_path_bare_black_reports_for_this_tree_is_hand_written(self):
+    def test_every_path_the_gate_reports_for_this_tree_is_hand_written(self):
         """**The answer to task 1.3's own question, for JumpCloud.**
 
-        Both reported paths are hand-written -- one plain, one in ``unit_test/`` --
-        so on this tree the format check's non-empty result is a genuine finding
-        its author can fix, and *not* an instance of ``isBugCondition_2``.
+        Every path the format check reports is hand-written -- so on this tree the
+        non-empty result is a genuine finding its author can fix, and *not* an instance of
+        ``isBugCondition_2``.
+
+        This measured bare black rather than the gate, and asserted that everything bare
+        black reported at 120 was hand-written. That is black-version-dependent: 25.11.0
+        reports four generated ``schema.py`` files at 120 where 26.5.1 reports none. The
+        claim worth making is about the gate's verdict, which is what an operator is shown
+        and what blocks an export, and which excludes generated files by construction.
         """
         _require_named_tree("jumpcloud")
-        bare = _bare_black_at_plugin_width("jumpcloud")
-        assert bare, f"nothing to attribute:\n{_format_summary('jumpcloud')}"
-        buckets = {path: _bucket(path) for path in bare}
+        reported = tuple(finding.path for finding in _gate_format_findings("jumpcloud"))
+        if not reported:
+            pytest.skip("this tree's hand-written code is black-clean; there is nothing to attribute")
+        buckets = {path: _bucket(path) for path in reported}
         assert all(bucket != BUCKET_GENERATED for bucket in buckets.values()), (
-            "a generated path is among the reported files, so part of this tree's format result is "
+            "a generated path is among the gate's reported files, so part of this tree's format result is "
             f"unfixable by its author after all: {buckets}\n{_format_summary('jumpcloud')}"
         )
 
@@ -1540,16 +1559,24 @@ class TestTheFormatFindingCannotBeAttributedToAFile:
         )
 
     def test_the_gate_reports_one_finding_per_unformatted_file(self):
-        """3.8 -- one key per file, so fixing one of several is visible as progress."""
+        """3.8 -- one key per file, so fixing one of several is visible as progress.
+
+        Compared against the **hand-written** subset of what bare black reports, not
+        against all of it. The gate judges hand-written code only (change 7), so an
+        equality against the whole of bare black's output measures that exclusion rather
+        than the one-key-per-file claim -- and it fails wherever black has an opinion
+        about a generated file, which black 25.11.0 does and 26.5.1 does not.
+        """
         _require_named_tree("jumpcloud")
         bare = _bare_black_at_plugin_width("jumpcloud")
-        if not bare:
-            pytest.skip("this tree is black-clean at the plugin width; there is nothing to count")
+        hand_written = tuple(path for path in bare if _bucket(path) != BUCKET_GENERATED)
+        if not hand_written:
+            pytest.skip("this tree's hand-written code is black-clean at the plugin width; nothing to count")
         reported = tuple(finding.path for finding in _gate_format_findings("jumpcloud"))
-        assert sorted(reported) == sorted(bare), (
-            f"black would reformat {len(bare)} file(s) and the gate reports {len(reported)} finding(s) at "
-            f"{reported}, so the finding count and the finding keys are both independent of how many files "
-            f"are unformatted:\n{_format_summary('jumpcloud')}"
+        assert sorted(reported) == sorted(hand_written), (
+            f"black would reformat {len(hand_written)} hand-written file(s) and the gate reports "
+            f"{len(reported)} finding(s) at {reported}, so the finding count and the finding keys are both "
+            f"independent of how many files are unformatted:\n{_format_summary('jumpcloud')}"
         )
 
 

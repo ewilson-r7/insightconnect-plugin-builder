@@ -108,6 +108,36 @@ real, accurately located, and unfixable by its audience.
 > The consequence for 2.7: `lint_clean` is met for that tree after change 5, and
 > `formatted` is **correctly unmet**, now naming two files its author may fix. The
 > defect 1.5 describes was the attribution, not the verdict.
+>
+> **Second correction, 2026-08-26: "at 120 no generated file is unformatted" depends on
+> the black version, and is false for some.** Measured on the JumpCloud tree with two
+> blacks at 120 columns: **25.11.0 reports four generated `schema.py` files**, **26.5.1
+> reports none**. The disagreement is over a generated construct —
+>
+> ```diff
+> -    schema = json.loads(r"""
+> +    schema = json.loads(
+> +        r"""
+> ```
+>
+> — which 25.11.0 wants split onto its own lines. Nothing about `insight-plugin`'s output
+> changed; two formatters disagree about the same text.
+>
+> **The conclusion above survives, and change 7 is why.** The gate judges hand-written
+> code only, so bare black's opinion of a generated file never reaches a verdict: measured
+> on that tree today, the gate reports **zero** format findings. What was
+> version-dependent was only the *diagnosis* — the evidence that 1.5's five files were a
+> width artefact rather than a plugin defect — and the fix does not rest on it.
+>
+> Task 1.3's three tests were restated accordingly: they asserted bare black's verdict on
+> generated files, and now assert the gate's, which is what an operator is shown, what
+> blocks an export, and what holds whichever black is installed. The one-key-per-file
+> claim (3.8) now compares against bare black's *hand-written* subset, since an equality
+> against all of its output was measuring change 7's exclusion rather than the claim.
+>
+> Worth knowing beyond this tool: anyone linting a generated plugin with black 25.x sees
+> findings on files they are forbidden to edit. The tool sidesteps that by construction;
+> a plugins-repo CI job might not.
 
 1.6 WHEN the `lint` result is produced, THEN it depends on whether
 `~/Documents/GitHub/insightconnect-plugins/prospector.yaml` exists on the host,
