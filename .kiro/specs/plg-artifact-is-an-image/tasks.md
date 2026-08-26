@@ -98,11 +98,14 @@ that makes them true, never ahead of it.
   - Skip honestly when Docker is absent
   - _Requirements: 9.1, 9.2_
 
-- [ ] 8. Update what the tool tells a new user
-  - The README's claim that a `.plg` is produced is still true; what changes is that it
-    now needs Docker for the *export* as well as the build. The requirements table
-    already lists Docker for "build, validate and package", so verify rather than
-    assume an edit is needed
+- [x] 8. Update what the tool tells a new user
+  - Verified: the requirements table already listed Docker under "build, validate and
+    package", so no requirement was missing. What *was* missing is the fact that explains
+    it -- the README never said a `.plg` is a container image, so a reader had no reason to
+    expect a daemon for an operation described as packaging
+  - Added: what a `.plg` is and why Docker is needed to export; that the image is built
+    from a staged copy so byproducts stay out; and two troubleshooting rows for the new
+    failures (unreachable daemon, an untaggable vendor or name)
   - _Requirements: none — documentation accuracy_
 
 - [ ] 9. Checkpoint

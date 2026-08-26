@@ -129,6 +129,18 @@ validate` passes, the linter is clean on hand-written code, the unit tests pass,
 and coverage meets its minimum. A plugin that does not clear that bar is reported
 as unfinished with the outstanding conditions named, rather than exported quietly.
 
+**A `.plg` is a container image, not an archive of source code.** Exporting builds
+the plugin's Docker image, tags it `<vendor>/<name>:<version>`, and saves it — the
+code and `plugin.spec.yaml` travel inside the image's layers, and an InsightConnect
+tenant loads the image on import. This is why Docker is required to *export* as well
+as to build, and why the artifact is tens of megabytes rather than tens of kilobytes.
+The export preview shows the image tag it will produce, because that tag is what a
+tenant identifies the plugin by.
+
+The image is built from a staged copy of exactly the files the preview lists, so
+build and test byproducts left in the plugin directory — coverage data, stray
+bytecode, a previous `.plg` — stay out of what you ship.
+
 ## Configuration
 
 Read from `~/.icplugin-builder/config.yaml`, or from `$ICPLUGIN_BUILDER_CONFIG`
@@ -154,6 +166,8 @@ served from.
 | `ModuleNotFoundError: hypothesis` when running `pytest` | dev dependencies are missing -- `make install` |
 | A stage reports a tool as absent although you have it | the server's `PATH` does not include it; start it from a shell that does |
 | The `test` stage fails naming an interpreter | that interpreter cannot import both the SDK and `pytest` -- see [What you need](#what-you-need) |
+| `the Docker daemon is not reachable` when exporting | packaging builds a container image, so the daemon is needed for export too -- start Docker; nothing about the plugin needs changing |
+| `cannot form a Docker image tag` | the spec's `vendor` or `name` cannot be a tag component: lowercase letters, digits, and `.`/`_`/`-` between them |
 | Export blocked with conditions listed | the plugin genuinely is not finished; the named conditions are what is outstanding |
 
 ## Development

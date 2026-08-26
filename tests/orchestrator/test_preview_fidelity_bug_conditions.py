@@ -178,10 +178,14 @@ RECORDED_STALE_FINDING_COUNT = 16
 RECORDED_DISK_TOP_LEVEL_KEYS = 23
 RECORDED_CONTROL_FINDING_COUNT = 0
 #: `bugfix.md` 1.8 records 2 -- ``formatted`` (Bug 2, 1.5) and ``api_client`` (1.9).
-#: Change 3 closed ``api_client``, so 1 remains. Change 5 closes ``formatted`` and
-#: this drops to 0. Tracked as the tool's current behaviour rather than left at the
-#: originally recorded figure, so a *different* count is still visible.
-RECORDED_CONTROL_OUTSTANDING = 1
+#: Change 3 closed ``api_client``, leaving 1. ``formatted`` is now closed too, in the tree
+#: rather than in the tool: the plugin's two unformatted hand-written files have been
+#: reformatted, so the control has nothing outstanding against it.
+#:
+#: Zero is the end state this work was driving at -- a plugin the tool built, read back
+#: from disk, complete. Tracked as the tool's *current* behaviour rather than left at the
+#: originally recorded figure, so a condition coming back is still visible as a change.
+RECORDED_CONTROL_OUTSTANDING = 0
 RECORDED_STALE_OUTSTANDING = 3
 
 
@@ -826,21 +830,29 @@ class TestTheIterateCustomControl:
             "field the toolchain needs"
         )
 
-    def test_the_control_has_two_outstanding_conditions(self, graded_divergence: Divergence):
-        """2 outstanding -- the fourth, and the one figure here that is F-specific.
+    def test_the_control_has_no_outstanding_conditions(self, graded_divergence: Divergence):
+        """0 outstanding -- the fourth measurement, and the one figure here that moves.
 
-        ``formatted`` is Bug 2 (`bugfix.md` 1.5) and ``api_client`` is 1.9, so this
-        count is a record of the tool as it behaves at ``e7726b7``, not an
-        invariant: tasks 5 and 7 close both, and when they land this expectation
-        drops with them. It is asserted rather than merely printed because 1.8's
-        claim is that the control differs from the diverged session by exactly one
-        condition, and that claim needs both numbers.
+        ``formatted`` is Bug 2 (`bugfix.md` 1.5) and ``api_client`` is 1.9. This count is
+        a record of the tool's behaviour rather than an invariant, and the docstring here
+        said so and predicted it dropping: it was 2 at ``e7726b7``, then 1 once tasks 5
+        and 7 closed ``api_client``, and it is 0 now that the plugin's two unformatted
+        hand-written files have been reformatted in the tree.
+
+        Zero is the end state this whole chain of work was driving at -- a plugin the tool
+        built, read back from disk, with nothing outstanding against it. Kept as an
+        assertion rather than relaxed to "not many", because a condition reappearing here
+        is exactly the regression worth hearing about.
+
+        It stays asserted alongside the diverged count because 1.8's claim is that the
+        control differs from the diverged session by a specific margin, and that claim
+        needs both numbers.
         """
         outstanding = _outstanding(graded_divergence.control_plan)
         assert len(outstanding) == RECORDED_CONTROL_OUTSTANDING, (
             f"the control reports {len(outstanding)} outstanding condition(s) {outstanding}, not the "
-            f"{RECORDED_CONTROL_OUTSTANDING} `bugfix.md` 1.8 records. If tasks 5 (api_client) or 7 "
-            "(formatted) have landed, this recorded figure is what changed"
+            f"{RECORDED_CONTROL_OUTSTANDING} recorded. A condition that has come back is a regression; "
+            "a condition that has closed means this figure should drop again"
         )
         assert (
             CONDITION_SPEC_COMPLETE not in outstanding
@@ -1654,10 +1666,41 @@ RECORDED_REFERENCE_PATH = "systemusers"
 RECORDED_INTERPRETER_CALLS = 2
 RECORDED_POST_AGENT_TOKEN_TOTAL = 53_836
 
-#: What a session's version display must read once a bump has happened, for a
-#: plugin whose spec on disk carries 1.0.0 and which has been exported once.
-RECORDED_FIRST_VERSION = "1.0.0"
-RECORDED_BUMPED_DISPLAY = "1.0.0 -> 1.0.1"
+
+#: What a session's version display must read once a bump has happened.
+#:
+#: Derived from the tree rather than pinned to a literal. These were
+#: ``RECORDED_FIRST_VERSION = "1.0.0"`` and ``RECORDED_BUMPED_DISPLAY = "1.0.0 -> 1.0.1"``,
+#: recorded from the 2026-08-17 run -- and they broke the moment the operator exported the
+#: plugin for real, because that bumped the tree's spec to 1.0.1. A test that reads the
+#: live plugin tree and pins a literal from it is invalidated by *using the tool*, which is
+#: a poor property for a regression test to have.
+#:
+#: The claims these support are relational and survive the derivation intact: a first
+#: preview with no prior export shows no display, and a second one shows
+#: ``<tree version> -> <next patch>``. The increment is computed here rather than by
+#: calling the production bump, so the expectation stays independent of the code under
+#: test.
+def _tree_spec_version() -> str:
+    """The version in the real plugin tree's spec, read fresh."""
+    text = (JUMPCLOUD_TREE / SPEC_MEMBER).read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.startswith("version:"):
+            return line.split(":", 1)[1].strip()
+    raise AssertionError(f"no version in {JUMPCLOUD_TREE / SPEC_MEMBER}")
+
+
+def _next_patch(version: str) -> str:
+    """``1.0.1`` -> ``1.0.2``. Computed here so the expectation is independent."""
+    major, minor, patch = (int(part) for part in version.split("."))
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def _bumped_display() -> str:
+    """What the display must read after one export: ``<tree version> -> <next patch>``."""
+    current = _tree_spec_version()
+    return f"{current} -> {_next_patch(current)}"
+
 
 #: A response the fake CLI can return that parses as a plan carrying code work.
 _FAKE_PLAN_RESPONSE = json.dumps(
@@ -2493,7 +2536,7 @@ class TestAnEmptyVersionDisplayWithNoPriorExportIsRequirement127:
             f"the first preview bumped {bump.previous} -> {bump.new} with no prior export, which Req 12.7 "
             "says should not happen; if that is now the behaviour, 1.16 needs re-diagnosing"
         )
-        assert str(bump.previous) == RECORDED_FIRST_VERSION
+        assert str(bump.previous) == _tree_spec_version()
 
     def test_the_display_is_empty_because_there_is_nothing_to_display(self, version_display: VersionDisplay):
         """1.16's observation, reproduced -- and correct at this point in the plugin's life."""
@@ -2513,7 +2556,7 @@ class TestAnEmptyVersionDisplayWithNoPriorExportIsRequirement127:
         """
         payload = _serialize_export_plan(version_display.first_plan)
         assert payload["version_display"] == ""
-        assert payload["spec_preview"]["version"] == RECORDED_FIRST_VERSION, (
+        assert payload["spec_preview"]["version"] == _tree_spec_version(), (
             "the preview payload carries no version anywhere, which would make 1.16 a real gap rather than "
             f"a presentation one: {sorted(payload['spec_preview'])}"
         )
@@ -2529,11 +2572,11 @@ class TestTheVersionDisplayIsPopulatedWhenABumpHappens:
 
     def test_the_registry_recorded_the_first_export(self, version_display: VersionDisplay):
         """The premise: there is now a prior version to bump from."""
-        assert version_display.prior_versions == (RECORDED_FIRST_VERSION,), (
+        assert version_display.prior_versions == (_tree_spec_version(),), (
             f"the registry holds {version_display.prior_versions} after one export, so the second preview "
             "is not the after-a-bump case"
         )
-        assert version_display.exported_version == RECORDED_FIRST_VERSION
+        assert version_display.exported_version == _tree_spec_version()
 
     def test_the_second_preview_bumps_and_says_so(self, version_display: VersionDisplay):
         """2.21 in the case Req 12.6 actually speaks to."""
@@ -2542,16 +2585,16 @@ class TestTheVersionDisplayIsPopulatedWhenABumpHappens:
             f"the second preview did not bump ({bump.previous} -> {bump.new}) though the registry holds "
             f"{version_display.prior_versions}; Req 12.4 requires a patch increment here"
         )
-        assert version_display.second_plan.version_display == RECORDED_BUMPED_DISPLAY, (
+        assert version_display.second_plan.version_display == _bumped_display(), (
             f"the display reads {version_display.second_plan.version_display!r}, not "
-            f"{RECORDED_BUMPED_DISPLAY!r}. If this is empty while the bump happened, 1.16 is a propagation "
+            f"{_bumped_display()!r}. If this is empty while the bump happened, 1.16 is a propagation "
             "defect after all and task 11.5's second branch applies"
         )
 
     def test_the_display_reaches_the_payload(self, version_display: VersionDisplay):
         """And survives serialization, which is where the UI reads it."""
         payload = _serialize_export_plan(version_display.second_plan)
-        assert payload["version_display"] == RECORDED_BUMPED_DISPLAY
+        assert payload["version_display"] == _bumped_display()
         assert payload["spec_preview"]["version"] == str(version_display.second_plan.version_bump.new)
 
 
