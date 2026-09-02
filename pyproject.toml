@@ -33,8 +33,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rapid7/insightconnect-plugin-builder"
-Repository = "https://github.com/rapid7/insightconnect-plugin-builder"
+Homepage = "https://github.com/ewilson-r7/insightconnect-plugin-builder"
+Repository = "https://github.com/ewilson-r7/insightconnect-plugin-builder"
 
 [project.scripts]
 icplugin-builder = "icplugin_builder.api.app:main"
