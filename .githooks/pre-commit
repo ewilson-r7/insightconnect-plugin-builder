@@ -1,0 +1,25 @@
+#!/bin/sh
+# Refuse a commit made directly on a protected branch.
+#
+# This is a GUARDRAIL, not protection. `--no-verify` bypasses it and it only
+# exists on machines where the hooks have been enabled (scripts/install-hooks.sh).
+# Real enforcement is server-side branch protection, which requires GitHub Pro on
+# a private repository, a public repository, or an organization.
+
+protected="main master"
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+
+for candidate in $protected; do
+    if [ "$branch" = "$candidate" ]; then
+        echo "pre-commit: refusing to commit directly on '$branch'." >&2
+        echo "" >&2
+        echo "  Move to a branch and commit there:" >&2
+        echo "    git switch -c <type>/<short-description>" >&2
+        echo "" >&2
+        echo "  Already staged? The staged changes follow you to the new branch." >&2
+        echo "  Genuinely need this on '$branch'?  git commit --no-verify" >&2
+        exit 1
+    fi
+done
+
+exit 0
