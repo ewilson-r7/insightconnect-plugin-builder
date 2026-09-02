@@ -12,7 +12,7 @@ model.
 ## Quick start
 
 ```bash
-git clone https://github.com/rapid7/insightconnect-plugin-builder.git
+git clone https://github.com/ewilson-r7/insightconnect-plugin-builder.git
 cd insightconnect-plugin-builder
 make setup            # installs dependencies and builds the web interface
 icplugin-builder      # then open the printed URL, http://127.0.0.1:8787
